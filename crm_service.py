@@ -11,7 +11,7 @@ class Contact(_Contact):
 
 class Lead(_Lead):
     task = custom_field.TextCustomField("Задание от наставника")
-    mentor_id = custom_field.TextCustomField("Ник тг наставника")
+    mentor_tg_nickname = custom_field.TextCustomField("Ник тг наставника")
 
 
 def init_amo_crm_integration():

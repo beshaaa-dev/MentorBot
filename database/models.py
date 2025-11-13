@@ -22,7 +22,7 @@ class User(Base):
     # Уникальный id
     id = Column(Integer, primary_key=True, nullable=False)
     # Telegram id
-    tg_id = Column(Integer, nullable=False, unique=True)
+    tg_id = Column(Integer, nullable=True, unique=True)
     # Ник в Telegram. Он не всегда существует
     tg_nickname = Column(String, nullable=True)
     # Роль пользователя в AmoCRM

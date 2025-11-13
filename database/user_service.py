@@ -6,18 +6,32 @@ from logger import setup_logger
 logger = setup_logger(__name__)
 
 
-def find_by_tg_id(tg_id: int) -> User | None:
+def find_by_tg_id(tg_id: int | None) -> User | None:
     """
     Find user by Telegram ID.
 
     Args:
-        tg_id: Telegram user ID
+        tg_id: Telegram user ID (can be None)
 
     Returns:
         User instance if found, None otherwise
     """
     with get_db() as db:
         return db.query(User).filter(User.tg_id == tg_id).first()
+
+
+def find_by_tg_nickname(tg_nickname: str | None) -> User | None:
+    """
+    Find user by Telegram nickname.
+
+    Args:
+        tg_nickname: Telegram nickname (can be None)
+
+    Returns:
+        User instance if found, None otherwise
+    """
+    with get_db() as db:
+        return db.query(User).filter(User.tg_nickname == tg_nickname).first()
 
 
 def get_by_id(user_id: int) -> User | None:
@@ -35,7 +49,7 @@ def get_by_id(user_id: int) -> User | None:
 
 
 def create_user(
-    tg_id: int,
+    tg_id: int | None,
     tg_nickname: str | None = None,
     role: UserRole = UserRole.STUDENT,
     first_name: str | None = None,
@@ -48,7 +62,7 @@ def create_user(
     Create a new user in the database.
 
     Args:
-        tg_id: Telegram user ID (required)
+        tg_id: Telegram user ID (optional, can be None)
         tg_nickname: Telegram nickname (optional)
         role: User role (MENTOR or STUDENT) (optional, default is STUDENT)
         first_name: User's first name (optional)

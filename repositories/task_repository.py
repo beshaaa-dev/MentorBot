@@ -2,10 +2,11 @@ from database.task_service import (
     create_task as _create_task,
     update_task_status as _update_task_status,
 )
-from database.user_service import find_by_tg_id
+from database.user_service import find_by_tg_id, find_by_tg_nickname
 from database.models import Task, TaskStatus
 from logger import setup_logger
 from crm_service import get_crm_lead
+from repositories.user_repository import create_mentor_if_needed
 
 logger = setup_logger(__name__)
 
@@ -36,13 +37,20 @@ def create_task(student_tg_id: int, file_id: str) -> Task:
     if not lead:
         raise ValueError(f"Lead with CRM ID {student.crm_id} not found")
 
-    mentor_id = lead.mentor_id
-    if not mentor_id:
+    mentor_tg_nickname = lead.mentor_tg_nickname
+    if not mentor_tg_nickname:
         raise ValueError(f"Lead with CRM ID {student.crm_id} has no mentor ID")
+
+    # Find mentor user by nickname
+    mentor = find_by_tg_nickname(mentor_tg_nickname)
+    if not mentor:
+        raise ValueError(
+            f"Mentor with Telegram nickname {mentor_tg_nickname} not found"
+        )
 
     task = _create_task(
         student_id=student.id,
-        mentor_id=mentor_id,
+        mentor_id=mentor.id,
         crm_id=student.crm_id,
         file_id=file_id,
         status=TaskStatus.UNCHECKED,
@@ -50,7 +58,7 @@ def create_task(student_tg_id: int, file_id: str) -> Task:
     if not task:
         raise ValueError(f"Failed to create task for student {student.id}")
     logger.info(
-        f"Created task with id={task.id}, student_id={student.id}, mentor_id={mentor_id}, crm_id={student.crm_id}"
+        f"Created task with id={task.id}, student_id={student.id}, mentor_id={mentor.id}, crm_id={student.crm_id}"
     )
     return task
 

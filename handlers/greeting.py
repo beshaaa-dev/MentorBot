@@ -8,7 +8,7 @@ from telegram.ext import (
 )
 from logger import setup_logger
 from repositories.user_repository import (
-    create_user_if_needed,
+    create_student_if_needed,
     get_crm_user,
     get_task,
 )
@@ -25,7 +25,6 @@ from messages import (
     VIDEO_RECEIVED,
     VIDEO_CONFIRMED,
     VIDEO_CANCELLED,
-    TASK_SENT_TO_MENTOR,
     CONFIRM_BUTTON,
     CANCEL_BUTTON,
 )
@@ -41,7 +40,7 @@ WAITING_FOR_CONFIRMATION = 2
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     logger.info(f"User {update.effective_user.id} sent /start command")
     try:
-        user = create_user_if_needed(
+        user = create_student_if_needed(
             update.effective_user.id, update.effective_user.username
         )
 
@@ -115,7 +114,6 @@ async def confirm_video(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
                 file_id = video.file_id
                 student_tg_id = update.effective_user.id
                 create_task(student_tg_id=student_tg_id, file_id=file_id)
-                await update.message.reply_text(TASK_SENT_TO_MENTOR)
             else:
                 logger.warning("No video found in context when confirming")
                 await send_error_message(update)

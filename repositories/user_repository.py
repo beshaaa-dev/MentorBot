@@ -1,6 +1,7 @@
 from database.user_service import (
     create_user as _create_user,
     find_by_tg_id,
+    find_by_tg_nickname,
     update_user as _update_user,
 )
 from database.models import User, UserRole
@@ -12,13 +13,13 @@ from crm_service import Contact
 logger = setup_logger(__name__)
 
 
-def create_user_if_needed(tg_id: int, tg_nickname: str | None) -> User:
+def create_student_if_needed(tg_id: int, tg_nickname: str | None) -> User:
     """
     Create a new user with duplicate checking by tg_id.
     If duplicate found, returns existing user.
 
     Args:
-        tg_id: Telegram user ID (required, unique)
+        tg_id: Telegram user ID
         tg_nickname: Telegram nickname (optional)
 
     Returns:
@@ -33,7 +34,7 @@ def create_user_if_needed(tg_id: int, tg_nickname: str | None) -> User:
         return existing_user
 
     user = _create_user(tg_id=tg_id, tg_nickname=tg_nickname, role=UserRole.STUDENT)
-    logger.info(f"Created user with id={user.id}, tg_id={tg_id}")
+    logger.info(f"Created student with id={user.id}, tg_id={tg_id}")
     return user
 
 
@@ -55,7 +56,42 @@ def get_crm_user(user: User) -> tuple[User | None, str | None]:
     first_lead = next(iter(crm_user.leads), None) if crm_user.leads else None
     task = first_lead.task if first_lead else None
 
+    # Создаем ментора если он еще не существует в БД
+    mentor_tg_nickname = first_lead.mentor_tg_nickname if first_lead else None
+    create_mentor_if_needed(mentor_tg_nickname)
+
     return updated_user, task
+
+
+def create_mentor_if_needed(mentor_tg_nickname: str | None):
+    """
+    Create a new mentor user if ones doesn't exist.
+
+    Args:
+        mentor_tg_nickname: Telegram nickname of the mentor
+
+    Raises:
+        Exception: If database operation fails
+    """
+    if not mentor_tg_nickname:
+        return
+
+    existing_mentor = find_by_tg_nickname(mentor_tg_nickname)
+    if existing_mentor:
+        return
+
+    mentor_crm_contact = _get_crm_user(mentor_tg_nickname)
+    mentor_user = _create_user(
+        tg_id=None,
+        tg_nickname=mentor_tg_nickname,
+        role=UserRole.MENTOR,
+        first_name=(mentor_crm_contact.first_name if mentor_crm_contact else None),
+        last_name=mentor_crm_contact.last_name if mentor_crm_contact else None,
+        crm_id=mentor_crm_contact.id if mentor_crm_contact else None,
+    )
+    logger.info(
+        f"Created mentor with id={mentor_user.id}, tg_nickname={mentor_tg_nickname}"
+    )
 
 
 def get_task(user_crm_id: str) -> str | None:
@@ -64,5 +100,10 @@ def get_task(user_crm_id: str) -> str | None:
         return None
 
     first_lead = next(iter(crm_user.leads), None) if crm_user.leads else None
+
+    # Создаем ментора если он еще не существует в БД
+    mentor_tg_nickname = first_lead.mentor_tg_nickname if first_lead else None
+    create_mentor_if_needed(mentor_tg_nickname)
+
     task = first_lead.task if first_lead else None
     return task
