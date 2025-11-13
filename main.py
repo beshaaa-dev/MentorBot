@@ -4,6 +4,7 @@ from dotenv import load_dotenv
 from logger import setup_logger
 from handlers.greeting import handlers as greeting_handlers
 from database.db_helper import init_db
+from crm_service import init_amo_crm_integration
 
 load_dotenv()
 
@@ -17,6 +18,14 @@ def main() -> None:
         logger.info("Database initialized successfully")
     except Exception as e:
         logger.error(f"Database initialization error: {e}")
+        return
+
+    # Инициализируем AmoCRM интеграцию
+    try:
+        init_amo_crm_integration()
+        logger.info("AmoCRM integration initialized successfully")
+    except Exception as e:
+        logger.error(f"AmoCRM integration initialization error: {e}")
         return
 
     # Получаем токен
