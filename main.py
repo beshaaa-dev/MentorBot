@@ -42,7 +42,6 @@ def main() -> None:
     # Запускаем бота
     logger.info("Bot is starting...")
     application.run_polling()
-    logger.info("Bot is started")
 
 
 if __name__ == "__main__":

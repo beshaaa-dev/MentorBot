@@ -3,12 +3,14 @@ from database.user_service import (
     find_by_tg_id,
     find_by_tg_nickname,
     update_user as _update_user,
+    get_by_id,
 )
 from database.models import User, UserRole
 from logger import setup_logger
 from crm_service import get_crm_user as _get_crm_user, get_crm_lead, Lead
 from datetime import datetime
 from crm_service import Contact
+from repositories.pdf_generator import create_anketa_pdf
 
 logger = setup_logger(__name__)
 
@@ -33,6 +35,12 @@ def create_student_if_needed(tg_id: int, tg_nickname: str | None) -> User:
     if existing_user:
         return existing_user
 
+    # Если не найден по tg_id, пробуем найти по nickname
+    if tg_nickname:
+        existing_user = find_by_tg_nickname(tg_nickname)
+        if existing_user:
+            return existing_user
+
     user = _create_user(tg_id=tg_id, tg_nickname=tg_nickname, role=UserRole.STUDENT)
     logger.info(f"Created student with id={user.id}, tg_id={tg_id}")
     return user
@@ -53,7 +61,11 @@ def get_crm_user(user: User) -> tuple[User | None, str | None]:
     )
     logger.info(f"Updated user with id={user.id}, crm_id={crm_user.id}")
 
-    first_lead = next(iter(crm_user.leads), None) if crm_user.leads else None
+    first_lead = get_first_lead(crm_user)
+
+    if not first_lead:
+        return updated_user, None
+
     task = first_lead.task if first_lead else None
 
     # Создаем ментора если он еще не существует в БД
@@ -99,7 +111,10 @@ def get_task(user_crm_id: str) -> str | None:
     if not crm_user:
         return None
 
-    first_lead = next(iter(crm_user.leads), None) if crm_user.leads else None
+    first_lead = get_first_lead(crm_user)
+
+    if not first_lead:
+        return None
 
     # Создаем ментора если он еще не существует в БД
     mentor_tg_nickname = first_lead.mentor_tg_nickname if first_lead else None
@@ -107,3 +122,54 @@ def get_task(user_crm_id: str) -> str | None:
 
     task = first_lead.task if first_lead else None
     return task
+
+
+def get_first_lead(crm_user: Contact) -> Lead | None:
+    """
+    Get the first lead with status.name == "A1" from CRM user's leads.
+
+    Args:
+        crm_user: CRM Contact instance
+
+    Returns:
+        First Lead with status A1, or None if not found
+    """
+    if not crm_user.leads:
+        return None
+
+    return next(
+        (lead for lead in crm_user.leads if lead.status and lead.status.name == "А1"),
+        None,
+    )
+
+
+def get_student_anketa_pdf(student_id: int) -> bytes:
+    """
+    Get student anketa PDF by student ID.
+
+    Args:
+        student_id: Database user ID
+
+    Returns:
+        PDF file as bytes
+    """
+    # Get user from database
+    user = get_by_id(student_id)
+    if not user:
+        logger.warning(f"User with id={student_id} not found")
+        return create_anketa_pdf(None)
+
+    # Get CRM user
+    crm_user = _get_crm_user(user.tg_nickname)
+    if not crm_user or not crm_user.leads:
+        logger.warning(f"CRM user or leads not found for user id={student_id}")
+        return create_anketa_pdf(None)
+
+    # Get first lead
+    first_lead = next(iter(crm_user.leads), None)
+    if not first_lead:
+        logger.warning(f"No leads found for CRM user id={crm_user.id}")
+        return create_anketa_pdf(None)
+
+    # Create PDF from lead
+    return create_anketa_pdf(first_lead)

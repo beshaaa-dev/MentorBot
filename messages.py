@@ -1,6 +1,7 @@
 ERROR_MESSAGE = "Произошла ошибка. Пожалуйста, попробуйте позже."
 SUPPORT_BUTTON_TEXT = "Написать в поддержку"
 GREETING_WITH_NAME_TEMPLATE = "Привет, {name}! Проверяем задание..."
+MENTOR_GREETING_TEMPLATE = "Привет, {first_name}. Проверяем новые работы студентов"
 CHECKING_TASK = "Проверяем задание..."
 USER_NOT_FOUND = "Не удалось найти вас. Обратитесь к своему куратору"
 NO_TASK = "Задания пока нет."

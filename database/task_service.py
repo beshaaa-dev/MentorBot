@@ -76,3 +76,33 @@ def update_task_status(task_id: int, status: TaskStatus | None = None) -> Task |
         except Exception as e:
             db.rollback()
             raise
+
+
+def find_earliest_task(mentor_id: int, status: TaskStatus) -> Task | None:
+    """
+    Find the earliest task for a given mentor_id with a specific status.
+
+    Args:
+        mentor_id: Mentor user ID (required)
+        status: Task status (required)
+
+    Returns:
+        Earliest Task instance if found, None otherwise
+
+    Raises:
+        Exception: If database operation fails
+    """
+    with get_db() as db:
+        try:
+            task = (
+                db.query(Task)
+                .filter(Task.mentor_id == mentor_id, Task.status == status)
+                .order_by(Task.created_at.asc())
+                .first()
+            )
+            return task
+        except Exception as e:
+            logger.error(
+                f"Error finding task for mentor {mentor_id} with status {status}: {e}"
+            )
+            raise
