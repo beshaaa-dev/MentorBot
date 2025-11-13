@@ -6,8 +6,8 @@ from database.task_service import (
 from database.user_service import find_by_tg_id, find_by_tg_nickname
 from database.models import Task, TaskStatus
 from logger import setup_logger
-from crm_service import get_crm_lead, update_lead_status
-from repositories.user_repository import create_mentor_if_needed
+from crm_service import get_crm_lead, update_lead_status, get_crm_user as _get_crm_user
+from repositories.user_repository import create_mentor_if_needed, get_first_lead
 
 logger = setup_logger(__name__)
 
@@ -123,3 +123,45 @@ def get_earliest_task(mentor_id: int) -> Task | None:
         f"No tasks found for mentor_id={mentor_id} with status UNCHECKED or CHECK_LATER"
     )
     return None
+
+
+def approve_task(user_crm_id: str):
+    """
+    Approve task for user.
+
+    Args:
+        user_crm_id: CRM user ID
+    """
+    crm_user = _get_crm_user(user_crm_id)
+    if not crm_user:
+        logger.warning(f"CRM user with id={user_crm_id} not found")
+        return False
+
+    first_lead = get_first_lead(crm_user)
+    if not first_lead:
+        logger.warning(f"No leads found for CRM user id={crm_user.id}")
+        return False
+
+    update_lead_status(first_lead.id, "А4")
+    return
+
+
+def disapprove_task(user_crm_id: str):
+    """
+    Disapprove task for user.
+
+    Args:
+        user_crm_id: CRM user ID
+    """
+    crm_user = _get_crm_user(user_crm_id)
+    if not crm_user:
+        logger.warning(f"CRM user with id={user_crm_id} not found")
+        return
+
+    first_lead = get_first_lead(crm_user)
+    if not first_lead:
+        logger.warning(f"No leads found for CRM user id={crm_user.id}")
+        return
+
+    update_lead_status(first_lead.id, "А5")
+    return

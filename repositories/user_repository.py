@@ -7,7 +7,7 @@ from database.user_service import (
 )
 from database.models import User, UserRole
 from logger import setup_logger
-from crm_service import get_crm_user as _get_crm_user, get_crm_lead, Lead
+from crm_service import get_crm_user as _get_crm_user, Lead
 from datetime import datetime
 from crm_service import Contact
 from repositories.pdf_generator import create_anketa_pdf
