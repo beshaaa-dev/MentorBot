@@ -4,7 +4,8 @@ GREETING_WITH_NAME_TEMPLATE = "Привет, {name}! Проверяем зада
 MENTOR_GREETING_TEMPLATE = "Привет, {first_name}. Проверяем новые работы студентов"
 CHECKING_TASK = "Проверяем задание..."
 USER_NOT_FOUND = "Не удалось найти вас. Обратитесь к своему куратору"
-NO_TASK = "Задания пока нет."
+STUDENT_NO_TASK = "Задания пока нет."
+MENTOR_NO_TASK = "Заданий на проверку пока нет."
 TASK = (
     "*У тебя есть новое задание*\n\n"
     "{text}\n\n"
@@ -16,3 +17,6 @@ VIDEO_CONFIRMED = "Ваш ответ отправлен ментору! Ожид
 VIDEO_CANCELLED = "Отправка видео отменена."
 CONFIRM_BUTTON = "Да, отправить"
 CANCEL_BUTTON = "Нет, отменить"
+APPROVE_BUTTON = "Одобрить"
+DISAPPROVE_BUTTON = "Отказать"
+BACK_BUTTON = "Вернуться назад"

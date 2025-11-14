@@ -7,7 +7,11 @@ from database.user_service import (
 )
 from database.models import User, UserRole
 from logger import setup_logger
-from crm_service import get_crm_user as _get_crm_user, Lead
+from crm_service import (
+    get_crm_user_by_tg_nickname as _get_crm_user_by_tg_nickname,
+    get_crm_user_by_id as _get_crm_user_by_id,
+    Lead,
+)
 from datetime import datetime
 from crm_service import Contact
 from repositories.pdf_generator import create_anketa_pdf
@@ -47,7 +51,7 @@ def create_student_if_needed(tg_id: int, tg_nickname: str | None) -> User:
 
 
 def get_crm_user(user: User) -> tuple[User | None, str | None]:
-    crm_user = _get_crm_user(user.tg_nickname)
+    crm_user = _get_crm_user_by_tg_nickname(user.tg_nickname)
 
     if not crm_user:
         return None, None
@@ -67,7 +71,7 @@ def get_crm_user(user: User) -> tuple[User | None, str | None]:
         return updated_user, None
 
     task = first_lead.task if first_lead else None
-
+    print(task)
     # Создаем ментора если он еще не существует в БД
     mentor_tg_nickname = first_lead.mentor_tg_nickname if first_lead else None
     create_mentor_if_needed(mentor_tg_nickname)
@@ -92,7 +96,7 @@ def create_mentor_if_needed(mentor_tg_nickname: str | None):
     if existing_mentor:
         return
 
-    mentor_crm_contact = _get_crm_user(mentor_tg_nickname)
+    mentor_crm_contact = _get_crm_user_by_tg_nickname(mentor_tg_nickname)
     mentor_user = _create_user(
         tg_id=None,
         tg_nickname=mentor_tg_nickname,
@@ -107,7 +111,8 @@ def create_mentor_if_needed(mentor_tg_nickname: str | None):
 
 
 def get_task(user_crm_id: str) -> str | None:
-    crm_user = _get_crm_user(user_crm_id)
+    crm_user = _get_crm_user_by_id(user_crm_id)
+
     if not crm_user:
         return None
 
@@ -160,7 +165,7 @@ def get_student_anketa_pdf(student_id: int) -> bytes:
         return create_anketa_pdf(None)
 
     # Get CRM user
-    crm_user = _get_crm_user(user.tg_nickname)
+    crm_user = _get_crm_user_by_id(user.crm_id)
     if not crm_user or not crm_user.leads:
         logger.warning(f"CRM user or leads not found for user id={student_id}")
         return create_anketa_pdf(None)

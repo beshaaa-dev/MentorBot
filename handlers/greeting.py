@@ -14,15 +14,30 @@ from repositories.user_repository import (
     get_task,
     get_student_anketa_pdf,
 )
-from repositories.task_repository import create_task, get_earliest_task
-from keyboards import get_support_keyboard, get_confirmation_keyboard
+from repositories.task_repository import (
+    create_task,
+    get_earliest_task,
+    get_next_task,
+    get_previous_task,
+    update_task_status,
+    get_task_by_id,
+    approve_task,
+    disapprove_task,
+)
+from keyboards import (
+    get_support_keyboard,
+    get_confirmation_keyboard,
+    get_mentor_action_keyboard,
+    get_mentor_action_with_back_keyboard,
+)
 from messages import (
     ERROR_MESSAGE,
     GREETING_WITH_NAME_TEMPLATE,
     MENTOR_GREETING_TEMPLATE,
     CHECKING_TASK,
     USER_NOT_FOUND,
-    NO_TASK,
+    MENTOR_NO_TASK,
+    STUDENT_NO_TASK,
     TASK,
     REQUEST_VIDEO,
     VIDEO_RECEIVED,
@@ -30,14 +45,18 @@ from messages import (
     VIDEO_CANCELLED,
     CONFIRM_BUTTON,
     CANCEL_BUTTON,
+    APPROVE_BUTTON,
+    DISAPPROVE_BUTTON,
+    BACK_BUTTON,
 )
-from database.models import User, UserRole
+from database.models import Task, TaskStatus, User, UserRole
 
 logger = setup_logger(__name__)
 
 # Conversation states
 WAITING_FOR_VIDEO = 1
 WAITING_FOR_CONFIRMATION = 2
+WAITING_FOR_MENTOR_ACTION = 3
 
 
 async def send_task(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -81,7 +100,7 @@ async def send_task_message(
     task: str | None, update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> int:
     if not task:
-        await update.message.reply_text(NO_TASK)
+        await update.message.reply_text(STUDENT_NO_TASK)
         return ConversationHandler.END
     message = TASK.format(text=task)
     await update.message.reply_text(message, parse_mode="Markdown")
@@ -160,6 +179,48 @@ async def send_video(update: Update, file_id: str) -> None:
         await update.message.reply_video_note(file_id)
 
 
+async def show_task_to_mentor(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    task: Task,
+    keyboard_type: str = "action",
+    add_to_history: bool = True,
+) -> None:
+    """
+    Show task to mentor with video, PDF, and appropriate keyboard.
+
+    Args:
+        update: Telegram update object
+        context: Bot context
+        task: Task instance to show
+        keyboard_type: "action" for action buttons, "pagination" for back button only, "action_with_back" for action buttons with back
+        add_to_history: Whether to add task to history (default True)
+    """
+    try:
+        await send_video(update, task.file_id)
+        pdf_bytes = get_student_anketa_pdf(student_id=task.student_id)
+        pdf_file = InputFile(BytesIO(pdf_bytes), filename="anketa.pdf")
+
+        if keyboard_type == "action":
+            reply_markup = get_mentor_action_keyboard()
+        elif keyboard_type == "action_with_back":
+            reply_markup = get_mentor_action_with_back_keyboard()
+
+        await update.message.reply_document(
+            document=pdf_file, reply_markup=reply_markup
+        )
+
+        # Store task info in context
+        context.user_data["current_task_id"] = task.id
+        if add_to_history:
+            if "task_history" not in context.user_data:
+                context.user_data["task_history"] = []
+            context.user_data["task_history"].append(task.id)
+    except Exception as e:
+        logger.error(f"Error showing task to mentor: {e}")
+        raise
+
+
 async def handle_mentor(
     user: User, update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> int:
@@ -167,19 +228,132 @@ async def handle_mentor(
     await update.message.reply_text(
         MENTOR_GREETING_TEMPLATE.format(first_name=user.first_name)
     )
+    # Store mentor_id in context for later use
+    context.user_data["mentor_id"] = user.id
     task = get_earliest_task(user.id)
     if task:
         try:
-            await send_video(update, task.file_id)
-            pdf_bytes = get_student_anketa_pdf(student_id=task.student_id)
-            pdf_file = InputFile(BytesIO(pdf_bytes), filename="anketa.pdf")
-            await update.message.reply_document(document=pdf_file)
+            await show_task_to_mentor(update, context, task, keyboard_type="action")
         except Exception as e:
             logger.error(f"Error sending video or PDF: {e}")
             await update.message.reply_text(ERROR_MESSAGE)
+            return ConversationHandler.END
+        return WAITING_FOR_MENTOR_ACTION
     else:
-        await update.message.reply_text(NO_TASK)
-    return ConversationHandler.END
+        await update.message.reply_text(MENTOR_NO_TASK)
+        return ConversationHandler.END
+
+
+async def handle_mentor_action(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> int:
+    """Handle mentor action buttons: approve, disapprove, or check later."""
+    text = update.message.text
+    current_task_id = context.user_data.get("current_task_id")
+    mentor_id = context.user_data.get("mentor_id")
+
+    if not current_task_id or not mentor_id:
+        logger.warning("Missing current_task_id or mentor_id in context")
+        await update.message.reply_text(ERROR_MESSAGE)
+        return ConversationHandler.END
+
+    # Map button text to TaskStatus
+    status_mapping = {
+        APPROVE_BUTTON: TaskStatus.APPROVED,
+        DISAPPROVE_BUTTON: TaskStatus.DISAPPROVED,
+    }
+
+    if text not in status_mapping:
+        # Invalid button, show error and keep waiting
+        await update.message.reply_text(
+            ERROR_MESSAGE, reply_markup=get_mentor_action_keyboard()
+        )
+        return WAITING_FOR_MENTOR_ACTION
+
+    # Update task status
+    try:
+        update_task_status(current_task_id, status_mapping[text])
+        if text == APPROVE_BUTTON:
+            approve_task(current_task_id)
+        elif text == DISAPPROVE_BUTTON:
+            disapprove_task(current_task_id)
+        logger.info(
+            f"Updated task {current_task_id} to status {status_mapping[text].value}"
+        )
+    except Exception as e:
+        logger.error(f"Error updating task status: {e}")
+        await update.message.reply_text(ERROR_MESSAGE)
+        return ConversationHandler.END
+
+    # Get next task
+    try:
+        next_task = get_next_task(mentor_id, current_task_id)
+        if next_task:
+            await show_task_to_mentor(
+                update, context, next_task, keyboard_type="action_with_back"
+            )
+            return WAITING_FOR_MENTOR_ACTION
+        else:
+            await update.message.reply_text(
+                MENTOR_NO_TASK, reply_markup=ReplyKeyboardRemove()
+            )
+            return ConversationHandler.END
+    except Exception as e:
+        logger.error(f"Error getting next task: {e}")
+        await update.message.reply_text(ERROR_MESSAGE)
+        return ConversationHandler.END
+
+
+async def handle_pagination_back(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> int:
+    """Handle pagination back button - show previous task."""
+    text = update.message.text
+
+    if text != BACK_BUTTON:
+        await update.message.reply_text(
+            ERROR_MESSAGE, reply_markup=get_support_keyboard()
+        )
+        return ConversationHandler.END
+
+    current_task_id = context.user_data.get("current_task_id")
+    task_history = context.user_data.get("task_history", [])
+
+    if not current_task_id or len(task_history) < 2:
+        logger.warning("Cannot go back: insufficient history")
+        await update.message.reply_text(
+            ERROR_MESSAGE, reply_markup=get_support_keyboard()
+        )
+        return ConversationHandler.END
+
+    # Remove current task from history
+    task_history.pop()
+    previous_task_id = task_history[-1]
+
+    try:
+        # Get previous task by ID from history
+        previous_task = get_task_by_id(previous_task_id)
+        if previous_task:
+            await show_task_to_mentor(
+                update,
+                context,
+                previous_task,
+                keyboard_type="action",
+                add_to_history=False,
+            )
+            return WAITING_FOR_MENTOR_ACTION
+        else:
+            logger.warning(f"Previous task {previous_task_id} not found")
+            await update.message.reply_text(
+                ERROR_MESSAGE, reply_markup=get_support_keyboard()
+            )
+            return ConversationHandler.END
+    except Exception as e:
+        logger.error(f"Error getting previous task: {e}")
+        await update.message.reply_text(
+            ERROR_MESSAGE, reply_markup=get_support_keyboard()
+        )
+        return ConversationHandler.END
 
 
 video_conversation_handler = ConversationHandler(
@@ -193,6 +367,18 @@ video_conversation_handler = ConversationHandler(
         ],
         WAITING_FOR_CONFIRMATION: [
             MessageHandler(filters.TEXT & ~filters.COMMAND, confirm_video),
+        ],
+        WAITING_FOR_MENTOR_ACTION: [
+            MessageHandler(
+                filters.TEXT
+                & ~filters.COMMAND
+                & filters.Regex(f"^({APPROVE_BUTTON}|{DISAPPROVE_BUTTON})$"),
+                handle_mentor_action,
+            ),
+            MessageHandler(
+                filters.TEXT & ~filters.COMMAND & filters.Regex(f"^{BACK_BUTTON}$"),
+                handle_pagination_back,
+            ),
         ],
     },
     fallbacks=[CommandHandler("cancel", cancel_video)],

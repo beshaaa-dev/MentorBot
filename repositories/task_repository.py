@@ -2,11 +2,14 @@ from database.task_service import (
     create_task as _create_task,
     update_task_status as _update_task_status,
     find_earliest_task as _find_earliest_task,
+    get_next_task as _get_next_task,
+    get_previous_task as _get_previous_task,
+    get_task_by_id as _get_task_by_id,
 )
 from database.user_service import find_by_tg_id, find_by_tg_nickname
 from database.models import Task, TaskStatus
 from logger import setup_logger
-from crm_service import get_crm_lead, update_lead_status, get_crm_user as _get_crm_user
+from crm_service import get_crm_lead, update_lead_status
 from repositories.user_repository import create_mentor_if_needed, get_first_lead
 
 logger = setup_logger(__name__)
@@ -54,7 +57,8 @@ def create_task(student_tg_id: int, file_id: str) -> Task:
     task = _create_task(
         student_id=student.id,
         mentor_id=mentor.id,
-        crm_id=student.crm_id,
+        # TODO: change to lead_id
+        lead_id=student.crm_id,
         file_id=file_id,
         status=TaskStatus.UNCHECKED,
     )
@@ -62,7 +66,7 @@ def create_task(student_tg_id: int, file_id: str) -> Task:
         raise ValueError(f"Failed to create task for student {student.id}")
 
     logger.info(
-        f"Created task with id={task.id}, student_id={student.id}, mentor_id={mentor.id}, crm_id={student.crm_id}"
+        f"Created task with id={task.id}, student_id={student.id}, mentor_id={mentor.id}, lead_id={student.crm_id}"
     )
     return task
 
@@ -92,7 +96,6 @@ def update_task_status(task_id: int, status: TaskStatus) -> Task | None:
 def get_earliest_task(mentor_id: int) -> Task | None:
     """
     Get the earliest task for a given mentor_id with status UNCHECKED.
-    If no such tasks exist, return the earliest task with status CHECK_LATER.
 
     Args:
         mentor_id: Mentor user ID (required)
@@ -111,57 +114,95 @@ def get_earliest_task(mentor_id: int) -> Task | None:
         )
         return task
 
-    # If no UNCHECKED tasks, try CHECK_LATER
-    task = _find_earliest_task(mentor_id, TaskStatus.CHECK_LATER)
-    if task:
-        logger.info(
-            f"Found earliest CHECK_LATER task with id={task.id} for mentor_id={mentor_id}"
-        )
-        return task
-
-    logger.info(
-        f"No tasks found for mentor_id={mentor_id} with status UNCHECKED or CHECK_LATER"
-    )
+    logger.info(f"No tasks found for mentor_id={mentor_id} with status UNCHECKED")
     return None
 
 
-def approve_task(user_crm_id: str):
+def approve_task(task_id: int):
     """
     Approve task for user.
 
     Args:
-        user_crm_id: CRM user ID
+        task_id: Task ID
     """
-    crm_user = _get_crm_user(user_crm_id)
-    if not crm_user:
-        logger.warning(f"CRM user with id={user_crm_id} not found")
-        return False
+    task = get_task_by_id(task_id)
+    if not task:
+        logger.warning(f"Task with id={task_id} not found")
+        return
 
-    first_lead = get_first_lead(crm_user)
-    if not first_lead:
-        logger.warning(f"No leads found for CRM user id={crm_user.id}")
-        return False
-
-    update_lead_status(first_lead.id, "А4")
-    return
+    update_lead_status(task.lead_id, "А3")
 
 
-def disapprove_task(user_crm_id: str):
+def disapprove_task(task_id: int):
     """
     Disapprove task for user.
 
     Args:
-        user_crm_id: CRM user ID
+        task_id: Task ID
     """
-    crm_user = _get_crm_user(user_crm_id)
-    if not crm_user:
-        logger.warning(f"CRM user with id={user_crm_id} not found")
+    task = get_task_by_id(task_id)
+    if not task:
+        logger.warning(f"Task with id={task_id} not found")
         return
 
-    first_lead = get_first_lead(crm_user)
-    if not first_lead:
-        logger.warning(f"No leads found for CRM user id={crm_user.id}")
-        return
+    update_lead_status(task.lead_id, "А4")
 
-    update_lead_status(first_lead.id, "А5")
-    return
+
+def get_next_task(mentor_id: int, current_task_id: int) -> Task | None:
+    """
+    Get the next task after the current task for a given mentor_id.
+
+    Args:
+        mentor_id: Mentor user ID (required)
+        current_task_id: Current task ID (required)
+
+    Returns:
+        Next Task instance if found, None otherwise
+
+    Raises:
+        Exception: If database operation fails
+    """
+    task = _get_next_task(mentor_id, current_task_id)
+    if task:
+        logger.info(
+            f"Found next task with id={task.id} for mentor_id={mentor_id} after task {current_task_id}"
+        )
+    return task
+
+
+def get_previous_task(mentor_id: int, current_task_id: int) -> Task | None:
+    """
+    Get the previous task before the current task for a given mentor_id.
+
+    Args:
+        mentor_id: Mentor user ID (required)
+        current_task_id: Current task ID (required)
+
+    Returns:
+        Previous Task instance if found, None otherwise
+
+    Raises:
+        Exception: If database operation fails
+    """
+    task = _get_previous_task(mentor_id, current_task_id)
+    if task:
+        logger.info(
+            f"Found previous task with id={task.id} for mentor_id={mentor_id} before task {current_task_id}"
+        )
+    return task
+
+
+def get_task_by_id(task_id: int) -> Task | None:
+    """
+    Get a task by its ID.
+
+    Args:
+        task_id: Task ID (required)
+
+    Returns:
+        Task instance if found, None otherwise
+
+    Raises:
+        Exception: If database operation fails
+    """
+    return _get_task_by_id(task_id)

@@ -81,10 +81,21 @@ def init_amo_crm_token():
         raise e
 
 
-def get_crm_user(nickname: str) -> Contact | None:
+def get_crm_user_by_tg_nickname(nickname: str) -> Contact | None:
     contacts = Contact.objects.filter(query=nickname)
-    if contacts:
-        return next(iter(contacts), None)
+    for contact in contacts:
+        if contact.telegram_id == nickname:
+            return contact
+
+    return None
+
+
+def get_crm_user_by_id(id: int) -> Contact | None:
+    contacts = Contact.objects.filter(query=id)
+
+    for contact in contacts:
+        if str(contact.id) == str(id):
+            return contact
 
     return None
 

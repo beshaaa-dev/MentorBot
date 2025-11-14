@@ -13,7 +13,6 @@ class TaskStatus(str, Enum):
     UNCHECKED = "unchecked"
     APPROVED = "approved"
     DISAPPROVED = "disapproved"
-    CHECK_LATER = "check_later"
 
 
 class User(Base):
@@ -49,7 +48,7 @@ class Task(Base):
     # ID ментора
     mentor_id = Column(Integer, nullable=False)
     # ID лида в AmoCRM
-    crm_id = Column(String, nullable=False)
+    lead_id = Column(String, nullable=False)
     # ID видео в Telegram
     file_id = Column(String, nullable=False)
     # Статус задачи
