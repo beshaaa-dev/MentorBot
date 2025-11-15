@@ -1,6 +1,7 @@
 from amocrm.v2 import Pipeline, tokens, custom_field, Contact as _Contact, Lead as _Lead
 import config
 from logger import setup_logger
+from rate_limiter import amo_crm_rate_limiter
 
 logger = setup_logger(__name__)
 
@@ -54,6 +55,7 @@ class Lead(_Lead):
 
 def init_amo_crm_integration():
     """Initialize AmoCRM token manager and handle token setup."""
+
     tokens.default_token_manager(
         client_id=config.CRM_CLIENT_ID,
         client_secret=config.CRM_CLIENT_SECRET,
@@ -63,7 +65,8 @@ def init_amo_crm_integration():
     )
 
     try:
-        tokens.default_token_manager.get_access_token()
+        with amo_crm_rate_limiter.limit():
+            tokens.default_token_manager.get_access_token()
         logger.info("AmoCRM token is valid")
     except Exception as e:
         logger.warning(f"Failed to get access token: {e}. Initializing new token...")
@@ -72,17 +75,19 @@ def init_amo_crm_integration():
 
 def init_amo_crm_token():
     try:
-        tokens.default_token_manager.init(
-            code=config.CRM_AUTH_CODE,
-            skip_error=False,
-        )
+        with amo_crm_rate_limiter.limit():
+            tokens.default_token_manager.init(
+                code=config.CRM_AUTH_CODE,
+                skip_error=False,
+            )
     except Exception as e:
         logger.error(f"Failed to initialize AmoCRM token: {e}")
         raise e
 
 
 def get_crm_user_by_tg_nickname(nickname: str) -> Contact | None:
-    contacts = Contact.objects.filter(query=nickname)
+    with amo_crm_rate_limiter.limit():
+        contacts = Contact.objects.filter(query=nickname)
     for contact in contacts:
         if contact.telegram_id == nickname:
             return contact
@@ -91,7 +96,8 @@ def get_crm_user_by_tg_nickname(nickname: str) -> Contact | None:
 
 
 def get_crm_user_by_id(id: int) -> Contact | None:
-    contacts = Contact.objects.filter(query=id)
+    with amo_crm_rate_limiter.limit():
+        contacts = Contact.objects.filter(query=id)
 
     for contact in contacts:
         if str(contact.id) == str(id):
@@ -101,14 +107,16 @@ def get_crm_user_by_id(id: int) -> Contact | None:
 
 
 def get_crm_lead(id: int) -> Lead | None:
-    leads = Lead.objects.filter(query=id)
+    with amo_crm_rate_limiter.limit():
+        leads = Lead.objects.filter(query=id)
     if leads:
         return next(iter(leads), None)
     return None
 
 
 def update_lead_status(id: int, status: str) -> Lead | None:
-    pipelines = Pipeline.objects.filter(query="Тестовая_Андрей")
+    with amo_crm_rate_limiter.limit():
+        pipelines = Pipeline.objects.filter(query="Тестовая_Андрей")
     pipeline = next((p for p in pipelines if "Тестовая_Андрей" in p.name), None)
 
     if not pipeline:
@@ -120,7 +128,8 @@ def update_lead_status(id: int, status: str) -> Lead | None:
 
     lead = get_crm_lead(id)
     if lead:
-        lead.status = status
-        lead.save()
+        with amo_crm_rate_limiter.limit():
+            lead.status = status
+            lead.save()
         return lead
     return None
