@@ -37,12 +37,16 @@ def create_student_if_needed(tg_id: int, tg_nickname: str | None) -> User:
     # Проверяем дупликаты
     existing_user = find_by_tg_id(tg_id)
     if existing_user:
+        if not existing_user.tg_nickname:
+            return _update_user(user_id=existing_user.id, tg_nickname=tg_nickname)
         return existing_user
 
     # Если не найден по tg_id, пробуем найти по nickname
     if tg_nickname:
         existing_user = find_by_tg_nickname(tg_nickname)
         if existing_user:
+            if not existing_user.tg_id:
+                return _update_user(user_id=existing_user.id, tg_id=tg_id)
             return existing_user
 
     user = _create_user(tg_id=tg_id, tg_nickname=tg_nickname, role=UserRole.STUDENT)
@@ -71,7 +75,7 @@ def get_crm_user(user: User) -> tuple[User | None, str | None]:
         return updated_user, None
 
     task = first_lead.task if first_lead else None
-    print(task)
+
     # Создаем ментора если он еще не существует в БД
     mentor_tg_nickname = first_lead.mentor_tg_nickname if first_lead else None
     create_mentor_if_needed(mentor_tg_nickname)
@@ -94,6 +98,21 @@ def create_mentor_if_needed(mentor_tg_nickname: str | None):
 
     existing_mentor = find_by_tg_nickname(mentor_tg_nickname)
     if existing_mentor:
+        if existing_mentor.role == UserRole.STUDENT:
+            mentor_crm_contact = _get_crm_user_by_tg_nickname(mentor_tg_nickname)
+            _update_user(
+                existing_mentor.id,
+                role=UserRole.MENTOR,
+                first_name=(
+                    mentor_crm_contact.first_name if mentor_crm_contact else None
+                ),
+                last_name=mentor_crm_contact.last_name if mentor_crm_contact else None,
+                crm_id=mentor_crm_contact.id if mentor_crm_contact else None,
+                registered_at=datetime.now() if mentor_crm_contact else None,
+            )
+            logger.info(
+                f"Updated student to mentor with id={existing_mentor.id}, tg_nickname={mentor_tg_nickname}"
+            )
         return
 
     mentor_crm_contact = _get_crm_user_by_tg_nickname(mentor_tg_nickname)

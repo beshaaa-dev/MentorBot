@@ -8,6 +8,7 @@ from telegram.ext import (
 )
 from logger import setup_logger
 from io import BytesIO
+import json
 from repositories.user_repository import (
     create_student_if_needed,
     get_crm_user,
@@ -112,14 +113,50 @@ async def send_error_message(update: Update):
     await update.message.reply_text(ERROR_MESSAGE, reply_markup=reply_markup)
 
 
+def create_message_reference(chat_id: int, message_id: int) -> str:
+    """Create a message reference string to store in file_id field."""
+    return f"msg:{json.dumps({'chat_id': chat_id, 'message_id': message_id})}"
+
+
+def parse_message_reference(file_id: str) -> tuple[int, int] | None:
+    """Parse message reference from file_id field. Returns (chat_id, message_id) or None."""
+    if file_id.startswith("msg:"):
+        try:
+            data = json.loads(file_id[4:])
+            return (data["chat_id"], data["message_id"])
+        except (json.JSONDecodeError, KeyError) as e:
+            logger.error(f"Error parsing message reference: {e}")
+            return None
+    return None
+
+
 async def receive_video(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Handle received video."""
-    if update.message.video or update.message.video_note:
-        # Store video in context for later use
-        if update.message.video:
-            context.user_data["video"] = update.message.video
-        elif update.message.video_note:
-            context.user_data["video_note"] = update.message.video_note
+    """Handle received media of any type (text, video, audio, photo, document, etc.)."""
+    file_id = None
+
+    # Extract file_id from different media types
+    if update.message.video:
+        file_id = update.message.video.file_id
+    elif update.message.video_note:
+        file_id = update.message.video_note.file_id
+    elif update.message.audio:
+        file_id = update.message.audio.file_id
+    elif update.message.document:
+        file_id = update.message.document.file_id
+    elif update.message.photo:
+        # Use the largest photo
+        file_id = update.message.photo[-1].file_id
+    elif update.message.voice:
+        file_id = update.message.voice.file_id
+    elif update.message.text:
+        # Store message reference instead of converting to file
+        file_id = create_message_reference(
+            update.effective_chat.id, update.message.message_id
+        )
+
+    if file_id:
+        # Store file_id in context
+        context.user_data["file_id"] = file_id
 
         reply_markup = get_confirmation_keyboard()
         await update.message.reply_text(VIDEO_RECEIVED, reply_markup=reply_markup)
@@ -130,34 +167,33 @@ async def receive_video(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
 
 
 async def confirm_video(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Handle video confirmation."""
+    """Handle media confirmation."""
     text = update.message.text
 
     if text == CONFIRM_BUTTON:
         await update.message.reply_text(
             VIDEO_CONFIRMED, reply_markup=ReplyKeyboardRemove()
         )
-        # Create task with video
+        # Create task with file_id
         try:
-            video = context.user_data.get("video") or context.user_data.get(
-                "video_note"
-            )
-            if video:
-                file_id = video.file_id
+            file_id = context.user_data.get("file_id")
+            if file_id:
                 student_tg_id = update.effective_user.id
                 create_task(student_tg_id=student_tg_id, file_id=file_id)
             else:
-                logger.warning("No video found in context when confirming")
+                logger.warning("No file_id found in context when confirming")
                 await send_error_message(update)
         except Exception as e:
             logger.error(f"Error creating task: {e}")
             await send_error_message(update)
         return ConversationHandler.END
     elif text == CANCEL_BUTTON:
+        # Clear the stored file_id since user wants to send again
+        context.user_data.pop("file_id", None)
         await update.message.reply_text(
-            VIDEO_CANCELLED, reply_markup=ReplyKeyboardRemove()
+            REQUEST_VIDEO, reply_markup=ReplyKeyboardRemove()
         )
-        return ConversationHandler.END
+        return WAITING_FOR_VIDEO
 
     await update.message.reply_text(
         VIDEO_RECEIVED, reply_markup=get_confirmation_keyboard()
@@ -171,12 +207,45 @@ async def cancel_video(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
     return ConversationHandler.END
 
 
-async def send_video(update: Update, file_id: str) -> None:
-    """Send task video to mentor, trying video first, then video_note."""
-    try:
-        await update.message.reply_video(file_id)
-    except Exception:
-        await update.message.reply_video_note(file_id)
+async def send_media(
+    update: Update, context: ContextTypes.DEFAULT_TYPE, file_id: str
+) -> None:
+    """Send task media to mentor. For text messages, uses copy_message. For media, uses file_id."""
+    # Check if it's a message reference (text message)
+    msg_ref = parse_message_reference(file_id)
+    if msg_ref:
+        chat_id, message_id = msg_ref
+        # Copy the original message to mentor
+        await context.bot.copy_message(
+            chat_id=update.effective_chat.id,
+            from_chat_id=chat_id,
+            message_id=message_id,
+        )
+    else:
+        # It's a regular file_id, try to send as video first, then video_note
+        try:
+            await update.message.reply_video(file_id)
+        except Exception:
+            try:
+                await update.message.reply_video_note(file_id)
+            except Exception:
+                # Try other media types
+                try:
+                    await update.message.reply_audio(file_id)
+                except Exception:
+                    try:
+                        await update.message.reply_document(file_id)
+                    except Exception:
+                        try:
+                            await update.message.reply_photo(file_id)
+                        except Exception:
+                            try:
+                                await update.message.reply_voice(file_id)
+                            except Exception as e:
+                                logger.error(
+                                    f"Could not send media with file_id {file_id}: {e}"
+                                )
+                                raise
 
 
 async def show_task_to_mentor(
@@ -197,7 +266,7 @@ async def show_task_to_mentor(
         add_to_history: Whether to add task to history (default True)
     """
     try:
-        await send_video(update, task.file_id)
+        await send_media(update, context, task.file_id)
         pdf_bytes = get_student_anketa_pdf(student_id=task.student_id)
         pdf_file = InputFile(BytesIO(pdf_bytes), filename="anketa.pdf")
 
@@ -362,8 +431,7 @@ video_conversation_handler = ConversationHandler(
     ],
     states={
         WAITING_FOR_VIDEO: [
-            MessageHandler(filters.VIDEO | filters.VIDEO_NOTE, receive_video),
-            MessageHandler(filters.TEXT & ~filters.COMMAND, receive_video),
+            MessageHandler(~filters.COMMAND, receive_video),
         ],
         WAITING_FOR_CONFIRMATION: [
             MessageHandler(filters.TEXT & ~filters.COMMAND, confirm_video),
