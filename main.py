@@ -1,12 +1,14 @@
 import os
-from telegram.ext import Application
 from dotenv import load_dotenv
+
+# Load environment variables FIRST before any other imports that depend on config
+load_dotenv()
+
+from telegram.ext import Application
 from logger import setup_logger
 from handlers.greeting import handlers as greeting_handlers
 from database.db_helper import init_db
 from crm_service import init_amo_crm_integration
-
-load_dotenv()
 
 logger = setup_logger(__name__)
 
