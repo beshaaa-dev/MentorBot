@@ -49,3 +49,8 @@ def get_mentor_action_with_back_keyboard() -> ReplyKeyboardMarkup:
         [KeyboardButton(BACK_BUTTON)],
     ]
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=True)
+
+
+def get_back_only_keyboard() -> ReplyKeyboardMarkup:
+    keyboard = [[KeyboardButton(BACK_BUTTON)]]
+    return ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=True)

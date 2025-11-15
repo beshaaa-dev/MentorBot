@@ -170,13 +170,16 @@ def get_next_task(mentor_id: int, current_task_id: int) -> Task | None:
     return task
 
 
-def get_previous_task(mentor_id: int, current_task_id: int) -> Task | None:
+def get_previous_task(
+    mentor_id: int, current_task_id: int | None = None
+) -> Task | None:
     """
     Get the previous task before the current task for a given mentor_id.
+    Only returns tasks updated within the last 60 minutes.
 
     Args:
         mentor_id: Mentor user ID (required)
-        current_task_id: Current task ID (required)
+        current_task_id: Current task ID (optional). If provided, excludes this task.
 
     Returns:
         Previous Task instance if found, None otherwise
@@ -186,9 +189,14 @@ def get_previous_task(mentor_id: int, current_task_id: int) -> Task | None:
     """
     task = _get_previous_task(mentor_id, current_task_id)
     if task:
-        logger.info(
-            f"Found previous task with id={task.id} for mentor_id={mentor_id} before task {current_task_id}"
-        )
+        if current_task_id is not None:
+            logger.info(
+                f"Found previous task with id={task.id} for mentor_id={mentor_id} before task {current_task_id}"
+            )
+        else:
+            logger.info(
+                f"Found previous task with id={task.id} for mentor_id={mentor_id} updated within last 60 minutes"
+            )
     return task
 
 

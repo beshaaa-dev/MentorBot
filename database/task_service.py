@@ -1,6 +1,6 @@
 from database.db_helper import get_db
 from database.models import Task, TaskStatus
-from datetime import datetime
+from datetime import datetime, timedelta
 from logger import setup_logger
 
 logger = setup_logger(__name__)
@@ -160,13 +160,17 @@ def get_next_task(mentor_id: int, current_task_id: int) -> Task | None:
             raise
 
 
-def get_previous_task(mentor_id: int, current_task_id: int) -> Task | None:
+def get_previous_task(
+    mentor_id: int, current_task_id: int | None = None
+) -> Task | None:
     """
     Get the last updated task for a given mentor_id.
+    Only returns tasks updated within the last 60 minutes.
+    If current_task_id is provided, excludes that task from results.
 
     Args:
         mentor_id: Mentor user ID (required)
-        current_task_id: Current task ID (required)
+        current_task_id: Current task ID (optional). If provided, excludes this task.
 
     Returns:
         Last updated Task instance if found, None otherwise
@@ -176,16 +180,19 @@ def get_previous_task(mentor_id: int, current_task_id: int) -> Task | None:
     """
     with get_db() as db:
         try:
-            # Get the last updated task for this mentor
-            task = (
-                db.query(Task)
-                .filter(
-                    Task.mentor_id == mentor_id,
-                    Task.id != current_task_id,
-                )
-                .order_by(Task.updated_at.desc())
-                .first()
+            # Calculate the time threshold (60 minutes ago)
+            threshold_time = datetime.utcnow() - timedelta(minutes=60)
+
+            query = db.query(Task).filter(
+                Task.mentor_id == mentor_id,
+                Task.updated_at >= threshold_time,
             )
+
+            if current_task_id is not None:
+                # Exclude the current task
+                query = query.filter(Task.id != current_task_id)
+
+            task = query.order_by(Task.updated_at.desc()).first()
             return task
         except Exception as e:
             logger.error(

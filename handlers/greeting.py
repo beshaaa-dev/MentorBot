@@ -30,6 +30,7 @@ from keyboards import (
     get_confirmation_keyboard,
     get_mentor_action_keyboard,
     get_mentor_action_with_back_keyboard,
+    get_back_only_keyboard,
 )
 from messages import (
     ERROR_MESSAGE,
@@ -49,6 +50,7 @@ from messages import (
     APPROVE_BUTTON,
     DISAPPROVE_BUTTON,
     BACK_BUTTON,
+    MENTOR_PREVIOUS_TASK_INVITE,
 )
 from database.models import Task, TaskStatus, User, UserRole
 
@@ -67,12 +69,10 @@ async def send_task(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
             update.effective_user.id, update.effective_user.username
         )
 
-        # Если айди нет, то значит либо его нет в AMO CRM, либо информации о нем нет в БД
-        if user.crm_id:
-            if user.role == UserRole.STUDENT:
-                return await handle_student(user, update, context)
-            elif user.role == UserRole.MENTOR:
-                return await handle_mentor(user, update, context)
+        if user.role == UserRole.MENTOR:
+            return await handle_mentor(user, update, context)
+        elif user.role == UserRole.STUDENT and user.crm_id:
+            return await handle_student(user, update, context)
         else:
             await update.message.reply_text(CHECKING_TASK)
             user, task = get_crm_user(user)
@@ -309,8 +309,18 @@ async def handle_mentor(
             return ConversationHandler.END
         return WAITING_FOR_MENTOR_ACTION
     else:
-        await update.message.reply_text(MENTOR_NO_TASK)
-        return ConversationHandler.END
+        # Check if there's a previous task (pass None to get most recent regardless of time)
+        previous_task = get_previous_task(user.id, current_task_id=None)
+        if previous_task:
+            # Store previous task ID for back button handler
+            context.user_data["previous_task_id"] = previous_task.id
+            await update.message.reply_text(
+                MENTOR_PREVIOUS_TASK_INVITE, reply_markup=get_back_only_keyboard()
+            )
+            return WAITING_FOR_MENTOR_ACTION
+        else:
+            await update.message.reply_text(MENTOR_NO_TASK)
+            return ConversationHandler.END
 
 
 async def handle_mentor_action(
@@ -363,10 +373,21 @@ async def handle_mentor_action(
             )
             return WAITING_FOR_MENTOR_ACTION
         else:
-            await update.message.reply_text(
-                MENTOR_NO_TASK, reply_markup=ReplyKeyboardRemove()
-            )
-            return ConversationHandler.END
+            # Check if there's a previous task
+            previous_task = get_previous_task(mentor_id, current_task_id)
+            if previous_task:
+                # Store previous task ID for back button handler
+                context.user_data["previous_task_id"] = previous_task.id
+                await update.message.reply_text(
+                    MENTOR_PREVIOUS_TASK_INVITE,
+                    reply_markup=get_back_only_keyboard(),
+                )
+                return WAITING_FOR_MENTOR_ACTION
+            else:
+                await update.message.reply_text(
+                    MENTOR_NO_TASK, reply_markup=ReplyKeyboardRemove()
+                )
+                return ConversationHandler.END
     except Exception as e:
         logger.error(f"Error getting next task: {e}")
         await update.message.reply_text(ERROR_MESSAGE)
@@ -387,7 +408,36 @@ async def handle_pagination_back(
 
     current_task_id = context.user_data.get("current_task_id")
     task_history = context.user_data.get("task_history", [])
+    previous_task_id = context.user_data.get("previous_task_id")
 
+    # Check if we're coming from the "no earliest task" state
+    if previous_task_id and not current_task_id:
+        try:
+            previous_task = get_task_by_id(previous_task_id)
+            if previous_task:
+                await show_task_to_mentor(
+                    update,
+                    context,
+                    previous_task,
+                    keyboard_type="action_with_back",
+                )
+                # Clear the stored previous_task_id since we've shown it
+                context.user_data.pop("previous_task_id", None)
+                return WAITING_FOR_MENTOR_ACTION
+            else:
+                logger.warning(f"Previous task {previous_task_id} not found")
+                await update.message.reply_text(
+                    ERROR_MESSAGE, reply_markup=get_support_keyboard()
+                )
+                return ConversationHandler.END
+        except Exception as e:
+            logger.error(f"Error getting previous task: {e}")
+            await update.message.reply_text(
+                ERROR_MESSAGE, reply_markup=get_support_keyboard()
+            )
+            return ConversationHandler.END
+
+    # Normal back navigation using task history
     if not current_task_id or len(task_history) < 2:
         logger.warning("Cannot go back: insufficient history")
         await update.message.reply_text(

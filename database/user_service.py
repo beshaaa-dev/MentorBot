@@ -100,6 +100,7 @@ def create_user(
 
 def update_user(
     user_id: int,
+    tg_id: int | None = None,
     tg_nickname: str | None = None,
     role: UserRole | None = None,
     first_name: str | None = None,
@@ -112,6 +113,7 @@ def update_user(
 
     Args:
         user_id: Database user ID (required)
+        tg_id: Telegram user ID (optional)
         tg_nickname: Telegram nickname (optional)
         role: User role (MENTOR or STUDENT) (optional)
         first_name: User's first name (optional)
@@ -131,6 +133,8 @@ def update_user(
             if not user:
                 return None
 
+            if tg_id is not None:
+                user.tg_id = tg_id
             if tg_nickname is not None:
                 user.tg_nickname = tg_nickname
             if role is not None:
