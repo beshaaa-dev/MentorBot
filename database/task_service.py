@@ -166,11 +166,11 @@ def get_previous_task(
     """
     Get the last updated task for a given mentor_id.
     Only returns tasks updated within the last 60 minutes.
-    If current_task_id is provided, excludes that task from results.
+    If current_task_id is provided, excludes that task and only returns tasks created before it.
 
     Args:
         mentor_id: Mentor user ID (required)
-        current_task_id: Current task ID (optional). If provided, excludes this task.
+        current_task_id: Current task ID (optional). If provided, excludes this task and only returns tasks created before it.
 
     Returns:
         Last updated Task instance if found, None otherwise
@@ -191,6 +191,12 @@ def get_previous_task(
             if current_task_id is not None:
                 # Exclude the current task
                 query = query.filter(Task.id != current_task_id)
+
+                # Get current task to know its created_at timestamp
+                current_task = db.query(Task).filter(Task.id == current_task_id).first()
+                if current_task:
+                    # Only return tasks created before the current task
+                    query = query.filter(Task.created_at < current_task.created_at)
 
             task = query.order_by(Task.updated_at.desc()).first()
             return task

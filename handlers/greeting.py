@@ -4,6 +4,7 @@ from telegram.ext import (
     CommandHandler,
     ConversationHandler,
     MessageHandler,
+    CallbackQueryHandler,
     filters,
 )
 from logger import setup_logger
@@ -31,6 +32,7 @@ from keyboards import (
     get_mentor_action_keyboard,
     get_mentor_action_with_back_keyboard,
     get_back_only_keyboard,
+    get_check_task_keyboard,
 )
 from messages import (
     ERROR_MESSAGE,
@@ -51,8 +53,11 @@ from messages import (
     DISAPPROVE_BUTTON,
     BACK_BUTTON,
     MENTOR_PREVIOUS_TASK_INVITE,
+    MENTOR_NEW_TASK_NOTIFICATION,
+    CHECK_TASK_BUTTON,
 )
 from database.models import Task, TaskStatus, User, UserRole
+from database.user_service import get_by_id
 
 logger = setup_logger(__name__)
 
@@ -74,10 +79,14 @@ async def send_task(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         elif user.role == UserRole.STUDENT and user.crm_id:
             return await handle_student(user, update, context)
         else:
-            await update.message.reply_text(CHECKING_TASK)
+            await update.message.reply_text(
+                CHECKING_TASK, reply_markup=ReplyKeyboardRemove()
+            )
             user, task = get_crm_user(user)
             if not user:
-                await update.message.reply_text(USER_NOT_FOUND)
+                await update.message.reply_text(
+                    USER_NOT_FOUND, reply_markup=ReplyKeyboardRemove()
+                )
                 return ConversationHandler.END
             return await send_task_message(task, update, context)
     except Exception as e:
@@ -91,7 +100,8 @@ async def handle_student(
 ) -> int:
     """Handle student user logic."""
     await update.message.reply_text(
-        GREETING_WITH_NAME_TEMPLATE.format(name=user.first_name)
+        GREETING_WITH_NAME_TEMPLATE.format(name=user.first_name),
+        reply_markup=ReplyKeyboardRemove(),
     )
     task = get_task(user.crm_id)
     return await send_task_message(task, update, context)
@@ -101,10 +111,14 @@ async def send_task_message(
     task: str | None, update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> int:
     if not task:
-        await update.message.reply_text(STUDENT_NO_TASK)
+        await update.message.reply_text(
+            STUDENT_NO_TASK, reply_markup=ReplyKeyboardRemove()
+        )
         return ConversationHandler.END
     message = TASK.format(text=task)
-    await update.message.reply_text(message, parse_mode="Markdown")
+    await update.message.reply_text(
+        message, parse_mode="Markdown", reply_markup=ReplyKeyboardRemove()
+    )
     return WAITING_FOR_VIDEO
 
 
@@ -162,7 +176,9 @@ async def receive_video(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
         await update.message.reply_text(VIDEO_RECEIVED, reply_markup=reply_markup)
         return WAITING_FOR_CONFIRMATION
     else:
-        await update.message.reply_text(REQUEST_VIDEO)
+        await update.message.reply_text(
+            REQUEST_VIDEO, reply_markup=ReplyKeyboardRemove()
+        )
         return WAITING_FOR_VIDEO
 
 
@@ -179,7 +195,26 @@ async def confirm_video(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
             file_id = context.user_data.get("file_id")
             if file_id:
                 student_tg_id = update.effective_user.id
-                create_task(student_tg_id=student_tg_id, file_id=file_id)
+                task = create_task(student_tg_id=student_tg_id, file_id=file_id)
+                # Send task notification to mentor if they have tg_id
+                if task and task.mentor_id:
+                    mentor = get_by_id(task.mentor_id)
+                    if mentor and mentor.tg_id:
+                        try:
+                            # Send invitation message with button
+                            keyboard = get_check_task_keyboard(task.id)
+                            await context.bot.send_message(
+                                chat_id=mentor.tg_id,
+                                text=MENTOR_NEW_TASK_NOTIFICATION,
+                                reply_markup=keyboard,
+                            )
+                            logger.info(
+                                f"Sent task notification to mentor {mentor.id} (tg_id: {mentor.tg_id})"
+                            )
+                        except Exception as e:
+                            logger.error(
+                                f"Failed to send task notification to mentor {task.mentor_id}: {e}"
+                            )
             else:
                 logger.warning("No file_id found in context when confirming")
                 await send_error_message(update)
@@ -207,6 +242,32 @@ async def cancel_video(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
     return ConversationHandler.END
 
 
+async def _try_send_media_types(bot, chat_id: int, file_id: str) -> None:
+    """Try to send media as different types (video, video_note, audio, document, photo, voice)."""
+    try:
+        await bot.send_video(chat_id=chat_id, video=file_id)
+    except Exception:
+        try:
+            await bot.send_video_note(chat_id=chat_id, video_note=file_id)
+        except Exception:
+            try:
+                await bot.send_audio(chat_id=chat_id, audio=file_id)
+            except Exception:
+                try:
+                    await bot.send_document(chat_id=chat_id, document=file_id)
+                except Exception:
+                    try:
+                        await bot.send_photo(chat_id=chat_id, photo=file_id)
+                    except Exception:
+                        try:
+                            await bot.send_voice(chat_id=chat_id, voice=file_id)
+                        except Exception as e:
+                            logger.error(
+                                f"Could not send media with file_id {file_id} to chat {chat_id}: {e}"
+                            )
+                            raise
+
+
 async def send_media(
     update: Update, context: ContextTypes.DEFAULT_TYPE, file_id: str
 ) -> None:
@@ -222,30 +283,63 @@ async def send_media(
             message_id=message_id,
         )
     else:
-        # It's a regular file_id, try to send as video first, then video_note
-        try:
-            await update.message.reply_video(file_id)
-        except Exception:
-            try:
-                await update.message.reply_video_note(file_id)
-            except Exception:
-                # Try other media types
-                try:
-                    await update.message.reply_audio(file_id)
-                except Exception:
-                    try:
-                        await update.message.reply_document(file_id)
-                    except Exception:
-                        try:
-                            await update.message.reply_photo(file_id)
-                        except Exception:
-                            try:
-                                await update.message.reply_voice(file_id)
-                            except Exception as e:
-                                logger.error(
-                                    f"Could not send media with file_id {file_id}: {e}"
-                                )
-                                raise
+        # It's a regular file_id, try to send as different media types
+        await _try_send_media_types(context.bot, update.effective_chat.id, file_id)
+
+
+async def send_media_to_chat(bot, chat_id: int, file_id: str) -> None:
+    """Send task media directly to a chat. For text messages, uses copy_message. For media, uses file_id."""
+    # Check if it's a message reference (text message)
+    msg_ref = parse_message_reference(file_id)
+    if msg_ref:
+        from_chat_id, message_id = msg_ref
+        # Copy the original message to mentor
+        await bot.copy_message(
+            chat_id=chat_id,
+            from_chat_id=from_chat_id,
+            message_id=message_id,
+        )
+    else:
+        # It's a regular file_id, try to send as different media types
+        await _try_send_media_types(bot, chat_id, file_id)
+
+
+async def show_task_to_mentor_chat(
+    bot,
+    chat_id: int,
+    task: Task,
+    keyboard_type: str = "action",
+    context: ContextTypes.DEFAULT_TYPE = None,
+) -> None:
+    """
+    Show task to mentor with video, PDF, and appropriate keyboard.
+
+    Args:
+        bot: Bot instance
+        chat_id: Chat ID to send to
+        task: Task instance to show
+        keyboard_type: "action" for action buttons, "action_with_back" for action buttons with back
+        context: Optional context to store task info
+    """
+    await send_media_to_chat(bot, chat_id, task.file_id)
+    pdf_bytes = get_student_anketa_pdf(student_id=task.student_id)
+    pdf_file = InputFile(BytesIO(pdf_bytes), filename="anketa.pdf")
+
+    if keyboard_type == "action":
+        reply_markup = get_mentor_action_keyboard()
+    elif keyboard_type == "action_with_back":
+        reply_markup = get_mentor_action_with_back_keyboard()
+
+    await bot.send_document(
+        chat_id=chat_id,
+        document=pdf_file,
+        reply_markup=reply_markup,
+    )
+
+    # Store task info in context if provided
+    if context:
+        context.user_data["current_task_id"] = task.id
+        context.user_data["mentor_id"] = task.mentor_id
 
 
 async def show_task_to_mentor(
@@ -253,7 +347,6 @@ async def show_task_to_mentor(
     context: ContextTypes.DEFAULT_TYPE,
     task: Task,
     keyboard_type: str = "action",
-    add_to_history: bool = True,
 ) -> None:
     """
     Show task to mentor with video, PDF, and appropriate keyboard.
@@ -263,28 +356,14 @@ async def show_task_to_mentor(
         context: Bot context
         task: Task instance to show
         keyboard_type: "action" for action buttons, "pagination" for back button only, "action_with_back" for action buttons with back
-        add_to_history: Whether to add task to history (default True)
     """
     try:
-        await send_media(update, context, task.file_id)
-        pdf_bytes = get_student_anketa_pdf(student_id=task.student_id)
-        pdf_file = InputFile(BytesIO(pdf_bytes), filename="anketa.pdf")
-
-        if keyboard_type == "action":
-            reply_markup = get_mentor_action_keyboard()
-        elif keyboard_type == "action_with_back":
-            reply_markup = get_mentor_action_with_back_keyboard()
-
-        await update.message.reply_document(
-            document=pdf_file, reply_markup=reply_markup
+        await show_task_to_mentor_chat(
+            context.bot, update.effective_chat.id, task, keyboard_type
         )
 
         # Store task info in context
         context.user_data["current_task_id"] = task.id
-        if add_to_history:
-            if "task_history" not in context.user_data:
-                context.user_data["task_history"] = []
-            context.user_data["task_history"].append(task.id)
     except Exception as e:
         logger.error(f"Error showing task to mentor: {e}")
         raise
@@ -295,7 +374,8 @@ async def handle_mentor(
 ) -> int:
     """Handle mentor user logic."""
     await update.message.reply_text(
-        MENTOR_GREETING_TEMPLATE.format(first_name=user.first_name)
+        MENTOR_GREETING_TEMPLATE.format(first_name=user.first_name),
+        reply_markup=ReplyKeyboardRemove(),
     )
     # Store mentor_id in context for later use
     context.user_data["mentor_id"] = user.id
@@ -305,7 +385,9 @@ async def handle_mentor(
             await show_task_to_mentor(update, context, task, keyboard_type="action")
         except Exception as e:
             logger.error(f"Error sending video or PDF: {e}")
-            await update.message.reply_text(ERROR_MESSAGE)
+            await update.message.reply_text(
+                ERROR_MESSAGE, reply_markup=ReplyKeyboardRemove()
+            )
             return ConversationHandler.END
         return WAITING_FOR_MENTOR_ACTION
     else:
@@ -314,12 +396,16 @@ async def handle_mentor(
         if previous_task:
             # Store previous task ID for back button handler
             context.user_data["previous_task_id"] = previous_task.id
+            # нужно ли?
+            context.user_data["current_task_id"] = None
             await update.message.reply_text(
                 MENTOR_PREVIOUS_TASK_INVITE, reply_markup=get_back_only_keyboard()
             )
             return WAITING_FOR_MENTOR_ACTION
         else:
-            await update.message.reply_text(MENTOR_NO_TASK)
+            await update.message.reply_text(
+                MENTOR_NO_TASK, reply_markup=ReplyKeyboardRemove()
+            )
             return ConversationHandler.END
 
 
@@ -333,7 +419,9 @@ async def handle_mentor_action(
 
     if not current_task_id or not mentor_id:
         logger.warning("Missing current_task_id or mentor_id in context")
-        await update.message.reply_text(ERROR_MESSAGE)
+        await update.message.reply_text(
+            ERROR_MESSAGE, reply_markup=ReplyKeyboardRemove()
+        )
         return ConversationHandler.END
 
     # Map button text to TaskStatus
@@ -361,7 +449,9 @@ async def handle_mentor_action(
         )
     except Exception as e:
         logger.error(f"Error updating task status: {e}")
-        await update.message.reply_text(ERROR_MESSAGE)
+        await update.message.reply_text(
+            ERROR_MESSAGE, reply_markup=ReplyKeyboardRemove()
+        )
         return ConversationHandler.END
 
     # Get next task
@@ -373,11 +463,14 @@ async def handle_mentor_action(
             )
             return WAITING_FOR_MENTOR_ACTION
         else:
-            # Check if there's a previous task
-            previous_task = get_previous_task(mentor_id, current_task_id)
+            # Check if there's a previous task (updated within last 60 minutes and created before current)
+            previous_task = get_previous_task(mentor_id, None)
+            print("previous_task", previous_task)
             if previous_task:
                 # Store previous task ID for back button handler
                 context.user_data["previous_task_id"] = previous_task.id
+                # нужно ли?
+                context.user_data["current_task_id"] = None
                 await update.message.reply_text(
                     MENTOR_PREVIOUS_TASK_INVITE,
                     reply_markup=get_back_only_keyboard(),
@@ -390,7 +483,9 @@ async def handle_mentor_action(
                 return ConversationHandler.END
     except Exception as e:
         logger.error(f"Error getting next task: {e}")
-        await update.message.reply_text(ERROR_MESSAGE)
+        await update.message.reply_text(
+            ERROR_MESSAGE, reply_markup=ReplyKeyboardRemove()
+        )
         return ConversationHandler.END
 
 
@@ -407,19 +502,23 @@ async def handle_pagination_back(
         return ConversationHandler.END
 
     current_task_id = context.user_data.get("current_task_id")
-    task_history = context.user_data.get("task_history", [])
+    mentor_id = context.user_data.get("mentor_id")
     previous_task_id = context.user_data.get("previous_task_id")
-
     # Check if we're coming from the "no earliest task" state
     if previous_task_id and not current_task_id:
         try:
             previous_task = get_task_by_id(previous_task_id)
             if previous_task:
+                # Check if there is a task before previous_task - if not, no back button needed
+                task_before_previous = get_previous_task(mentor_id, previous_task.id)
+                keyboard_type = (
+                    "action" if task_before_previous is None else "action_with_back"
+                )
                 await show_task_to_mentor(
                     update,
                     context,
                     previous_task,
-                    keyboard_type="action_with_back",
+                    keyboard_type=keyboard_type,
                 )
                 # Clear the stored previous_task_id since we've shown it
                 context.user_data.pop("previous_task_id", None)
@@ -437,32 +536,32 @@ async def handle_pagination_back(
             )
             return ConversationHandler.END
 
-    # Normal back navigation using task history
-    if not current_task_id or len(task_history) < 2:
-        logger.warning("Cannot go back: insufficient history")
+    # Normal back navigation using get_previous_task
+    if not current_task_id or not mentor_id:
+        logger.warning("Cannot go back: missing current_task_id or mentor_id")
         await update.message.reply_text(
             ERROR_MESSAGE, reply_markup=get_support_keyboard()
         )
         return ConversationHandler.END
 
-    # Remove current task from history
-    task_history.pop()
-    previous_task_id = task_history[-1]
-
     try:
-        # Get previous task by ID from history
-        previous_task = get_task_by_id(previous_task_id)
+        # Get previous task chronologically
+        previous_task = get_previous_task(mentor_id, current_task_id)
         if previous_task:
+            # Check if there is a task before previous_task - if not, no back button needed
+            task_before_previous = get_previous_task(mentor_id, previous_task.id)
+            keyboard_type = (
+                "action" if task_before_previous is None else "action_with_back"
+            )
             await show_task_to_mentor(
                 update,
                 context,
                 previous_task,
-                keyboard_type="action",
-                add_to_history=False,
+                keyboard_type=keyboard_type,
             )
             return WAITING_FOR_MENTOR_ACTION
         else:
-            logger.warning(f"Previous task {previous_task_id} not found")
+            logger.warning("No previous task found")
             await update.message.reply_text(
                 ERROR_MESSAGE, reply_markup=get_support_keyboard()
             )
@@ -475,9 +574,60 @@ async def handle_pagination_back(
         return ConversationHandler.END
 
 
+async def handle_check_task_callback(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> int:
+    """Handle callback when mentor clicks 'Check task' button."""
+    query = update.callback_query
+    await query.answer()
+
+    # Extract task_id from callback_data (format: "check_task_{task_id}")
+    try:
+        task_id = int(query.data.split("_")[-1])
+    except (ValueError, IndexError):
+        logger.error(f"Invalid callback data: {query.data}")
+        await query.message.reply_text(
+            ERROR_MESSAGE, reply_markup=ReplyKeyboardRemove()
+        )
+        return ConversationHandler.END
+
+    # Get task
+    task = get_task_by_id(task_id)
+    if not task:
+        logger.warning(f"Task {task_id} not found")
+        await query.message.reply_text(
+            ERROR_MESSAGE, reply_markup=ReplyKeyboardRemove()
+        )
+        return ConversationHandler.END
+
+    # Get mentor
+    mentor = get_by_id(task.mentor_id)
+    if not mentor or mentor.tg_id != query.from_user.id:
+        logger.warning(f"Mentor {task.mentor_id} mismatch or not found")
+        await query.message.reply_text(
+            ERROR_MESSAGE, reply_markup=ReplyKeyboardRemove()
+        )
+        return ConversationHandler.END
+
+    # Send the task and store context
+    try:
+        await show_task_to_mentor_chat(
+            context.bot, mentor.tg_id, task, keyboard_type="action", context=context
+        )
+        logger.info(f"Sent task {task_id} to mentor {mentor.id} via callback")
+        return WAITING_FOR_MENTOR_ACTION
+    except Exception as e:
+        logger.error(f"Error sending task {task_id} to mentor: {e}")
+        await query.message.reply_text(
+            ERROR_MESSAGE, reply_markup=ReplyKeyboardRemove()
+        )
+        return ConversationHandler.END
+
+
 video_conversation_handler = ConversationHandler(
     entry_points=[
         CommandHandler("start", send_task),
+        CallbackQueryHandler(handle_check_task_callback, pattern="^check_task_"),
     ],
     states={
         WAITING_FOR_VIDEO: [

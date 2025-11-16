@@ -8,4 +8,4 @@ CRM_CLIENT_SECRET = os.getenv("CRM_CLIENT_SECRET")
 CRM_AUTH_CODE = os.getenv("CRM_AUTH_CODE")
 CRM_REDIRECT_URL = "https://ya.ru"
 
-SUPPORT_CONTACT_LINK = "https://t.me/buchevskiy"
+SUPPORT_CONTACT_LINK = "https://t.me/Pokolenez_bot"

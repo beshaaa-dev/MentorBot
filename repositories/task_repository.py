@@ -176,10 +176,11 @@ def get_previous_task(
     """
     Get the previous task before the current task for a given mentor_id.
     Only returns tasks updated within the last 60 minutes.
+    If current_task_id is provided, only returns tasks created before it.
 
     Args:
         mentor_id: Mentor user ID (required)
-        current_task_id: Current task ID (optional). If provided, excludes this task.
+        current_task_id: Current task ID (optional). If provided, excludes this task and only returns tasks created before it.
 
     Returns:
         Previous Task instance if found, None otherwise

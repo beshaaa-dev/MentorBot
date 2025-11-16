@@ -90,7 +90,9 @@ def get_crm_user_by_tg_nickname(nickname: str) -> Contact | None:
         contacts = Contact.objects.filter(query=nickname)
     for contact in contacts:
         if contact.telegram_id == nickname:
-            return contact
+            for contact_lead in contact.leads:
+                if contact_lead.status.id != 143 and contact_lead.status.id != 142:
+                    return contact
 
     return None
 
@@ -101,7 +103,9 @@ def get_crm_user_by_id(id: int) -> Contact | None:
 
     for contact in contacts:
         if str(contact.id) == str(id):
-            return contact
+            for contact_lead in contact.leads:
+                if contact_lead.status.id != 143 and contact_lead.status.id != 142:
+                    return contact
 
     return None
 
@@ -116,8 +120,12 @@ def get_crm_lead(id: int) -> Lead | None:
 
 def update_lead_status(id: int, status: str) -> Lead | None:
     with amo_crm_rate_limiter.limit():
-        pipelines = Pipeline.objects.filter(query="Тестовая_Андрей")
-    pipeline = next((p for p in pipelines if "Тестовая_Андрей" in p.name), None)
+        pipelines = Pipeline.objects.filter(query=10254214)
+    pipeline = None
+    for p in pipelines:
+        if str(p.id) == "10254214":
+            pipeline = p
+            break
 
     if not pipeline:
         raise ValueError(f"Pipeline with id=10254214 not found")

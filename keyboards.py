@@ -12,6 +12,7 @@ from messages import (
     APPROVE_BUTTON,
     DISAPPROVE_BUTTON,
     BACK_BUTTON,
+    CHECK_TASK_BUTTON,
 )
 
 
@@ -54,3 +55,16 @@ def get_mentor_action_with_back_keyboard() -> ReplyKeyboardMarkup:
 def get_back_only_keyboard() -> ReplyKeyboardMarkup:
     keyboard = [[KeyboardButton(BACK_BUTTON)]]
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=True)
+
+
+def get_check_task_keyboard(task_id: int) -> InlineKeyboardMarkup:
+    """Create inline keyboard with button to check a specific task."""
+    keyboard = [
+        [
+            InlineKeyboardButton(
+                CHECK_TASK_BUTTON,
+                callback_data=f"check_task_{task_id}",
+            )
+        ]
+    ]
+    return InlineKeyboardMarkup(keyboard)
