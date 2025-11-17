@@ -99,30 +99,16 @@ def create_mentor_if_needed(mentor_tg_nickname: str | None):
     existing_mentor = find_by_tg_nickname(mentor_tg_nickname)
     if existing_mentor:
         if existing_mentor.role == UserRole.STUDENT:
-            mentor_crm_contact = _get_crm_user_by_tg_nickname(mentor_tg_nickname)
             _update_user(
-                existing_mentor.id,
-                role=UserRole.MENTOR,
-                first_name=(
-                    mentor_crm_contact.first_name if mentor_crm_contact else None
-                ),
-                last_name=mentor_crm_contact.last_name if mentor_crm_contact else None,
-                crm_id=mentor_crm_contact.id if mentor_crm_contact else None,
-                registered_at=datetime.now() if mentor_crm_contact else None,
+                existing_mentor.id, role=UserRole.MENTOR, registered_at=datetime.now()
             )
             logger.info(
                 f"Updated student to mentor with id={existing_mentor.id}, tg_nickname={mentor_tg_nickname}"
             )
         return
 
-    mentor_crm_contact = _get_crm_user_by_tg_nickname(mentor_tg_nickname)
     mentor_user = _create_user(
-        tg_id=None,
-        tg_nickname=mentor_tg_nickname,
-        role=UserRole.MENTOR,
-        first_name=(mentor_crm_contact.first_name if mentor_crm_contact else None),
-        last_name=mentor_crm_contact.last_name if mentor_crm_contact else None,
-        crm_id=mentor_crm_contact.id if mentor_crm_contact else None,
+        tg_id=None, tg_nickname=mentor_tg_nickname, role=UserRole.MENTOR
     )
     logger.info(
         f"Created mentor with id={mentor_user.id}, tg_nickname={mentor_tg_nickname}"
