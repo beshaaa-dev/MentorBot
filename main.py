@@ -6,7 +6,7 @@ load_dotenv()
 
 from telegram.ext import Application
 from logger import setup_logger
-from handlers.greeting import handlers as greeting_handlers
+from handlers import handlers
 from database.db_helper import init_db
 from crm_service import init_amo_crm_integration
 
@@ -38,7 +38,7 @@ def main() -> None:
 
     # Регистрируем обработчики (админские, общие, платежные, и т.д.)
     application = Application.builder().token(token).build()
-    for handler in greeting_handlers:
+    for handler in handlers:
         application.add_handler(handler)
 
     # Запускаем бота

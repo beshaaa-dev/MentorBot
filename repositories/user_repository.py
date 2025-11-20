@@ -15,8 +15,22 @@ from crm_service import (
 from datetime import datetime
 from crm_service import Contact
 from repositories.pdf_generator import create_anketa_pdf
+import re
 
 logger = setup_logger(__name__)
+
+DEFAULT_ANKETA_FILENAME = "anketa.pdf"
+
+
+def _build_pdf_filename(student_full_name: str) -> str:
+    sanitized = re.sub(r"\s+", " ", student_full_name.strip())
+    sanitized = re.sub(r"[^\w\s\-]+", "", sanitized, flags=re.UNICODE)
+    sanitized = sanitized.strip()
+
+    if not sanitized:
+        return DEFAULT_ANKETA_FILENAME
+
+    return f"Анкета {sanitized}.pdf"
 
 
 def create_student_if_needed(tg_id: int, tg_nickname: str | None) -> User:
@@ -153,7 +167,7 @@ def get_first_lead(crm_user: Contact) -> Lead | None:
     )
 
 
-def get_student_anketa_pdf(student_id: int) -> bytes:
+def get_student_anketa_pdf(student_id: int) -> tuple[str, bytes, str]:
     """
     Get student anketa PDF by student ID.
 
@@ -161,25 +175,39 @@ def get_student_anketa_pdf(student_id: int) -> bytes:
         student_id: Database user ID
 
     Returns:
-        PDF file as bytes
+        Tuple with suggested filename, PDF bytes, and student's full name
     """
     # Get user from database
     user = get_by_id(student_id)
     if not user:
         logger.warning(f"User with id={student_id} not found")
-        return create_anketa_pdf(None)
+        return DEFAULT_ANKETA_FILENAME, create_anketa_pdf(None), ""
+
+    student_full_name = f"{user.first_name} {user.last_name}"
 
     # Get CRM user
     crm_user = _get_crm_user_by_id(user.crm_id)
     if not crm_user or not crm_user.leads:
         logger.warning(f"CRM user or leads not found for user id={student_id}")
-        return create_anketa_pdf(None)
+        pdf_filename = _build_pdf_filename(student_full_name)
+        return (
+            pdf_filename,
+            create_anketa_pdf(None, student_full_name),
+            student_full_name,
+        )
 
     # Get first lead
     first_lead = next(iter(crm_user.leads), None)
     if not first_lead:
         logger.warning(f"No leads found for CRM user id={crm_user.id}")
-        return create_anketa_pdf(None)
+        pdf_filename = _build_pdf_filename(student_full_name)
+        return (
+            pdf_filename,
+            create_anketa_pdf(None, student_full_name),
+            student_full_name,
+        )
 
     # Create PDF from lead
-    return create_anketa_pdf(first_lead)
+    pdf_bytes = create_anketa_pdf(first_lead, student_full_name)
+    pdf_filename = _build_pdf_filename(student_full_name)
+    return pdf_filename, pdf_bytes, student_full_name
