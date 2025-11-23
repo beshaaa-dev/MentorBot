@@ -1,3 +1,5 @@
+from dataclasses import dataclass
+
 from database.task_service import (
     create_task as _create_task,
     update_task_status as _update_task_status,
@@ -5,6 +7,7 @@ from database.task_service import (
     get_next_task as _get_next_task,
     get_previous_task as _get_previous_task,
     get_task_by_id as _get_task_by_id,
+    get_recent_decided_tasks,
 )
 from database.user_service import find_by_tg_id, find_by_tg_nickname
 from database.models import Task, TaskStatus
@@ -13,6 +16,15 @@ from crm_service import get_crm_lead, update_lead_status
 from repositories.user_repository import create_mentor_if_needed, get_first_lead
 
 logger = setup_logger(__name__)
+
+
+@dataclass
+class DecidedTaskContext:
+    task: Task
+    index: int
+    total: int
+    older_task_id: int | None
+    newer_task_id: int | None
 
 
 def create_task(student_tg_id: int, file_id: str) -> Task:
@@ -148,6 +160,15 @@ def disapprove_task(task_id: int):
     update_lead_status(task.lead_id, "А4")
 
 
+def mark_task_as_failed(task_id: int):
+    task = get_task_by_id(task_id)
+    if not task:
+        logger.warning(f"Task with id={task_id} not found")
+        return
+
+    update_lead_status(task.lead_id, "А0")
+
+
 def get_next_task(mentor_id: int, current_task_id: int) -> Task | None:
     """
     Get the next task after the current task for a given mentor_id.
@@ -215,3 +236,37 @@ def get_task_by_id(task_id: int) -> Task | None:
         Exception: If database operation fails
     """
     return _get_task_by_id(task_id)
+
+
+def get_decided_task_context(
+    mentor_id: int, target_task_id: int | None = None
+) -> DecidedTaskContext | None:
+    """
+    Build pagination context for decided tasks within the last hour.
+
+    Returns:
+        DecidedTaskContext or None if nothing to show.
+    """
+    tasks = get_recent_decided_tasks(mentor_id)
+    if not tasks:
+        return None
+
+    index = 0
+    if target_task_id is not None:
+        for idx, task in enumerate(tasks):
+            if task.id == target_task_id:
+                index = idx
+                break
+
+    task = tasks[index]
+    total = len(tasks)
+    older_task_id = tasks[index + 1].id if index + 1 < total else None
+    newer_task_id = tasks[index - 1].id if index - 1 >= 0 else None
+
+    return DecidedTaskContext(
+        task=task,
+        index=index,
+        total=total,
+        older_task_id=older_task_id,
+        newer_task_id=newer_task_id,
+    )

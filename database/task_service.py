@@ -205,3 +205,36 @@ def get_previous_task(
                 f"Error getting previous task for mentor {mentor_id} before task {current_task_id}: {e}"
             )
             raise
+
+
+def get_recent_decided_tasks(
+    mentor_id: int, window_minutes: int = 60
+) -> list[Task]:
+    """
+    Return mentor tasks that were decided (approved/disapproved) within the last window.
+
+    Args:
+        mentor_id: Mentor user ID.
+        window_minutes: Time window (minutes) to consider.
+    """
+    with get_db() as db:
+        try:
+            threshold_time = datetime.utcnow() - timedelta(minutes=window_minutes)
+            tasks = (
+                db.query(Task)
+                    .filter(
+                        Task.mentor_id == mentor_id,
+                        Task.updated_at >= threshold_time,
+                        Task.status.in_(
+                            [TaskStatus.APPROVED, TaskStatus.DISAPPROVED]
+                        ),
+                    )
+                    .order_by(Task.updated_at.desc())
+                    .all()
+            )
+            return tasks
+        except Exception as e:
+            logger.error(
+                f"Error getting decided tasks for mentor {mentor_id}: {e}"
+            )
+            raise

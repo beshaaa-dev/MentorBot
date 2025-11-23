@@ -9,7 +9,7 @@ from telegram.ext import (
 from logger import setup_logger
 import json
 from repositories.user_repository import get_task
-from repositories.task_repository import create_task
+from repositories.task_repository import create_task, mark_task_as_failed
 from database.user_service import get_by_id
 from database.models import User, UserRole
 from keyboards import get_confirmation_keyboard
@@ -26,7 +26,7 @@ from messages import (
     MENTOR_NEW_TASK_NOTIFICATION,
 )
 from keyboards import get_check_task_keyboard
-from handlers.utils import send_error_message
+from handlers.utils import send_error_message, delete_user_message
 
 logger = setup_logger(__name__)
 
@@ -104,7 +104,7 @@ async def receive_video(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
 async def confirm_video(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Handle media confirmation."""
     text = update.message.text
-
+    await delete_user_message(update.message)
     if text == CONFIRM_BUTTON:
         await update.message.reply_text(
             VIDEO_CONFIRMED, reply_markup=ReplyKeyboardRemove()
@@ -131,7 +131,7 @@ async def confirm_video(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
                                 f"Sent task notification to mentor {mentor.id} (tg_id: {mentor.tg_id})"
                             )
                         except Exception as e:
-                            # TODO: - Переносить в А0
+                            mark_task_as_failed(task.id)
                             logger.error(
                                 f"Failed to send task notification to mentor {task.mentor_id}: {e}"
                             )
@@ -159,6 +159,7 @@ async def confirm_video(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
 
 async def cancel_video(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Cancel the video conversation."""
+    await delete_user_message(update.message)
     await update.message.reply_text(VIDEO_CANCELLED, reply_markup=ReplyKeyboardRemove())
     context.user_data.clear()
     return ConversationHandler.END

@@ -1,4 +1,4 @@
-from telegram import Update, ReplyKeyboardRemove, InputFile
+from telegram import Update, ReplyKeyboardRemove, InputFile, Message, MessageId
 from telegram.ext import (
     ContextTypes,
     MessageHandler,
@@ -12,18 +12,18 @@ from repositories.user_repository import get_student_anketa_pdf
 from database.user_service import find_by_tg_id, get_by_id
 from repositories.task_repository import (
     get_earliest_task,
-    get_next_task,
-    get_previous_task,
     update_task_status,
     get_task_by_id,
     approve_task,
     disapprove_task,
+    get_decided_task_context,
+    DecidedTaskContext,
 )
 from keyboards import (
     get_mentor_action_keyboard,
-    get_mentor_action_with_back_keyboard,
     get_back_only_keyboard,
     get_support_keyboard,
+    get_decided_task_navigation_keyboard,
 )
 from messages import (
     ERROR_MESSAGE,
@@ -34,146 +34,145 @@ from messages import (
     BACK_BUTTON,
     MENTOR_PREVIOUS_TASK_INVITE,
     NO_PREVIOUS_TASKS,
+    TASK_STATUS_APPROVED,
+    TASK_STATUS_DISAPPROVED,
+    TASK_STATUS_UNCHECKED,
+    TASK_INFO_TEMPLATE,
+    DONE_BUTTON,
+    CHANGE_STATUS_BUTTON,
+    HISTORY_STATUS_UPDATED_TEMPLATE,
 )
 from database.models import Task, TaskStatus, User, UserRole
-from handlers.utils import send_error_message
+from handlers.utils import send_error_message, delete_user_message
 
 logger = setup_logger(__name__)
+
+HISTORY_STATE_KEY = "history_state"
+HISTORY_NAV_LEFT = "Назад"
+HISTORY_NAV_RIGHT = "Вперёд"
 
 
 async def handle_mentor(
     user: User, update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> None:
     """Handle mentor user logic."""
+    context.user_data.clear()
     await update.message.reply_text(
-        MENTOR_GREETING_TEMPLATE.format(first_name=user.first_name),
+        MENTOR_GREETING_TEMPLATE,
         reply_markup=ReplyKeyboardRemove(),
     )
     task = get_earliest_task(user.id)
     if task:
         try:
-            await show_task_to_mentor(update, context, task, keyboard_type="action")
+            await send_task(update.effective_chat.id, task, context=context)
         except Exception as e:
-            logger.error(f"Error sending video or PDF: {e}")
-            await update.message.reply_text(
-                ERROR_MESSAGE, reply_markup=ReplyKeyboardRemove()
-            )
-            context.user_data.clear()
+            logger.error(f"Error sending earliest task in handle_mentor: {e}")
+            await send_error_message(update)
     else:
         await update.message.reply_text(
             MENTOR_NO_TASK, reply_markup=get_back_only_keyboard()
         )
-        context.user_data.clear()
 
 
-async def show_task_to_mentor(
-    update: Update,
-    context: ContextTypes.DEFAULT_TYPE,
-    task: Task,
-    keyboard_type: str = "action",
-) -> None:
-    """
-     Show task to mentor with video, PDF, and appropriate keyboard.
-
-    Args:
-        update: Telegram update object
-        context: Bot context
-        task: Task instance to show
-        keyboard_type: "action" for action buttons, "pagination" for back button only, "action_with_back" for action buttons with back
-    """
-    try:
-        await show_task_to_mentor_chat(
-            context.bot, update.effective_chat.id, task, keyboard_type
-        )
-
-        # Store task info in context
-        context.user_data["current_task_id"] = task.id
-    except Exception as e:
-        logger.error(f"Error showing task to mentor: {e}")
-        await update.message.reply_text(
-            ERROR_MESSAGE, reply_markup=ReplyKeyboardRemove()
-        )
-        context.user_data.clear()
-        return
-
-
-async def show_task_to_mentor_chat(
-    bot,
+async def send_task(
     chat_id: int,
     task: Task,
-    keyboard_type: str = "action",
-    context: ContextTypes.DEFAULT_TYPE = None,
+    context: ContextTypes.DEFAULT_TYPE,
 ) -> None:
-    """
-    Show task to mentor with video, PDF, and appropriate keyboard.
+    """Send a task to a mentor with action buttons that include a Back option."""
 
-    Args:
-        bot: Bot instance
-        chat_id: Chat ID to send to
-        task: Task instance to show
-        keyboard_type: "action" for action buttons, "action_with_back" for action buttons with back
-        context: Optional context to store task info
-    """
-    pdf_filename, pdf_bytes, student_full_name = get_student_anketa_pdf(
-        student_id=task.student_id
+    context.user_data["current_task_id"] = task.id
+
+    pdf_data = get_student_anketa_pdf(student_id=task.student_id)
+
+    await _send_task_info_message(
+        chat_id=chat_id,
+        task=task,
+        context=context,
+        student_name=pdf_data[2],
     )
+    await _send_task_payload(
+        chat_id=chat_id,
+        task=task,
+        context=context,
+        pdf_data=pdf_data,
+        reply_markup=get_mentor_action_keyboard(),
+    )
+
+
+async def _send_task_info_message(
+    chat_id: int,
+    task: Task,
+    context: ContextTypes.DEFAULT_TYPE,
+    student_name: str | None = None,
+) -> None:
+    """Send textual information about the task before attachments."""
+    text = _build_task_info_text(task, student_name=student_name)
+    await context.bot.send_message(
+        chat_id=chat_id,
+        text=text,
+        parse_mode="Markdown",
+    )
+
+
+async def _send_task_payload(
+    chat_id: int,
+    task: Task,
+    context: ContextTypes.DEFAULT_TYPE,
+    pdf_data: tuple[str, bytes, str | None] | None = None,
+    reply_markup=None,
+) -> None:
+    if pdf_data is None:
+        pdf_data = get_student_anketa_pdf(student_id=task.student_id)
+
+    pdf_filename, pdf_bytes, _ = pdf_data
     pdf_file = InputFile(BytesIO(pdf_bytes), filename=pdf_filename)
 
-    if keyboard_type == "action":
-        reply_markup = get_mentor_action_keyboard()
-    elif keyboard_type == "action_with_back":
-        reply_markup = get_mentor_action_with_back_keyboard()
-
-    await bot.send_document(
+    await context.bot.send_document(
         chat_id=chat_id,
         document=pdf_file,
-        caption=f"{student_full_name}" if student_full_name else None,
         reply_markup=reply_markup,
     )
 
-    if context:
-        context.user_data["current_task_id"] = task.id
-        context.user_data["mentor_id"] = task.mentor_id
-
-    await send_media_to_chat(bot, chat_id, task.file_id)
+    await send_media_to_chat(context.bot, chat_id, task.file_id)
 
 
-async def send_media_to_chat(bot, chat_id: int, file_id: str) -> None:
-    """Send task media directly to a chat. For text messages, uses copy_message. For media, uses file_id."""
+async def send_media_to_chat(bot, chat_id: int, file_id: str) -> Message | MessageId:
+    """Send task media directly to a chat and return the Telegram message metadata."""
     # Check if it's a message reference (text message)
     msg_ref = parse_message_reference(file_id)
     if msg_ref:
         from_chat_id, message_id = msg_ref
         # Copy the original message to mentor
-        await bot.copy_message(
+        return await bot.copy_message(
             chat_id=chat_id,
             from_chat_id=from_chat_id,
             message_id=message_id,
         )
     else:
         # It's a regular file_id, try to send as different media types
-        await _try_send_media_types(bot, chat_id, file_id)
+        return await _try_send_media_types(bot, chat_id, file_id)
 
 
-async def _try_send_media_types(bot, chat_id: int, file_id: str) -> None:
+async def _try_send_media_types(bot, chat_id: int, file_id: str) -> Message | MessageId:
     """Try to send media as different types (video, video_note, audio, document, photo, voice)."""
     try:
-        await bot.send_video(chat_id=chat_id, video=file_id)
+        return await bot.send_video(chat_id=chat_id, video=file_id)
     except Exception:
         try:
-            await bot.send_video_note(chat_id=chat_id, video_note=file_id)
+            return await bot.send_video_note(chat_id=chat_id, video_note=file_id)
         except Exception:
             try:
-                await bot.send_audio(chat_id=chat_id, audio=file_id)
+                return await bot.send_audio(chat_id=chat_id, audio=file_id)
             except Exception:
                 try:
-                    await bot.send_document(chat_id=chat_id, document=file_id)
+                    return await bot.send_document(chat_id=chat_id, document=file_id)
                 except Exception:
                     try:
-                        await bot.send_photo(chat_id=chat_id, photo=file_id)
+                        return await bot.send_photo(chat_id=chat_id, photo=file_id)
                     except Exception:
                         try:
-                            await bot.send_voice(chat_id=chat_id, voice=file_id)
+                            return await bot.send_voice(chat_id=chat_id, voice=file_id)
                         except Exception as e:
                             logger.error(
                                 f"Could not send media with file_id {file_id} to chat {chat_id}: {e}"
@@ -181,35 +180,16 @@ async def _try_send_media_types(bot, chat_id: int, file_id: str) -> None:
                             raise
 
 
-async def end_conversation_with_mentor(
-    update: Update, context: ContextTypes.DEFAULT_TYPE, mentor_id: int
-) -> None:
-    """End conversation with mentor, checking for previous tasks."""
-    # Check if there's a previous task (updated within last 60 minutes and created before current)
-    previous_task = get_previous_task(mentor_id, None)
-    if previous_task:
-        # Store data for back button handler
-        context.user_data["previous_task_id"] = previous_task.id
-        context.user_data["current_task_id"] = None
-        await update.message.reply_text(
-            MENTOR_PREVIOUS_TASK_INVITE,
-            reply_markup=get_back_only_keyboard(),
-        )
-    else:
-        await update.message.reply_text(
-            MENTOR_NO_TASK, reply_markup=ReplyKeyboardRemove()
-        )
-        context.user_data.clear()
-
-
 async def handle_mentor_action(
     update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> None:
     """Handle mentor action buttons: approve, disapprove."""
+    await delete_user_message(update.message)
+
     text = update.message.text
 
-    mentor = find_by_tg_id(update.effective_user.id)
-    if not mentor or mentor.role != UserRole.MENTOR:
+    user = find_by_tg_id(update.effective_user.id)
+    if not user or user.role != UserRole.MENTOR:
         logger.warning("Mentor action attempted by non-mentor user")
         await update.message.reply_text(
             ERROR_MESSAGE, reply_markup=ReplyKeyboardRemove()
@@ -259,13 +239,11 @@ async def handle_mentor_action(
 
     # Get next task
     try:
-        next_task = get_next_task(mentor.id, current_task_id)
+        next_task = get_earliest_task(user.id)
         if next_task:
-            await show_task_to_mentor(
-                update, context, next_task, keyboard_type="action_with_back"
-            )
+            await send_task(update.effective_chat.id, next_task, context=context)
         else:
-            await end_conversation_with_mentor(update, context, mentor.id)
+            await end_conversation_with_mentor(update, context, user.id)
     except Exception as e:
         logger.error(f"Error getting next task: {e}")
         await update.message.reply_text(
@@ -278,7 +256,11 @@ async def handle_pagination_back(
     update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> None:
     """Handle pagination back button - show previous task."""
-    text = update.message.text
+    message = update.message
+
+    await delete_user_message(message)
+
+    text = message.text if message else None
 
     if text != BACK_BUTTON:
         await update.message.reply_text(
@@ -296,78 +278,253 @@ async def handle_pagination_back(
         context.user_data.clear()
         return
 
-    current_task_id = context.user_data.get("current_task_id")
-    mentor_id = mentor.id
-    previous_task_id = context.user_data.get("previous_task_id")
-
-    # Check if we're coming from the "no earliest task" state
-    if previous_task_id and not current_task_id:
-        try:
-            previous_task = get_task_by_id(previous_task_id)
-            if previous_task:
-                # Check if there is a task before previous_task - if not, no back button needed
-                task_before_previous = get_previous_task(mentor_id, previous_task.id)
-                keyboard_type = (
-                    "action" if task_before_previous is None else "action_with_back"
-                )
-                await show_task_to_mentor(
-                    update,
-                    context,
-                    previous_task,
-                    keyboard_type=keyboard_type,
-                )
-                # Clear the stored previous_task_id since we've shown it
-                context.user_data.pop("previous_task_id", None)
-                return
-            else:
-                logger.warning(f"Previous task {previous_task_id} not found")
-                await update.message.reply_text(
-                    ERROR_MESSAGE, reply_markup=get_support_keyboard()
-                )
-                context.user_data.clear()
-                return
-        except Exception as e:
-            logger.error(f"Error getting previous task: {e}")
+    try:
+        history_message = await _present_decided_task_view(
+            chat_id=update.effective_chat.id,
+            mentor_id=mentor.id,
+            context=context,
+            resend_media=True,
+        )
+        if not history_message:
+            logger.warning("No decided tasks found for back navigation")
             await update.message.reply_text(
-                ERROR_MESSAGE, reply_markup=get_support_keyboard()
+                NO_PREVIOUS_TASKS, reply_markup=get_support_keyboard()
             )
-            context.user_data.clear()
+            context.user_data.pop(HISTORY_STATE_KEY, None)
+    except Exception as e:
+        logger.error(f"Error showing decided task: {e}")
+        await update.message.reply_text(
+            ERROR_MESSAGE, reply_markup=get_support_keyboard()
+        )
+        context.user_data.clear()
+
+
+async def _present_decided_task_view(
+    chat_id: int,
+    mentor_id: int,
+    context: ContextTypes.DEFAULT_TYPE,
+    target_task_id: int | None = None,
+    resend_media: bool = True,
+) -> Message | None:
+    decided_context = get_decided_task_context(mentor_id, target_task_id)
+    if not decided_context:
+        return None
+
+    message = await _send_decided_task_summary(
+        chat_id=chat_id,
+        decided_context=decided_context,
+        context=context,
+    )
+
+    if resend_media:
+        await _send_task_payload(
+            chat_id=chat_id,
+            task=decided_context.task,
+            context=context,
+            reply_markup=None,
+        )
+
+    context.user_data[HISTORY_STATE_KEY] = {
+        "chat_id": chat_id,
+        "message_id": message.message_id,
+        "task_id": decided_context.task.id,
+    }
+
+    return message
+
+
+async def _send_decided_task_summary(
+    chat_id: int,
+    decided_context: DecidedTaskContext,
+    context: ContextTypes.DEFAULT_TYPE,
+) -> Message:
+    keyboard = get_decided_task_navigation_keyboard(
+        older_task_id=decided_context.older_task_id,
+        newer_task_id=decided_context.newer_task_id,
+    )
+    text = _build_task_info_text(decided_context.task)
+
+    return await context.bot.send_message(
+        chat_id=chat_id,
+        text=text,
+        reply_markup=keyboard,
+        parse_mode="Markdown",
+    )
+
+
+def _get_task_status_label(task: Task) -> str:
+    status_labels = {
+        TaskStatus.APPROVED: TASK_STATUS_APPROVED,
+        TaskStatus.DISAPPROVED: TASK_STATUS_DISAPPROVED,
+        TaskStatus.UNCHECKED: TASK_STATUS_UNCHECKED,
+    }
+    return status_labels.get(task.status, task.status.value.title())
+
+
+def _get_student_name(student_id: int) -> str:
+    student = get_by_id(student_id)
+    if not student:
+        return "-"
+    parts = [student.first_name, student.last_name]
+    name = " ".join(filter(None, parts)).strip()
+    return name or "-"
+
+
+def _build_task_info_text(
+    task: Task,
+    student_name: str | None = None,
+) -> str:
+    status_text = _get_task_status_label(task)
+    created_at = task.created_at.strftime("%d.%m %H:%M") if task.created_at else "—"
+    student_text = student_name or _get_student_name(task.student_id)
+
+    return TASK_INFO_TEMPLATE.format(
+        student_name=student_text,
+        status=status_text,
+        created_at=created_at,
+    )
+
+
+async def _notify_history_status_change(
+    context: ContextTypes.DEFAULT_TYPE,
+    mentor_id: int,
+    task_id: int,
+) -> None:
+    """Refresh inline summary after mentor changes status via history flow."""
+    history_state = context.user_data.get(HISTORY_STATE_KEY, {})
+    chat_id = history_state.get("chat_id")
+
+    if chat_id is None:
+        return
+
+    try:
+        decided_context = get_decided_task_context(mentor_id, task_id)
+        if not decided_context:
             return
 
-    # Normal back navigation using get_previous_task
+        keyboard = get_decided_task_navigation_keyboard(
+            older_task_id=decided_context.older_task_id,
+            newer_task_id=decided_context.newer_task_id,
+        )
+        status_text = _get_task_status_label(decided_context.task)
+        await context.bot.send_message(
+            chat_id=chat_id,
+            text=HISTORY_STATUS_UPDATED_TEMPLATE.format(status=status_text),
+            reply_markup=keyboard,
+        )
+    except Exception as e:
+        logger.error(f"Error notifying about history status change: {e}")
+
+
+async def end_conversation_with_mentor(
+    update: Update, context: ContextTypes.DEFAULT_TYPE, mentor_id: int
+) -> None:
+    """End conversation with mentor, checking for previous tasks."""
+    context.user_data.clear()
+    await update.message.reply_text(
+        MENTOR_PREVIOUS_TASK_INVITE,
+        reply_markup=get_back_only_keyboard(),
+    )
+
+
+async def handle_history_navigation_message(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> None:
+    """Handle reply keyboard navigation buttons for decided tasks."""
+    message = update.message
+    await delete_user_message(message)
+
+    text = message.text if message else None
+    if text not in (HISTORY_NAV_LEFT, HISTORY_NAV_RIGHT):
+        return
+
+    mentor = find_by_tg_id(update.effective_user.id)
+    if not mentor or mentor.role != UserRole.MENTOR:
+        logger.warning("History navigation attempted by non-mentor user")
+        await update.message.reply_text(
+            ERROR_MESSAGE, reply_markup=get_support_keyboard()
+        )
+        context.user_data.clear()
+        return
+
+    history_state = context.user_data.get(HISTORY_STATE_KEY)
+    current_task_id = (history_state or {}).get("task_id")
     if not current_task_id:
         await update.message.reply_text(
             NO_PREVIOUS_TASKS, reply_markup=get_support_keyboard()
         )
         return
 
+    decided_context = get_decided_task_context(mentor.id, current_task_id)
+    if not decided_context:
+        await update.message.reply_text(
+            NO_PREVIOUS_TASKS, reply_markup=get_support_keyboard()
+        )
+        return
+
+    target_task_id = (
+        decided_context.older_task_id
+        if text == HISTORY_NAV_LEFT
+        else decided_context.newer_task_id
+    )
+
+    if not target_task_id:
+        await update.message.reply_text(NO_PREVIOUS_TASKS)
+        return
+
     try:
-        # Get previous task chronologically
-        previous_task = get_previous_task(mentor_id, current_task_id)
-        if previous_task:
-            # Check if there is a task before previous_task - if not, no back button needed
-            task_before_previous = get_previous_task(mentor_id, previous_task.id)
-            keyboard_type = (
-                "action" if task_before_previous is None else "action_with_back"
-            )
-            await show_task_to_mentor(
-                update,
-                context,
-                previous_task,
-                keyboard_type=keyboard_type,
-            )
-        else:
-            logger.warning("No previous task found")
+        message = await _present_decided_task_view(
+            chat_id=update.effective_chat.id,
+            mentor_id=mentor.id,
+            context=context,
+            target_task_id=target_task_id,
+            resend_media=True,
+        )
+        if not message:
             await update.message.reply_text(
                 NO_PREVIOUS_TASKS, reply_markup=get_support_keyboard()
             )
-            context.user_data.clear()
+            context.user_data.pop(HISTORY_STATE_KEY, None)
     except Exception as e:
-        logger.error(f"Error getting previous task: {e}")
+        logger.error(f"Error navigating decided tasks: {e}")
         await update.message.reply_text(
             ERROR_MESSAGE, reply_markup=get_support_keyboard()
         )
         context.user_data.clear()
+
+
+async def handle_history_done_message(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> None:
+    """Handle 'Done' reply button - exit history and fetch earliest task."""
+    message = update.message
+    await delete_user_message(message)
+
+    mentor = find_by_tg_id(update.effective_user.id)
+    if not mentor or mentor.role != UserRole.MENTOR:
+        logger.warning("History done attempted by non-mentor user")
+        await update.message.reply_text(
+            ERROR_MESSAGE, reply_markup=get_support_keyboard()
+        )
+        context.user_data.clear()
+        return
+
+    context.user_data.pop(HISTORY_STATE_KEY, None)
+
+    task = get_earliest_task(mentor.id)
+    if task:
+        try:
+            await send_task(update.effective_chat.id, task, context=context)
+        except Exception as e:
+            logger.error(f"Error sending earliest task in history done: {e}")
+            await update.message.reply_text(
+                ERROR_MESSAGE, reply_markup=get_support_keyboard()
+            )
+            context.user_data.clear()
+    else:
+        await update.message.reply_text(
+            MENTOR_NO_TASK, reply_markup=get_back_only_keyboard()
+        )
 
 
 async def handle_check_task_callback(
@@ -410,9 +567,7 @@ async def handle_check_task_callback(
 
     # Send the task and store context
     try:
-        await show_task_to_mentor_chat(
-            context.bot, mentor.tg_id, task, keyboard_type="action", context=context
-        )
+        await send_task(mentor.tg_id, task, context=context)
         logger.info(f"Sent task {task_id} to mentor {mentor.id} via callback")
     except Exception as e:
         logger.error(f"Error sending task {task_id} to mentor: {e}")
@@ -434,6 +589,71 @@ def parse_message_reference(file_id: str) -> tuple[int, int] | None:
     return None
 
 
+async def handle_history_change_button(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> None:
+    """Toggle decided task status between approved/disapproved."""
+    message = update.message
+    await delete_user_message(message)
+
+    mentor = find_by_tg_id(update.effective_user.id)
+    if not mentor or mentor.role != UserRole.MENTOR:
+        logger.warning("History change attempted by non-mentor user")
+        await update.message.reply_text(
+            ERROR_MESSAGE, reply_markup=get_support_keyboard()
+        )
+        context.user_data.clear()
+        return
+
+    history_state = context.user_data.get(HISTORY_STATE_KEY) or {}
+    task_id = history_state.get("task_id")
+    if not task_id:
+        await update.message.reply_text(
+            NO_PREVIOUS_TASKS, reply_markup=get_support_keyboard()
+        )
+        return
+
+    task = get_task_by_id(task_id)
+    if not task:
+        logger.warning(f"History task {task_id} not found for mentor {mentor.id}")
+        await update.message.reply_text(
+            ERROR_MESSAGE, reply_markup=get_support_keyboard()
+        )
+        context.user_data.pop(HISTORY_STATE_KEY, None)
+        return
+
+    if task.status == TaskStatus.APPROVED:
+        new_status = TaskStatus.DISAPPROVED
+        status_callback = disapprove_task
+    elif task.status == TaskStatus.DISAPPROVED:
+        new_status = TaskStatus.APPROVED
+        status_callback = approve_task
+    else:
+        logger.warning(
+            f"Cannot toggle status {task.status} for task {task.id} in history view"
+        )
+        await update.message.reply_text(
+            NO_PREVIOUS_TASKS, reply_markup=get_support_keyboard()
+        )
+        return
+
+    try:
+        update_task_status(task.id, new_status)
+        status_callback(task.id)
+        logger.info(
+            f"Toggled history task {task.id} status to {new_status.value} for mentor {mentor.id}"
+        )
+    except Exception as e:
+        logger.error(f"Error toggling history task {task.id} status: {e}")
+        await update.message.reply_text(
+            ERROR_MESSAGE, reply_markup=get_support_keyboard()
+        )
+        context.user_data.clear()
+        return
+
+    await _notify_history_status_change(context, mentor.id, task.id)
+
+
 # Standalone handlers for mentor flow
 mentor_back_button_handler = MessageHandler(
     filters.TEXT & ~filters.COMMAND & filters.Regex(f"^{BACK_BUTTON}$"),
@@ -449,4 +669,21 @@ mentor_action_handler = MessageHandler(
 
 mentor_check_task_handler = CallbackQueryHandler(
     handle_check_task_callback, pattern="^check_task_"
+)
+
+mentor_history_nav_handler = MessageHandler(
+    filters.TEXT
+    & ~filters.COMMAND
+    & filters.Regex(f"^({HISTORY_NAV_LEFT}|{HISTORY_NAV_RIGHT})$"),
+    handle_history_navigation_message,
+)
+
+mentor_history_change_handler = MessageHandler(
+    filters.TEXT & ~filters.COMMAND & filters.Regex(f"^{CHANGE_STATUS_BUTTON}$"),
+    handle_history_change_button,
+)
+
+mentor_history_done_handler = MessageHandler(
+    filters.TEXT & ~filters.COMMAND & filters.Regex(f"^{DONE_BUTTON}$"),
+    handle_history_done_message,
 )

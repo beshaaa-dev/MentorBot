@@ -13,6 +13,8 @@ from messages import (
     DISAPPROVE_BUTTON,
     BACK_BUTTON,
     CHECK_TASK_BUTTON,
+    CHANGE_STATUS_BUTTON,
+    DONE_BUTTON,
 )
 
 
@@ -32,16 +34,6 @@ def get_confirmation_keyboard() -> ReplyKeyboardMarkup:
 
 
 def get_mentor_action_keyboard() -> ReplyKeyboardMarkup:
-    keyboard = [
-        [
-            KeyboardButton(APPROVE_BUTTON),
-            KeyboardButton(DISAPPROVE_BUTTON),
-        ]
-    ]
-    return ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=True)
-
-
-def get_mentor_action_with_back_keyboard() -> ReplyKeyboardMarkup:
     keyboard = [
         [
             KeyboardButton(APPROVE_BUTTON),
@@ -68,3 +60,25 @@ def get_check_task_keyboard(task_id: int) -> InlineKeyboardMarkup:
         ]
     ]
     return InlineKeyboardMarkup(keyboard)
+
+
+def get_decided_task_navigation_keyboard(
+    older_task_id: int | None,
+    newer_task_id: int | None,
+) -> ReplyKeyboardMarkup:
+    """Reply keyboard for navigating decided tasks within the last hour."""
+    navigation_row: list[KeyboardButton] = []
+    if older_task_id is not None:
+        navigation_row.append(KeyboardButton("Назад"))
+    if newer_task_id is not None:
+        navigation_row.append(KeyboardButton("Вперёд"))
+    change_status_row = [KeyboardButton(CHANGE_STATUS_BUTTON)]
+    done_row = [KeyboardButton(DONE_BUTTON)]
+
+    rows: list[list[KeyboardButton]] = []
+    if navigation_row:
+        rows.append(navigation_row)
+    rows.append(change_status_row)
+    rows.append(done_row)
+
+    return ReplyKeyboardMarkup(rows, resize_keyboard=True, one_time_keyboard=True)
