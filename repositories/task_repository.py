@@ -12,7 +12,8 @@ from database.task_service import (
 from database.user_service import find_by_tg_id, find_by_tg_nickname
 from database.models import Task, TaskStatus
 from logger import setup_logger
-from crm_service import get_crm_lead, update_lead_status, send_note
+from crm.crm_service import get_crm_lead, update_lead_status, send_note
+import config
 
 logger = setup_logger(__name__)
 
@@ -55,6 +56,11 @@ def create_task(student_tg_id: int, file_id: str) -> Task:
     mentor_tg_nickname = lead.mentor_tg_nickname
     if not mentor_tg_nickname:
         raise ValueError(f"Lead with CRM ID {student.crm_id} has no mentor ID")
+    mentor_tg_nickname = mentor_tg_nickname.lstrip("@")
+    if not mentor_tg_nickname:
+        raise ValueError(
+            f"Lead with CRM ID {student.crm_id} has invalid mentor nickname"
+        )
 
     # Find mentor user by nickname
     mentor = find_by_tg_nickname(mentor_tg_nickname)
@@ -63,7 +69,7 @@ def create_task(student_tg_id: int, file_id: str) -> Task:
             f"Mentor with Telegram nickname {mentor_tg_nickname} not found"
         )
 
-    update_lead_status(student.crm_id, "А2")
+    update_lead_status(student.crm_id, config.CRM_TASK_STATUS_IS_DONE)
 
     task = _create_task(
         student_id=student.id,
@@ -141,7 +147,7 @@ def approve_task(task_id: int):
         logger.warning(f"Task with id={task_id} not found")
         return
 
-    update_lead_status(task.lead_id, "А3")
+    update_lead_status(task.lead_id, config.CRM_TASK_STATUS_IS_APPROVED)
 
 
 def disapprove_task(task_id: int):
@@ -156,7 +162,7 @@ def disapprove_task(task_id: int):
         logger.warning(f"Task with id={task_id} not found")
         return
 
-    update_lead_status(task.lead_id, "А4")
+    update_lead_status(task.lead_id, config.CRM_TASK_STATUS_IS_DISAPPROVED)
 
 
 def mark_task_as_failed(task_id: int):

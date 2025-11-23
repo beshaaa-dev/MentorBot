@@ -8,7 +8,7 @@ from telegram.ext import Application
 from logger import setup_logger
 from handlers import handlers
 from database.db_helper import init_db
-from crm_service import init_amo_crm_integration
+from crm.crm_service import init_amo_crm_integration
 
 logger = setup_logger(__name__)
 

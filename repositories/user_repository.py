@@ -7,15 +7,16 @@ from database.user_service import (
 )
 from database.models import User, UserRole
 from logger import setup_logger
-from crm_service import (
+from crm.crm_service import (
     get_crm_user_by_tg_id as _get_crm_user_by_tg_id,
     get_crm_user_by_id as _get_crm_user_by_id,
     Lead,
 )
 from datetime import datetime
-from crm_service import Contact
+from crm.crm_service import Contact
 from repositories.pdf_generator import create_anketa_pdf
 import re
+from config import CRM_TASK_STATUS_IS_READY, CRM_PIPELINE_ID
 
 logger = setup_logger(__name__)
 
@@ -164,9 +165,15 @@ def get_first_lead(crm_user: Contact) -> Lead | None:
     """
     if not crm_user.leads:
         return None
-
     return next(
-        (lead for lead in crm_user.leads if lead.status and lead.status.name == "А1"),
+        (
+            lead
+            for lead in crm_user.leads
+            if lead.pipeline
+            and str(lead.pipeline.id) == str(CRM_PIPELINE_ID)
+            and lead.status
+            and lead.status.id == CRM_TASK_STATUS_IS_READY
+        ),
         None,
     )
 
