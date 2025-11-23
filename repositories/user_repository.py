@@ -1,3 +1,4 @@
+from dataclasses import dataclass
 from database.user_service import (
     create_user as _create_user,
     find_by_tg_id,
@@ -20,7 +21,26 @@ from config import CRM_TASK_STATUS_IS_READY, CRM_PIPELINE_ID
 
 logger = setup_logger(__name__)
 
+
+@dataclass(slots=True)
+class TaskDetails:
+    text: str
+    deadline: str | None = None
+
+
 DEFAULT_ANKETA_FILENAME = "anketa.pdf"
+
+
+def _build_task_details(lead: Lead | None) -> TaskDetails | None:
+    if not lead:
+        return None
+
+    task_text = lead.task
+    if not task_text:
+        return None
+
+    deadline = _format_deadline(lead.task_deadline)
+    return TaskDetails(text=task_text, deadline=deadline)
 
 
 def _build_pdf_filename(student_full_name: str) -> str:
@@ -69,7 +89,7 @@ def create_student_if_needed(tg_id: int, tg_nickname: str | None) -> User:
     return user
 
 
-def get_crm_user(user: User) -> tuple[User | None, str | None]:
+def get_crm_user(user: User) -> tuple[User | None, TaskDetails | None]:
     if not user.tg_id:
         logger.debug(f"Skip CRM sync for user id={user.id}: missing tg_id")
         return None, None
@@ -93,7 +113,7 @@ def get_crm_user(user: User) -> tuple[User | None, str | None]:
     if not first_lead:
         return updated_user, None
 
-    task = first_lead.task if first_lead else None
+    task = _build_task_details(first_lead)
 
     # Создаем ментора если он еще не существует в БД
     mentor_tg_nickname = first_lead.mentor_tg_nickname if first_lead else None
@@ -134,7 +154,7 @@ def create_mentor_if_needed(mentor_tg_nickname: str | None):
     )
 
 
-def get_task(user_crm_id: str) -> str | None:
+def get_task(user_crm_id: str) -> TaskDetails | None:
     crm_user = _get_crm_user_by_id(user_crm_id)
 
     if not crm_user:
@@ -149,8 +169,23 @@ def get_task(user_crm_id: str) -> str | None:
     mentor_tg_nickname = first_lead.mentor_tg_nickname if first_lead else None
     create_mentor_if_needed(mentor_tg_nickname)
 
-    task = first_lead.task if first_lead else None
-    return task
+    return _build_task_details(first_lead)
+
+
+def _format_deadline(deadline: str | datetime | None) -> str | None:
+    if not deadline:
+        return None
+
+    if isinstance(deadline, datetime):
+        date_obj = deadline
+    else:
+        value = str(deadline).strip()
+        try:
+            date_obj = datetime.strptime(value, "%Y-%m-%d")
+        except ValueError:
+            return value
+
+    return date_obj.strftime("%d-%m-%Y")
 
 
 def get_first_lead(crm_user: Contact) -> Lead | None:

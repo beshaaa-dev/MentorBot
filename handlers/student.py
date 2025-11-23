@@ -8,7 +8,7 @@ from telegram.ext import (
 )
 from logger import setup_logger
 import json
-from repositories.user_repository import get_task
+from repositories.user_repository import get_task, TaskDetails
 from repositories.task_repository import create_task, mark_task_as_failed
 from database.user_service import get_by_id
 from database.models import User, UserRole
@@ -17,6 +17,7 @@ from messages import (
     GREETING_WITH_NAME_TEMPLATE,
     STUDENT_NO_TASK,
     TASK,
+    TASK_DEADLINE,
     REQUEST_VIDEO,
     VIDEO_RECEIVED,
     VIDEO_CONFIRMED,
@@ -48,7 +49,7 @@ async def handle_student(
 
 
 async def send_task_message(
-    task: str | None, update: Update, context: ContextTypes.DEFAULT_TYPE
+    task: TaskDetails | None, update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> int:
     if not task:
         await update.message.reply_text(
@@ -56,7 +57,10 @@ async def send_task_message(
         )
         context.user_data.clear()
         return ConversationHandler.END
-    message = TASK.format(text=task)
+    deadline_block = (
+        TASK_DEADLINE.format(deadline=task.deadline) if task.deadline else ""
+    )
+    message = TASK.format(text=task.text) + deadline_block
     await update.message.reply_text(
         message, parse_mode="Markdown", reply_markup=ReplyKeyboardRemove()
     )

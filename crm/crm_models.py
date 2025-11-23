@@ -8,6 +8,7 @@ class Contact(_Contact):
 class Lead(_Lead):
     task = custom_field.TextCustomField("Задание от наставника")
     mentor_tg_nickname = custom_field.TextCustomField("тг наставника")
+    task_deadline = custom_field.DateCustomField("Дедлайн задания")
     city = custom_field.TextCustomField("В каком городе вы живете?")
     source = custom_field.TextCustomField("Откуда вы узнали о Поколении?")
     why_this_mentor = custom_field.TextCustomField(
