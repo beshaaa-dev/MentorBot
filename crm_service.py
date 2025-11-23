@@ -1,4 +1,5 @@
 from amocrm.v2 import Pipeline, tokens, custom_field, Contact as _Contact, Lead as _Lead
+from amocrm.v2.entity.note import COMMON_TYPE
 import config
 from logger import setup_logger
 from rate_limiter import amo_crm_rate_limiter
@@ -7,7 +8,7 @@ logger = setup_logger(__name__)
 
 
 class Contact(_Contact):
-    telegram_id = custom_field.TextCustomField("TelegramUsername_WZ")
+    telegram_id = custom_field.TextCustomField("TelegramId_WZ")
 
 
 class Lead(_Lead):
@@ -85,11 +86,18 @@ def init_amo_crm_token():
         raise e
 
 
-def get_crm_user_by_tg_nickname(nickname: str) -> Contact | None:
+def get_crm_user_by_tg_id(tg_id: int | str | None) -> Contact | None:
+    if tg_id is None:
+        return None
+
     with amo_crm_rate_limiter.limit():
-        contacts = Contact.objects.filter(query=nickname)
+        contacts = Contact.objects.filter(query=tg_id)
+
+    tg_id_str = str(tg_id).strip()
+
     for contact in contacts:
-        if contact.telegram_id == nickname:
+        contact_tg_id = contact.telegram_id
+        if contact_tg_id and str(contact_tg_id).strip() == tg_id_str:
             for contact_lead in contact.leads:
                 if contact_lead.status.id != 143 and contact_lead.status.id != 142:
                     return contact
@@ -141,3 +149,13 @@ def update_lead_status(id: int, status: str) -> Lead | None:
             lead.save()
         return lead
     return None
+
+
+def send_note(lead_id: int, note: str):
+    with amo_crm_rate_limiter.limit():
+        leads = Lead.objects.filter(query=lead_id)
+    lead = next(iter(leads), None)
+    if lead:
+        with amo_crm_rate_limiter.limit():
+            lead.notes.objects.create(text=note, note_type=COMMON_TYPE)
+            lead.save()

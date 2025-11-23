@@ -8,7 +8,7 @@ from database.user_service import (
 from database.models import User, UserRole
 from logger import setup_logger
 from crm_service import (
-    get_crm_user_by_tg_nickname as _get_crm_user_by_tg_nickname,
+    get_crm_user_by_tg_id as _get_crm_user_by_tg_id,
     get_crm_user_by_id as _get_crm_user_by_id,
     Lead,
 )
@@ -69,7 +69,11 @@ def create_student_if_needed(tg_id: int, tg_nickname: str | None) -> User:
 
 
 def get_crm_user(user: User) -> tuple[User | None, str | None]:
-    crm_user = _get_crm_user_by_tg_nickname(user.tg_nickname)
+    if not user.tg_id:
+        logger.debug(f"Skip CRM sync for user id={user.id}: missing tg_id")
+        return None, None
+
+    crm_user = _get_crm_user_by_tg_id(user.tg_id)
 
     if not crm_user:
         return None, None

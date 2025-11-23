@@ -12,8 +12,7 @@ from database.task_service import (
 from database.user_service import find_by_tg_id, find_by_tg_nickname
 from database.models import Task, TaskStatus
 from logger import setup_logger
-from crm_service import get_crm_lead, update_lead_status
-from repositories.user_repository import create_mentor_if_needed, get_first_lead
+from crm_service import get_crm_lead, update_lead_status, send_note
 
 logger = setup_logger(__name__)
 
@@ -166,7 +165,10 @@ def mark_task_as_failed(task_id: int):
         logger.warning(f"Task with id={task_id} not found")
         return
 
-    update_lead_status(task.lead_id, "А0")
+    send_note(
+        task.lead_id,
+        "Не удалось отправить задание наставнику: наставник не указан или не зарегистрирован в боте.",
+    )
 
 
 def get_next_task(mentor_id: int, current_task_id: int) -> Task | None:
