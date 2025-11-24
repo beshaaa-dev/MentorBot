@@ -8,6 +8,7 @@ from telegram.ext import (
 from logger import setup_logger
 from io import BytesIO
 import json
+from timezone_utils import format_moscow
 from repositories.user_repository import get_student_anketa_pdf
 from database.user_service import find_by_tg_id, get_by_id
 from repositories.task_repository import (
@@ -18,6 +19,7 @@ from repositories.task_repository import (
     disapprove_task,
     get_decided_task_context,
     DecidedTaskContext,
+    get_tasks_for_mentor_by_status,
 )
 from keyboards import (
     get_mentor_action_keyboard,
@@ -41,6 +43,12 @@ from messages import (
     DONE_BUTTON,
     CHANGE_STATUS_BUTTON,
     HISTORY_STATUS_UPDATED_TEMPLATE,
+    APPROVED_STUDENTS_BUTTON,
+    DISAPPROVED_STUDENTS_BUTTON,
+    APPROVED_STUDENTS_HEADER,
+    DISAPPROVED_STUDENTS_HEADER,
+    STUDENT_LIST_EMPTY_MESSAGE,
+    STUDENT_LIST_CONTINUATION_LABEL,
 )
 from database.models import Task, TaskStatus, User, UserRole
 from handlers.utils import send_error_message, delete_user_message
@@ -50,6 +58,7 @@ logger = setup_logger(__name__)
 HISTORY_STATE_KEY = "history_state"
 HISTORY_NAV_LEFT = "Назад"
 HISTORY_NAV_RIGHT = "Вперёд"
+TELEGRAM_MESSAGE_CHAR_LIMIT = 4096
 
 
 async def handle_mentor(
@@ -305,8 +314,11 @@ async def _present_decided_task_view(
     context: ContextTypes.DEFAULT_TYPE,
     target_task_id: int | None = None,
     resend_media: bool = True,
+    cached_task_ids: list[int] | None = None,
 ) -> Message | None:
-    decided_context = get_decided_task_context(mentor_id, target_task_id)
+    decided_context = get_decided_task_context(
+        mentor_id, target_task_id, cached_task_ids=cached_task_ids
+    )
     if not decided_context:
         return None
 
@@ -328,6 +340,7 @@ async def _present_decided_task_view(
         "chat_id": chat_id,
         "message_id": message.message_id,
         "task_id": decided_context.task.id,
+        "cached_task_ids": decided_context.cached_task_ids,
     }
 
     return message
@@ -375,7 +388,7 @@ def _build_task_info_text(
     student_name: str | None = None,
 ) -> str:
     status_text = _get_task_status_label(task)
-    created_at = task.created_at.strftime("%d.%m %H:%M") if task.created_at else "—"
+    created_at = format_moscow(task.created_at)
     student_text = student_name or _get_student_name(task.student_id)
 
     return TASK_INFO_TEMPLATE.format(
@@ -383,6 +396,36 @@ def _build_task_info_text(
         status=status_text,
         created_at=created_at,
     )
+
+
+def _build_student_names_from_tasks(tasks: list[Task]) -> list[str]:
+    seen_ids: set[int] = set()
+    names: list[str] = []
+    for task in tasks:
+        if task.student_id in seen_ids:
+            continue
+        seen_ids.add(task.student_id)
+        names.append(_get_student_name(task.student_id))
+    return names
+
+
+def _chunk_student_list_messages(header: str, student_names: list[str]) -> list[str]:
+    if not student_names:
+        return [f"{header}\n{STUDENT_LIST_EMPTY_MESSAGE}"]
+
+    messages: list[str] = []
+    current = header
+
+    for name in student_names:
+        line = f"\n• {name}"
+        if len(current) + len(line) > TELEGRAM_MESSAGE_CHAR_LIMIT:
+            messages.append(current)
+            current = f"{STUDENT_LIST_CONTINUATION_LABEL}{line}"
+        else:
+            current += line
+
+    messages.append(current)
+    return messages
 
 
 async def _notify_history_status_change(
@@ -393,12 +436,15 @@ async def _notify_history_status_change(
     """Refresh inline summary after mentor changes status via history flow."""
     history_state = context.user_data.get(HISTORY_STATE_KEY, {})
     chat_id = history_state.get("chat_id")
+    cached_task_ids = history_state.get("cached_task_ids")
 
     if chat_id is None:
         return
 
     try:
-        decided_context = get_decided_task_context(mentor_id, task_id)
+        decided_context = get_decided_task_context(
+            mentor_id, task_id, cached_task_ids=cached_task_ids
+        )
         if not decided_context:
             return
 
@@ -447,15 +493,18 @@ async def handle_history_navigation_message(
         context.user_data.clear()
         return
 
-    history_state = context.user_data.get(HISTORY_STATE_KEY)
-    current_task_id = (history_state or {}).get("task_id")
-    if not current_task_id:
+    history_state = context.user_data.get(HISTORY_STATE_KEY) or {}
+    current_task_id = history_state.get("task_id")
+    cached_task_ids = history_state.get("cached_task_ids")
+    if not current_task_id or not cached_task_ids:
         await update.message.reply_text(
             NO_PREVIOUS_TASKS, reply_markup=get_support_keyboard()
         )
         return
 
-    decided_context = get_decided_task_context(mentor.id, current_task_id)
+    decided_context = get_decided_task_context(
+        mentor.id, current_task_id, cached_task_ids=cached_task_ids
+    )
     if not decided_context:
         await update.message.reply_text(
             NO_PREVIOUS_TASKS, reply_markup=get_support_keyboard()
@@ -479,6 +528,7 @@ async def handle_history_navigation_message(
             context=context,
             target_task_id=target_task_id,
             resend_media=True,
+            cached_task_ids=cached_task_ids,
         )
         if not message:
             await update.message.reply_text(
@@ -654,6 +704,63 @@ async def handle_history_change_button(
     await _notify_history_status_change(context, mentor.id, task.id)
 
 
+async def handle_mentor_student_list_request(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> None:
+    message = update.message
+    await delete_user_message(message)
+
+    text = message.text if message else ""
+    status_mapping = {
+        APPROVED_STUDENTS_BUTTON: (
+            TaskStatus.APPROVED,
+            APPROVED_STUDENTS_HEADER,
+        ),
+        DISAPPROVED_STUDENTS_BUTTON: (
+            TaskStatus.DISAPPROVED,
+            DISAPPROVED_STUDENTS_HEADER,
+        ),
+    }
+
+    if text not in status_mapping:
+        return
+
+    mentor = find_by_tg_id(update.effective_user.id)
+    if not mentor or mentor.role != UserRole.MENTOR:
+        logger.warning("Student list requested by non-mentor user")
+        await update.message.reply_text(
+            ERROR_MESSAGE, reply_markup=get_support_keyboard()
+        )
+        context.user_data.clear()
+        return
+
+    target_status, header = status_mapping[text]
+
+    try:
+        tasks = get_tasks_for_mentor_by_status(mentor.id, target_status)
+    except Exception as e:
+        logger.error(
+            f"Error fetching {target_status.value} tasks for mentor {mentor.id}: {e}"
+        )
+        await update.message.reply_text(
+            ERROR_MESSAGE, reply_markup=get_support_keyboard()
+        )
+        context.user_data.clear()
+        return
+
+    student_names = _build_student_names_from_tasks(tasks)
+    messages = _chunk_student_list_messages(header, student_names)
+
+    chat_id = update.effective_chat.id
+
+    for idx, chunk in enumerate(messages):
+        await context.bot.send_message(
+            chat_id=chat_id,
+            text=chunk,
+            reply_markup=ReplyKeyboardRemove(),
+        )
+
+
 # Standalone handlers for mentor flow
 mentor_back_button_handler = MessageHandler(
     filters.TEXT & ~filters.COMMAND & filters.Regex(f"^{BACK_BUTTON}$"),
@@ -686,4 +793,11 @@ mentor_history_change_handler = MessageHandler(
 mentor_history_done_handler = MessageHandler(
     filters.TEXT & ~filters.COMMAND & filters.Regex(f"^{DONE_BUTTON}$"),
     handle_history_done_message,
+)
+
+mentor_student_list_handler = MessageHandler(
+    filters.TEXT
+    & ~filters.COMMAND
+    & filters.Regex(f"^({APPROVED_STUDENTS_BUTTON}|{DISAPPROVED_STUDENTS_BUTTON})$"),
+    handle_mentor_student_list_request,
 )

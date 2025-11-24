@@ -1,7 +1,8 @@
 from database.db_helper import get_db
 from database.models import Task, TaskStatus
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from logger import setup_logger
+from timezone_utils import now_moscow
 
 logger = setup_logger(__name__)
 
@@ -80,6 +81,7 @@ def update_task_status(task_id: int, status: TaskStatus | None = None) -> Task |
             if status is not None:
                 task.status = status
 
+            task.updated_at = now_moscow()
             db.commit()
             db.refresh(task)
             return task
@@ -118,98 +120,7 @@ def find_earliest_task(mentor_id: int, status: TaskStatus) -> Task | None:
             raise
 
 
-def get_next_task(mentor_id: int, current_task_id: int) -> Task | None:
-    """
-    Get the next task after the current task for a given mentor_id.
-    Only considers tasks with status UNCHECKED.
-
-    Args:
-        mentor_id: Mentor user ID (required)
-        current_task_id: Current task ID (required)
-
-    Returns:
-        Next Task instance if found, None otherwise
-
-    Raises:
-        Exception: If database operation fails
-    """
-    with get_db() as db:
-        try:
-            # Get current task to know its created_at timestamp
-            current_task = db.query(Task).filter(Task.id == current_task_id).first()
-            if not current_task:
-                return None
-
-            # Find next task with UNCHECKED status, created after current task
-            task = (
-                db.query(Task)
-                .filter(
-                    Task.mentor_id == mentor_id,
-                    Task.id != current_task_id,
-                    Task.created_at > current_task.created_at,
-                    Task.status == TaskStatus.UNCHECKED,
-                )
-                .order_by(Task.created_at.asc())
-                .first()
-            )
-            return task
-        except Exception as e:
-            logger.error(
-                f"Error getting next task for mentor {mentor_id} after task {current_task_id}: {e}"
-            )
-            raise
-
-
-def get_previous_task(
-    mentor_id: int, current_task_id: int | None = None
-) -> Task | None:
-    """
-    Get the last updated task for a given mentor_id.
-    Only returns tasks updated within the last 60 minutes.
-    If current_task_id is provided, excludes that task and only returns tasks created before it.
-
-    Args:
-        mentor_id: Mentor user ID (required)
-        current_task_id: Current task ID (optional). If provided, excludes this task and only returns tasks created before it.
-
-    Returns:
-        Last updated Task instance if found, None otherwise
-
-    Raises:
-        Exception: If database operation fails
-    """
-    with get_db() as db:
-        try:
-            # Calculate the time threshold (60 minutes ago)
-            threshold_time = datetime.utcnow() - timedelta(minutes=60)
-
-            query = db.query(Task).filter(
-                Task.mentor_id == mentor_id,
-                Task.updated_at >= threshold_time,
-            )
-
-            if current_task_id is not None:
-                # Exclude the current task
-                query = query.filter(Task.id != current_task_id)
-
-                # Get current task to know its created_at timestamp
-                current_task = db.query(Task).filter(Task.id == current_task_id).first()
-                if current_task:
-                    # Only return tasks created before the current task
-                    query = query.filter(Task.created_at < current_task.created_at)
-
-            task = query.order_by(Task.updated_at.desc()).first()
-            return task
-        except Exception as e:
-            logger.error(
-                f"Error getting previous task for mentor {mentor_id} before task {current_task_id}: {e}"
-            )
-            raise
-
-
-def get_recent_decided_tasks(
-    mentor_id: int, window_minutes: int = 60
-) -> list[Task]:
+def get_recent_decided_tasks(mentor_id: int, window_minutes: int = 180) -> list[Task]:
     """
     Return mentor tasks that were decided (approved/disapproved) within the last window.
 
@@ -219,22 +130,38 @@ def get_recent_decided_tasks(
     """
     with get_db() as db:
         try:
-            threshold_time = datetime.utcnow() - timedelta(minutes=window_minutes)
+            threshold_time = now_moscow() - timedelta(minutes=window_minutes)
             tasks = (
                 db.query(Task)
-                    .filter(
-                        Task.mentor_id == mentor_id,
-                        Task.updated_at >= threshold_time,
-                        Task.status.in_(
-                            [TaskStatus.APPROVED, TaskStatus.DISAPPROVED]
-                        ),
-                    )
-                    .order_by(Task.updated_at.desc())
-                    .all()
+                .filter(
+                    Task.mentor_id == mentor_id,
+                    Task.updated_at >= threshold_time,
+                    Task.status.in_([TaskStatus.APPROVED, TaskStatus.DISAPPROVED]),
+                )
+                .order_by(Task.updated_at.desc())
+                .all()
+            )
+            return tasks
+        except Exception as e:
+            logger.error(f"Error getting decided tasks for mentor {mentor_id}: {e}")
+            raise
+
+
+def get_tasks_by_status(mentor_id: int, status: TaskStatus) -> list[Task]:
+    """
+    Return all tasks for a mentor filtered by status, ordered by latest update.
+    """
+    with get_db() as db:
+        try:
+            tasks = (
+                db.query(Task)
+                .filter(Task.mentor_id == mentor_id, Task.status == status)
+                .order_by(Task.updated_at.desc(), Task.id.desc())
+                .all()
             )
             return tasks
         except Exception as e:
             logger.error(
-                f"Error getting decided tasks for mentor {mentor_id}: {e}"
+                f"Error getting tasks for mentor {mentor_id} with status {status}: {e}"
             )
             raise

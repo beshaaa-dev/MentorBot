@@ -15,6 +15,8 @@ from messages import (
     CHECK_TASK_BUTTON,
     CHANGE_STATUS_BUTTON,
     DONE_BUTTON,
+    APPROVED_STUDENTS_BUTTON,
+    DISAPPROVED_STUDENTS_BUTTON,
 )
 
 
@@ -39,13 +41,23 @@ def get_mentor_action_keyboard() -> ReplyKeyboardMarkup:
             KeyboardButton(APPROVE_BUTTON),
             KeyboardButton(DISAPPROVE_BUTTON),
         ],
+        [
+            KeyboardButton(APPROVED_STUDENTS_BUTTON),
+            KeyboardButton(DISAPPROVED_STUDENTS_BUTTON),
+        ],
         [KeyboardButton(BACK_BUTTON)],
     ]
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=True)
 
 
 def get_back_only_keyboard() -> ReplyKeyboardMarkup:
-    keyboard = [[KeyboardButton(BACK_BUTTON)]]
+    keyboard = [
+        [
+            KeyboardButton(APPROVED_STUDENTS_BUTTON),
+            KeyboardButton(DISAPPROVED_STUDENTS_BUTTON),
+        ],
+        [KeyboardButton(BACK_BUTTON)],
+    ]
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=True)
 
 

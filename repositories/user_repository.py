@@ -14,6 +14,7 @@ from crm.crm_service import (
     Lead,
 )
 from datetime import datetime
+from timezone_utils import now_moscow
 from crm.crm_service import Contact
 from repositories.pdf_generator import create_anketa_pdf
 import re
@@ -104,7 +105,7 @@ def get_crm_user(user: User) -> tuple[User | None, TaskDetails | None]:
         crm_id=crm_user.id,
         first_name=crm_user.first_name,
         last_name=crm_user.last_name,
-        registered_at=datetime.now(),
+        registered_at=now_moscow(),
     )
     logger.info(f"Updated user with id={user.id}, crm_id={crm_user.id}")
 
@@ -139,7 +140,7 @@ def create_mentor_if_needed(mentor_tg_nickname: str | None):
     if existing_mentor:
         if existing_mentor.role == UserRole.STUDENT:
             _update_user(
-                existing_mentor.id, role=UserRole.MENTOR, registered_at=datetime.now()
+                existing_mentor.id, role=UserRole.MENTOR, registered_at=now_moscow()
             )
             logger.info(
                 f"Updated student to mentor with id={existing_mentor.id}, tg_nickname={mentor_tg_nickname}"
@@ -185,7 +186,9 @@ def _format_deadline(deadline: str | datetime | None) -> str | None:
         except ValueError:
             return value
 
-    return date_obj.strftime("%d-%m-%Y")
+    from timezone_utils import to_moscow
+    moscow_date = to_moscow(date_obj)
+    return moscow_date.strftime("%d.%m.%Y") if moscow_date else None
 
 
 def get_first_lead(crm_user: Contact) -> Lead | None:

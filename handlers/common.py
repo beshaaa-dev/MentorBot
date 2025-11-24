@@ -6,20 +6,23 @@ from database.models import UserRole
 from messages import (
     CHECKING_TASK,
     USER_NOT_FOUND,
+    SUPPORT_MESSAGE,
 )
-from handlers.utils import send_error_message
+from handlers.utils import send_error_message, delete_user_message
 from handlers.student import (
     handle_student,
     send_task_message,
     create_student_conversation_handler,
 )
 from handlers.mentor import handle_mentor
+from keyboards import get_support_keyboard
 
 logger = setup_logger(__name__)
 
 
-async def send_task(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     logger.info(f"User {update.effective_user.id} sent /start command")
+    await delete_user_message(update.message)
     try:
         user = create_student_if_needed(
             update.effective_user.id, update.effective_user.username
@@ -49,5 +52,13 @@ async def send_task(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         return ConversationHandler.END
 
 
-start_command_handler = CommandHandler("start", send_task)
+async def support(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await delete_user_message(update.message)
+    await update.message.reply_text(
+        SUPPORT_MESSAGE, reply_markup=get_support_keyboard()
+    )
+
+
+start_command_handler = CommandHandler("start", start)
+support_command_handler = CommandHandler("support", support)
 video_conversation_handler = create_student_conversation_handler(start_command_handler)

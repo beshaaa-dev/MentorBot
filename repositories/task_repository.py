@@ -4,10 +4,9 @@ from database.task_service import (
     create_task as _create_task,
     update_task_status as _update_task_status,
     find_earliest_task as _find_earliest_task,
-    get_next_task as _get_next_task,
-    get_previous_task as _get_previous_task,
     get_task_by_id as _get_task_by_id,
     get_recent_decided_tasks,
+    get_tasks_by_status as _get_tasks_by_status,
 )
 from database.user_service import find_by_tg_id, find_by_tg_nickname
 from database.models import Task, TaskStatus
@@ -25,6 +24,7 @@ class DecidedTaskContext:
     total: int
     older_task_id: int | None
     newer_task_id: int | None
+    cached_task_ids: list[int]
 
 
 def create_task(student_tg_id: int, file_id: str) -> Task:
@@ -177,59 +177,6 @@ def mark_task_as_failed(task_id: int):
     )
 
 
-def get_next_task(mentor_id: int, current_task_id: int) -> Task | None:
-    """
-    Get the next task after the current task for a given mentor_id.
-
-    Args:
-        mentor_id: Mentor user ID (required)
-        current_task_id: Current task ID (required)
-
-    Returns:
-        Next Task instance if found, None otherwise
-
-    Raises:
-        Exception: If database operation fails
-    """
-    task = _get_next_task(mentor_id, current_task_id)
-    if task:
-        logger.info(
-            f"Found next task with id={task.id} for mentor_id={mentor_id} after task {current_task_id}"
-        )
-    return task
-
-
-def get_previous_task(
-    mentor_id: int, current_task_id: int | None = None
-) -> Task | None:
-    """
-    Get the previous task before the current task for a given mentor_id.
-    Only returns tasks updated within the last 60 minutes.
-    If current_task_id is provided, only returns tasks created before it.
-
-    Args:
-        mentor_id: Mentor user ID (required)
-        current_task_id: Current task ID (optional). If provided, excludes this task and only returns tasks created before it.
-
-    Returns:
-        Previous Task instance if found, None otherwise
-
-    Raises:
-        Exception: If database operation fails
-    """
-    task = _get_previous_task(mentor_id, current_task_id)
-    if task:
-        if current_task_id is not None:
-            logger.info(
-                f"Found previous task with id={task.id} for mentor_id={mentor_id} before task {current_task_id}"
-            )
-        else:
-            logger.info(
-                f"Found previous task with id={task.id} for mentor_id={mentor_id} updated within last 60 minutes"
-            )
-    return task
-
-
 def get_task_by_id(task_id: int) -> Task | None:
     """
     Get a task by its ID.
@@ -247,29 +194,44 @@ def get_task_by_id(task_id: int) -> Task | None:
 
 
 def get_decided_task_context(
-    mentor_id: int, target_task_id: int | None = None
+    mentor_id: int,
+    target_task_id: int | None = None,
+    cached_task_ids: list[int] | None = None,
 ) -> DecidedTaskContext | None:
     """
     Build pagination context for decided tasks within the last hour.
 
+    Args:
+        mentor_id: Mentor user ID.
+        target_task_id: Task ID to navigate to (optional).
+        cached_task_ids: Pre-cached list of task IDs to preserve navigation order.
+
     Returns:
         DecidedTaskContext or None if nothing to show.
     """
-    tasks = get_recent_decided_tasks(mentor_id)
-    if not tasks:
+    if cached_task_ids is not None:
+        task_ids = cached_task_ids
+    else:
+        tasks = get_recent_decided_tasks(mentor_id)
+        task_ids = [task.id for task in tasks]
+
+    if not task_ids:
         return None
 
     index = 0
     if target_task_id is not None:
-        for idx, task in enumerate(tasks):
-            if task.id == target_task_id:
-                index = idx
-                break
+        try:
+            index = task_ids.index(target_task_id)
+        except ValueError:
+            index = 0
 
-    task = tasks[index]
-    total = len(tasks)
-    older_task_id = tasks[index + 1].id if index + 1 < total else None
-    newer_task_id = tasks[index - 1].id if index - 1 >= 0 else None
+    task = _get_task_by_id(task_ids[index])
+    if not task:
+        return None
+
+    total = len(task_ids)
+    older_task_id = task_ids[index + 1] if index + 1 < total else None
+    newer_task_id = task_ids[index - 1] if index - 1 >= 0 else None
 
     return DecidedTaskContext(
         task=task,
@@ -277,4 +239,16 @@ def get_decided_task_context(
         total=total,
         older_task_id=older_task_id,
         newer_task_id=newer_task_id,
+        cached_task_ids=task_ids,
     )
+
+
+def get_tasks_for_mentor_by_status(mentor_id: int, status: TaskStatus) -> list[Task]:
+    """
+    Fetch all mentor tasks that match provided status, newest first.
+    """
+    tasks = _get_tasks_by_status(mentor_id, status)
+    logger.info(
+        f"Retrieved {len(tasks)} tasks with status={status.value} for mentor_id={mentor_id}"
+    )
+    return tasks
