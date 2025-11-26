@@ -73,7 +73,7 @@ def _register_cyrillic_font():
     return regular_font or "Helvetica", bold_font or "Helvetica-Bold"
 
 
-def create_anketa_pdf(lead: Lead | None, student_full_name: str | None = None) -> bytes:
+def create_anketa_pdf(lead: Lead | None, student_full_name: str | None = None) -> bytes | None:
     """
     Create PDF anketa from lead data.
 
@@ -82,7 +82,7 @@ def create_anketa_pdf(lead: Lead | None, student_full_name: str | None = None) -
         student_full_name: Full name of the student to place inside the PDF
 
     Returns:
-        PDF file as bytes
+        PDF file as bytes, or None if all fields are empty
     """
     buffer = BytesIO()
 
@@ -181,6 +181,15 @@ def create_anketa_pdf(lead: Lead | None, student_full_name: str | None = None) -
             "Что у вас получается хорошо и чем вы могли бы быть полезны другим?",
         ),
     ]
+
+    # Check if all fields are empty
+    has_any_field = any(
+        getattr(lead, field_name, None) for field_name, _ in fields
+    ) if lead else False
+
+    # If all fields are empty, don't generate document
+    if not has_any_field:
+        return None
 
     # Process each field
     for field_name, question_text in fields:

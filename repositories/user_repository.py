@@ -216,7 +216,7 @@ def get_first_lead(crm_user: Contact) -> Lead | None:
     )
 
 
-def get_student_anketa_pdf(student_id: int) -> tuple[str, bytes, str]:
+def get_student_anketa_pdf(student_id: int) -> tuple[str, bytes | None, str]:
     """
     Get student anketa PDF by student ID.
 
@@ -224,7 +224,7 @@ def get_student_anketa_pdf(student_id: int) -> tuple[str, bytes, str]:
         student_id: Database user ID
 
     Returns:
-        Tuple with suggested filename, PDF bytes, and student's full name
+        Tuple with suggested filename, PDF bytes (or None if empty), and student's full name
     """
     # Get user from database
     user = get_by_id(student_id)

@@ -122,6 +122,7 @@ async def _send_task_info_message(
         chat_id=chat_id,
         text=text,
         parse_mode="Markdown",
+        reply_markup=ReplyKeyboardRemove(),
     )
 
 
@@ -129,25 +130,26 @@ async def _send_task_payload(
     chat_id: int,
     task: Task,
     context: ContextTypes.DEFAULT_TYPE,
-    pdf_data: tuple[str, bytes, str | None] | None = None,
+    pdf_data: tuple[str, bytes | None, str | None] | None = None,
     reply_markup=None,
 ) -> None:
     if pdf_data is None:
         pdf_data = get_student_anketa_pdf(student_id=task.student_id)
 
     pdf_filename, pdf_bytes, _ = pdf_data
-    pdf_file = InputFile(BytesIO(pdf_bytes), filename=pdf_filename)
 
-    await context.bot.send_document(
-        chat_id=chat_id,
-        document=pdf_file,
-        reply_markup=reply_markup,
-    )
+    # Only send PDF document if it has content
+    if pdf_bytes is not None:
+        pdf_file = InputFile(BytesIO(pdf_bytes), filename=pdf_filename)
+        await context.bot.send_document(
+            chat_id=chat_id,
+            document=pdf_file,
+        )
 
-    await send_media_to_chat(context.bot, chat_id, task.file_id)
+    await send_media_to_chat(context.bot, chat_id, task.file_id, reply_markup=reply_markup)
 
 
-async def send_media_to_chat(bot, chat_id: int, file_id: str) -> Message | MessageId:
+async def send_media_to_chat(bot, chat_id: int, file_id: str, reply_markup=None) -> Message | MessageId:
     """Send task media directly to a chat and return the Telegram message metadata."""
     # Check if it's a message reference (text message)
     msg_ref = parse_message_reference(file_id)
@@ -158,31 +160,32 @@ async def send_media_to_chat(bot, chat_id: int, file_id: str) -> Message | Messa
             chat_id=chat_id,
             from_chat_id=from_chat_id,
             message_id=message_id,
+            reply_markup=reply_markup,
         )
     else:
         # It's a regular file_id, try to send as different media types
-        return await _try_send_media_types(bot, chat_id, file_id)
+        return await _try_send_media_types(bot, chat_id, file_id, reply_markup=reply_markup)
 
 
-async def _try_send_media_types(bot, chat_id: int, file_id: str) -> Message | MessageId:
+async def _try_send_media_types(bot, chat_id: int, file_id: str, reply_markup=None) -> Message | MessageId:
     """Try to send media as different types (video, video_note, audio, document, photo, voice)."""
     try:
-        return await bot.send_video(chat_id=chat_id, video=file_id)
+        return await bot.send_video(chat_id=chat_id, video=file_id, reply_markup=reply_markup)
     except Exception:
         try:
-            return await bot.send_video_note(chat_id=chat_id, video_note=file_id)
+            return await bot.send_video_note(chat_id=chat_id, video_note=file_id, reply_markup=reply_markup)
         except Exception:
             try:
-                return await bot.send_audio(chat_id=chat_id, audio=file_id)
+                return await bot.send_audio(chat_id=chat_id, audio=file_id, reply_markup=reply_markup)
             except Exception:
                 try:
-                    return await bot.send_document(chat_id=chat_id, document=file_id)
+                    return await bot.send_document(chat_id=chat_id, document=file_id, reply_markup=reply_markup)
                 except Exception:
                     try:
-                        return await bot.send_photo(chat_id=chat_id, photo=file_id)
+                        return await bot.send_photo(chat_id=chat_id, photo=file_id, reply_markup=reply_markup)
                     except Exception:
                         try:
-                            return await bot.send_voice(chat_id=chat_id, voice=file_id)
+                            return await bot.send_voice(chat_id=chat_id, voice=file_id, reply_markup=reply_markup)
                         except Exception as e:
                             logger.error(
                                 f"Could not send media with file_id {file_id} to chat {chat_id}: {e}"
