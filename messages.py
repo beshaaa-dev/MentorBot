@@ -1,3 +1,5 @@
+from config import SUPPORT_CONTACT_LINK
+
 ERROR_MESSAGE = "Произошла ошибка. Пожалуйста, попробуйте позже."
 SUPPORT_BUTTON_TEXT = "Написать в поддержку"
 GREETING_WITH_NAME_TEMPLATE = "Привет, {name}! Проверяем задание..."
@@ -20,7 +22,7 @@ BACK_BUTTON = "Предыдущие задания"
 MENTOR_PREVIOUS_TASK_INVITE = "Больше нет новых задания на проверку.\n\nВы можете посмотреть предыдущие и изменить свое решение, нажав кнопку 'Предыдущие задания'."
 MENTOR_NEW_TASK_NOTIFICATION = "У вас новое задание на проверку!"
 CHECK_TASK_BUTTON = "Посмотреть"
-NO_PREVIOUS_TASKS = "Время для изменения решения по предыдущим заданиям истекло."
+NO_PREVIOUS_TASKS = f"Время для изменения решения по предыдущим заданиям истекло.\n\nЕсли нужна помощь или есть вопрос — [напишите в поддержку]({SUPPORT_CONTACT_LINK})."
 CHANGE_STATUS_BUTTON = "Изменить статус"
 TASK_STATUS_APPROVED = "✅ Одобрено"
 TASK_STATUS_DISAPPROVED = "❌ Отклонено"
@@ -35,5 +37,6 @@ STUDENT_LIST_CONTINUATION_LABEL = "Продолжение списка ⬇️"
 TASK_INFO_TEMPLATE = (
     "*{student_name}*\n\n" "*Текущий статус*: {status}\n" "*Отправлено*: {created_at}"
 )
-HISTORY_STATUS_UPDATED_TEMPLATE = "Новый статус: {status}"
+STATUS_UPDATED = "Новый статус: {status}"
 SUPPORT_MESSAGE = "Если нужна помощь или есть вопрос — напишите в поддержку."
+CHECK_NEW_TASK_BUTTON = "Проверить новое задание"

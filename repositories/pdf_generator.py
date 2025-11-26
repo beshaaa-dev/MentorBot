@@ -13,8 +13,18 @@ import platform
 logger = setup_logger(__name__)
 
 
-def _escape_text(value: str) -> str:
-    return str(value).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+def _escape_text(value: str, preserve_newlines: bool = False) -> str:
+    """Escape HTML special characters in text.
+    
+    Args:
+        value: Text to escape
+        preserve_newlines: If True, convert newlines to <br/> tags for PDF rendering
+    """
+    escaped = str(value).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+    if preserve_newlines:
+        # Convert double newlines (paragraphs) and single newlines to <br/> tags
+        escaped = escaped.replace("\r\n", "\n").replace("\n", "<br/>")
+    return escaped
 
 
 def _register_cyrillic_font():
@@ -184,8 +194,8 @@ def create_anketa_pdf(lead: Lead | None, student_full_name: str | None = None) -
         # Add question
         story.append(Paragraph(question_text, question_style))
 
-        # Add answer (escape HTML special characters)
-        answer_text = _escape_text(field_value)
+        # Add answer (escape HTML special characters and preserve newlines)
+        answer_text = _escape_text(field_value, preserve_newlines=True)
         story.append(Paragraph(answer_text, answer_style))
         story.append(Spacer(1, 0.1 * inch))
 

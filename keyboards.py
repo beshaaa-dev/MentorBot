@@ -17,6 +17,7 @@ from messages import (
     DONE_BUTTON,
     APPROVED_STUDENTS_BUTTON,
     DISAPPROVED_STUDENTS_BUTTON,
+    CHECK_NEW_TASK_BUTTON,
 )
 
 
@@ -50,16 +51,6 @@ def get_mentor_action_keyboard() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=True)
 
 
-def get_back_only_keyboard() -> ReplyKeyboardMarkup:
-    keyboard = [
-        [
-            KeyboardButton(APPROVED_STUDENTS_BUTTON),
-            KeyboardButton(DISAPPROVED_STUDENTS_BUTTON),
-        ],
-        [KeyboardButton(BACK_BUTTON)],
-    ]
-    return ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=True)
-
 
 def get_check_task_keyboard(task_id: int) -> InlineKeyboardMarkup:
     """Create inline keyboard with button to check a specific task."""
@@ -72,6 +63,16 @@ def get_check_task_keyboard(task_id: int) -> InlineKeyboardMarkup:
         ]
     ]
     return InlineKeyboardMarkup(keyboard)
+
+
+def get_mentor_menu_keyboard() -> ReplyKeyboardMarkup:
+    """Keyboard shown after mentor approves/disapproves a task."""
+    keyboard = [
+        [KeyboardButton(CHECK_NEW_TASK_BUTTON)],
+        [KeyboardButton(BACK_BUTTON)],
+        [KeyboardButton(APPROVED_STUDENTS_BUTTON), KeyboardButton(DISAPPROVED_STUDENTS_BUTTON)],
+    ]
+    return ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=True)
 
 
 def get_decided_task_navigation_keyboard(

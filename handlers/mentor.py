@@ -23,9 +23,9 @@ from repositories.task_repository import (
 )
 from keyboards import (
     get_mentor_action_keyboard,
-    get_back_only_keyboard,
     get_support_keyboard,
     get_decided_task_navigation_keyboard,
+    get_mentor_menu_keyboard,
 )
 from messages import (
     ERROR_MESSAGE,
@@ -42,13 +42,14 @@ from messages import (
     TASK_INFO_TEMPLATE,
     DONE_BUTTON,
     CHANGE_STATUS_BUTTON,
-    HISTORY_STATUS_UPDATED_TEMPLATE,
+    STATUS_UPDATED,
     APPROVED_STUDENTS_BUTTON,
     DISAPPROVED_STUDENTS_BUTTON,
     APPROVED_STUDENTS_HEADER,
     DISAPPROVED_STUDENTS_HEADER,
     STUDENT_LIST_EMPTY_MESSAGE,
     STUDENT_LIST_CONTINUATION_LABEL,
+    CHECK_NEW_TASK_BUTTON,
 )
 from database.models import Task, TaskStatus, User, UserRole
 from handlers.utils import send_error_message, delete_user_message
@@ -79,7 +80,7 @@ async def handle_mentor(
             await send_error_message(update)
     else:
         await update.message.reply_text(
-            MENTOR_NO_TASK, reply_markup=get_back_only_keyboard()
+            MENTOR_NO_TASK, reply_markup=get_mentor_menu_keyboard()
         )
 
 
@@ -230,13 +231,14 @@ async def handle_mentor_action(
 
     # Update task status
     try:
-        update_task_status(current_task_id, status_mapping[text])
+        new_status = status_mapping[text]
+        update_task_status(current_task_id, new_status)
         if text == APPROVE_BUTTON:
             approve_task(current_task_id)
         elif text == DISAPPROVE_BUTTON:
             disapprove_task(current_task_id)
         logger.info(
-            f"Updated task {current_task_id} to status {status_mapping[text].value}"
+            f"Updated task {current_task_id} to status {new_status.value}"
         )
     except Exception as e:
         logger.error(f"Error updating task status: {e}")
@@ -246,19 +248,13 @@ async def handle_mentor_action(
         context.user_data.clear()
         return
 
-    # Get next task
-    try:
-        next_task = get_earliest_task(user.id)
-        if next_task:
-            await send_task(update.effective_chat.id, next_task, context=context)
-        else:
-            await end_conversation_with_mentor(update, context, user.id)
-    except Exception as e:
-        logger.error(f"Error getting next task: {e}")
-        await update.message.reply_text(
-            ERROR_MESSAGE, reply_markup=ReplyKeyboardRemove()
-        )
-        context.user_data.clear()
+    # Send status confirmation with menu keyboard
+    status_label = _get_status_label(new_status)
+    await update.message.reply_text(
+        STATUS_UPDATED.format(status=status_label),
+        reply_markup=get_mentor_menu_keyboard(),
+    )
+    context.user_data.clear()
 
 
 async def handle_pagination_back(
@@ -268,15 +264,6 @@ async def handle_pagination_back(
     message = update.message
 
     await delete_user_message(message)
-
-    text = message.text if message else None
-
-    if text != BACK_BUTTON:
-        await update.message.reply_text(
-            ERROR_MESSAGE, reply_markup=get_support_keyboard()
-        )
-        context.user_data.clear()
-        return
 
     mentor = find_by_tg_id(update.effective_user.id)
     if not mentor or mentor.role != UserRole.MENTOR:
@@ -297,7 +284,7 @@ async def handle_pagination_back(
         if not history_message:
             logger.warning("No decided tasks found for back navigation")
             await update.message.reply_text(
-                NO_PREVIOUS_TASKS, reply_markup=get_support_keyboard()
+                NO_PREVIOUS_TASKS, reply_markup=get_mentor_menu_keyboard(), parse_mode="Markdown"
             )
             context.user_data.pop(HISTORY_STATE_KEY, None)
     except Exception as e:
@@ -365,13 +352,14 @@ async def _send_decided_task_summary(
     )
 
 
-def _get_task_status_label(task: Task) -> str:
+def _get_status_label(status: TaskStatus) -> str:
+    """Get human-readable label for a task status."""
     status_labels = {
         TaskStatus.APPROVED: TASK_STATUS_APPROVED,
         TaskStatus.DISAPPROVED: TASK_STATUS_DISAPPROVED,
         TaskStatus.UNCHECKED: TASK_STATUS_UNCHECKED,
     }
-    return status_labels.get(task.status, task.status.value.title())
+    return status_labels.get(status, status.value.title())
 
 
 def _get_student_name(student_id: int) -> str:
@@ -387,7 +375,7 @@ def _build_task_info_text(
     task: Task,
     student_name: str | None = None,
 ) -> str:
-    status_text = _get_task_status_label(task)
+    status_text = _get_status_label(task.status)
     created_at = format_moscow(task.created_at)
     student_text = student_name or _get_student_name(task.student_id)
 
@@ -452,10 +440,10 @@ async def _notify_history_status_change(
             older_task_id=decided_context.older_task_id,
             newer_task_id=decided_context.newer_task_id,
         )
-        status_text = _get_task_status_label(decided_context.task)
+        status_text = _get_status_label(decided_context.task.status)
         await context.bot.send_message(
             chat_id=chat_id,
-            text=HISTORY_STATUS_UPDATED_TEMPLATE.format(status=status_text),
+            text=STATUS_UPDATED.format(status=status_text),
             reply_markup=keyboard,
         )
     except Exception as e:
@@ -469,7 +457,7 @@ async def end_conversation_with_mentor(
     context.user_data.clear()
     await update.message.reply_text(
         MENTOR_PREVIOUS_TASK_INVITE,
-        reply_markup=get_back_only_keyboard(),
+        reply_markup=get_mentor_menu_keyboard(),
     )
 
 
@@ -498,7 +486,7 @@ async def handle_history_navigation_message(
     cached_task_ids = history_state.get("cached_task_ids")
     if not current_task_id or not cached_task_ids:
         await update.message.reply_text(
-            NO_PREVIOUS_TASKS, reply_markup=get_support_keyboard()
+            NO_PREVIOUS_TASKS, reply_markup=get_mentor_menu_keyboard(), parse_mode="Markdown"
         )
         return
 
@@ -507,7 +495,7 @@ async def handle_history_navigation_message(
     )
     if not decided_context:
         await update.message.reply_text(
-            NO_PREVIOUS_TASKS, reply_markup=get_support_keyboard()
+            NO_PREVIOUS_TASKS, reply_markup=get_mentor_menu_keyboard(), parse_mode="Markdown"
         )
         return
 
@@ -518,7 +506,7 @@ async def handle_history_navigation_message(
     )
 
     if not target_task_id:
-        await update.message.reply_text(NO_PREVIOUS_TASKS)
+        await update.message.reply_text(NO_PREVIOUS_TASKS, reply_markup=get_mentor_menu_keyboard(), parse_mode="Markdown")
         return
 
     try:
@@ -532,7 +520,7 @@ async def handle_history_navigation_message(
         )
         if not message:
             await update.message.reply_text(
-                NO_PREVIOUS_TASKS, reply_markup=get_support_keyboard()
+                NO_PREVIOUS_TASKS, reply_markup=get_mentor_menu_keyboard(), parse_mode="Markdown"
             )
             context.user_data.pop(HISTORY_STATE_KEY, None)
     except Exception as e:
@@ -546,13 +534,13 @@ async def handle_history_navigation_message(
 async def handle_history_done_message(
     update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> None:
-    """Handle 'Done' reply button - exit history and fetch earliest task."""
+    """Handle 'Done' or 'Check new task' button - fetch earliest task."""
     message = update.message
     await delete_user_message(message)
 
     mentor = find_by_tg_id(update.effective_user.id)
     if not mentor or mentor.role != UserRole.MENTOR:
-        logger.warning("History done attempted by non-mentor user")
+        logger.warning("Check new task attempted by non-mentor user")
         await update.message.reply_text(
             ERROR_MESSAGE, reply_markup=get_support_keyboard()
         )
@@ -566,14 +554,14 @@ async def handle_history_done_message(
         try:
             await send_task(update.effective_chat.id, task, context=context)
         except Exception as e:
-            logger.error(f"Error sending earliest task in history done: {e}")
+            logger.error(f"Error sending earliest task: {e}")
             await update.message.reply_text(
                 ERROR_MESSAGE, reply_markup=get_support_keyboard()
             )
             context.user_data.clear()
     else:
         await update.message.reply_text(
-            MENTOR_NO_TASK, reply_markup=get_back_only_keyboard()
+            MENTOR_NO_TASK, reply_markup=get_mentor_menu_keyboard()
         )
 
 
@@ -659,7 +647,7 @@ async def handle_history_change_button(
     task_id = history_state.get("task_id")
     if not task_id:
         await update.message.reply_text(
-            NO_PREVIOUS_TASKS, reply_markup=get_support_keyboard()
+            NO_PREVIOUS_TASKS, reply_markup=get_mentor_menu_keyboard(), parse_mode="Markdown"
         )
         return
 
@@ -683,7 +671,7 @@ async def handle_history_change_button(
             f"Cannot toggle status {task.status} for task {task.id} in history view"
         )
         await update.message.reply_text(
-            NO_PREVIOUS_TASKS, reply_markup=get_support_keyboard()
+            NO_PREVIOUS_TASKS, reply_markup=get_mentor_menu_keyboard(), parse_mode="Markdown"
         )
         return
 
@@ -757,7 +745,7 @@ async def handle_mentor_student_list_request(
         await context.bot.send_message(
             chat_id=chat_id,
             text=chunk,
-            reply_markup=ReplyKeyboardRemove(),
+            reply_markup=get_mentor_menu_keyboard() if idx == len(messages) - 1 else None,
         )
 
 
@@ -791,7 +779,7 @@ mentor_history_change_handler = MessageHandler(
 )
 
 mentor_history_done_handler = MessageHandler(
-    filters.TEXT & ~filters.COMMAND & filters.Regex(f"^{DONE_BUTTON}$"),
+    filters.TEXT & ~filters.COMMAND & filters.Regex(f"^({DONE_BUTTON}|{CHECK_NEW_TASK_BUTTON})$"),
     handle_history_done_message,
 )
 
