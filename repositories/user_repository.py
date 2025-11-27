@@ -173,22 +173,16 @@ def get_task(user_crm_id: str) -> TaskDetails | None:
     return _build_task_details(first_lead)
 
 
-def _format_deadline(deadline: str | datetime | None) -> str | None:
+def _format_deadline(deadline: str | None) -> str | None:
+    logger.info(f"Formatting deadline: {deadline}")
     if not deadline:
         return None
 
-    if isinstance(deadline, datetime):
-        date_obj = deadline
-    else:
-        value = str(deadline).strip()
-        try:
-            date_obj = datetime.strptime(value, "%Y-%m-%d")
-        except ValueError:
-            return value
+    date_obj = datetime.fromtimestamp(int(deadline))
 
     from timezone_utils import to_moscow
     moscow_date = to_moscow(date_obj)
-    return moscow_date.strftime("%d.%m.%Y") if moscow_date else None
+    return moscow_date.strftime("%d.%m.%Y %H:%M") if moscow_date else None
 
 
 def get_first_lead(crm_user: Contact) -> Lead | None:
