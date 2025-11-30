@@ -2,6 +2,7 @@ from amocrm.v2 import Pipeline, tokens
 from amocrm.v2.entity.note import COMMON_TYPE
 from .crm_models import Contact, Lead
 import config
+from config import CRM_TASK_STATUS_IS_READY, CRM_PIPELINE_ID
 from logger import setup_logger
 from rate_limiter import amo_crm_rate_limiter
 
@@ -40,6 +41,31 @@ def init_amo_crm_token():
         raise e
 
 
+def get_first_lead(crm_user: Contact) -> Lead | None:
+    """
+    Get the first lead with correct pipeline and status from CRM user's leads.
+
+    Args:
+        crm_user: CRM Contact instance
+
+    Returns:
+        First Lead with correct pipeline/status, or None if not found
+    """
+    if not crm_user.leads:
+        return None
+    return next(
+        (
+            lead
+            for lead in crm_user.leads
+            if lead.pipeline
+            and str(lead.pipeline.id) == str(CRM_PIPELINE_ID)
+            and lead.status
+            and lead.status.id == CRM_TASK_STATUS_IS_READY
+        ),
+        None,
+    )
+
+
 def get_crm_user_by_tg_id(tg_id: int | str | None) -> Contact | None:
     if tg_id is None:
         return None
@@ -52,9 +78,8 @@ def get_crm_user_by_tg_id(tg_id: int | str | None) -> Contact | None:
     for contact in contacts:
         contact_tg_id = contact.telegram_id
         if contact_tg_id and str(contact_tg_id).strip() == tg_id_str:
-            for contact_lead in contact.leads:
-                if contact_lead.status.id != 143 and contact_lead.status.id != 142:
-                    return contact
+            if get_first_lead(contact):
+                return contact
 
     return None
 
@@ -65,9 +90,8 @@ def get_crm_user_by_id(id: int) -> Contact | None:
 
     for contact in contacts:
         if str(contact.id) == str(id):
-            for contact_lead in contact.leads:
-                if contact_lead.status.id != 143 and contact_lead.status.id != 142:
-                    return contact
+            if get_first_lead(contact):
+                return contact
 
     return None
 
@@ -75,8 +99,9 @@ def get_crm_user_by_id(id: int) -> Contact | None:
 def get_crm_lead(id: int) -> Lead | None:
     with amo_crm_rate_limiter.limit():
         leads = Lead.objects.filter(query=id)
-    if leads:
-        return next(iter(leads), None)
+    for lead in leads:
+        if str(lead.id) == str(id):
+            return lead
     return None
 
 

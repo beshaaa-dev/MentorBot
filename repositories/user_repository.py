@@ -11,6 +11,8 @@ from logger import setup_logger
 from crm.crm_service import (
     get_crm_user_by_tg_id as _get_crm_user_by_tg_id,
     get_crm_user_by_id as _get_crm_user_by_id,
+    get_first_lead,
+    get_crm_lead,
     Lead,
 )
 from datetime import datetime
@@ -18,7 +20,6 @@ from timezone_utils import now_moscow
 from crm.crm_service import Contact
 from repositories.pdf_generator import create_anketa_pdf
 import re
-from config import CRM_TASK_STATUS_IS_READY, CRM_PIPELINE_ID
 
 logger = setup_logger(__name__)
 
@@ -26,6 +27,7 @@ logger = setup_logger(__name__)
 @dataclass(slots=True)
 class TaskDetails:
     text: str
+    lead_id: str | None = None
     deadline: str | None = None
 
 
@@ -41,7 +43,7 @@ def _build_task_details(lead: Lead | None) -> TaskDetails | None:
         return None
 
     deadline = _format_deadline(lead.task_deadline)
-    return TaskDetails(text=task_text, deadline=deadline)
+    return TaskDetails(text=task_text, lead_id=lead.id, deadline=deadline)
 
 
 def _build_pdf_filename(student_full_name: str) -> str:
@@ -136,6 +138,8 @@ def create_mentor_if_needed(mentor_tg_nickname: str | None):
     if not mentor_tg_nickname:
         return
 
+    mentor_tg_nickname = mentor_tg_nickname.lstrip("@")
+
     existing_mentor = find_by_tg_nickname(mentor_tg_nickname)
     if existing_mentor:
         if existing_mentor.role == UserRole.STUDENT:
@@ -185,37 +189,13 @@ def _format_deadline(deadline: str | None) -> str | None:
     return moscow_date.strftime("%d.%m.%Y %H:%M") if moscow_date else None
 
 
-def get_first_lead(crm_user: Contact) -> Lead | None:
-    """
-    Get the first lead with status.name == "A1" from CRM user's leads.
-
-    Args:
-        crm_user: CRM Contact instance
-
-    Returns:
-        First Lead with status A1, or None if not found
-    """
-    if not crm_user.leads:
-        return None
-    return next(
-        (
-            lead
-            for lead in crm_user.leads
-            if lead.pipeline
-            and str(lead.pipeline.id) == str(CRM_PIPELINE_ID)
-            and lead.status
-            and lead.status.id == CRM_TASK_STATUS_IS_READY
-        ),
-        None,
-    )
-
-
-def get_student_anketa_pdf(student_id: int) -> tuple[str, bytes | None, str]:
+def get_student_anketa_pdf(student_id: int, lead_id: str) -> tuple[str, bytes | None, str]:
     """
     Get student anketa PDF by student ID.
 
     Args:
         student_id: Database user ID
+        lead_id: CRM lead ID
 
     Returns:
         Tuple with suggested filename, PDF bytes (or None if empty), and student's full name
@@ -228,21 +208,10 @@ def get_student_anketa_pdf(student_id: int) -> tuple[str, bytes | None, str]:
 
     student_full_name = f"{user.first_name} {user.last_name}"
 
-    # Get CRM user
-    crm_user = _get_crm_user_by_id(user.crm_id)
-    if not crm_user or not crm_user.leads:
-        logger.warning(f"CRM user or leads not found for user id={student_id}")
-        pdf_filename = _build_pdf_filename(student_full_name)
-        return (
-            pdf_filename,
-            create_anketa_pdf(None, student_full_name),
-            student_full_name,
-        )
-
-    # Get first lead
-    first_lead = next(iter(crm_user.leads), None)
-    if not first_lead:
-        logger.warning(f"No leads found for CRM user id={crm_user.id}")
+    # Get CRM lead
+    lead = get_crm_lead(lead_id)
+    if not lead:
+        logger.warning(f"CRM lead not found for user id={student_id}")
         pdf_filename = _build_pdf_filename(student_full_name)
         return (
             pdf_filename,
@@ -251,6 +220,6 @@ def get_student_anketa_pdf(student_id: int) -> tuple[str, bytes | None, str]:
         )
 
     # Create PDF from lead
-    pdf_bytes = create_anketa_pdf(first_lead, student_full_name)
+    pdf_bytes = create_anketa_pdf(lead, student_full_name)
     pdf_filename = _build_pdf_filename(student_full_name)
     return pdf_filename, pdf_bytes, student_full_name

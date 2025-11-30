@@ -93,7 +93,7 @@ async def send_task(
 
     context.user_data["current_task_id"] = task.id
 
-    pdf_data = get_student_anketa_pdf(student_id=task.student_id)
+    pdf_data = get_student_anketa_pdf(student_id=task.student_id, lead_id=task.lead_id)
 
     await _send_task_info_message(
         chat_id=chat_id,
@@ -134,7 +134,7 @@ async def _send_task_payload(
     reply_markup=None,
 ) -> None:
     if pdf_data is None:
-        pdf_data = get_student_anketa_pdf(student_id=task.student_id)
+        pdf_data = get_student_anketa_pdf(student_id=task.student_id, lead_id=task.lead_id)
 
     pdf_filename, pdf_bytes, _ = pdf_data
 

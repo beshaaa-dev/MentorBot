@@ -27,13 +27,14 @@ class DecidedTaskContext:
     cached_task_ids: list[int]
 
 
-def create_task(student_tg_id: int, file_id: str) -> Task:
+def create_task(student_tg_id: int, file_id: str, lead_id: str | None = None) -> Task:
     """
     Create a new task in the database.
 
     Args:
         student_tg_id: Student Telegram user ID (required)
         file_id: Telegram video file ID (required)
+        lead_id: CRM Lead ID (required)
 
     Returns:
         Created Task instance
@@ -42,6 +43,9 @@ def create_task(student_tg_id: int, file_id: str) -> Task:
         ValueError: If student with given Telegram ID is not found or student has no CRM ID
         Exception: If database operation fails
     """
+    if not lead_id:
+        raise ValueError("lead_id is required")
+
     student = find_by_tg_id(student_tg_id)
     if not student:
         raise ValueError(f"Student with Telegram ID {student_tg_id} not found")
@@ -74,8 +78,7 @@ def create_task(student_tg_id: int, file_id: str) -> Task:
     task = _create_task(
         student_id=student.id,
         mentor_id=mentor.id,
-        # TODO: change to lead_id
-        lead_id=student.crm_id,
+        lead_id=lead_id,
         file_id=file_id,
         status=TaskStatus.UNCHECKED,
     )
@@ -83,7 +86,7 @@ def create_task(student_tg_id: int, file_id: str) -> Task:
         raise ValueError(f"Failed to create task for student {student.id}")
 
     logger.info(
-        f"Created task with id={task.id}, student_id={student.id}, mentor_id={mentor.id}, lead_id={student.crm_id}"
+        f"Created task with id={task.id}, student_id={student.id}, mentor_id={mentor.id}, lead_id={lead_id}"
     )
     return task
 
