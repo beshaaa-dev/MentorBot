@@ -44,33 +44,56 @@ def create_task(student_tg_id: int, file_id: str, lead_id: str | None = None) ->
         Exception: If database operation fails
     """
     if not lead_id:
-        raise ValueError("lead_id is required")
+        raise ValueError(
+            f"Cannot create task: lead_id is required but was not provided. "
+            f"Student Telegram ID: {student_tg_id}"
+        )
 
     student = find_by_tg_id(student_tg_id)
     if not student:
-        raise ValueError(f"Student with Telegram ID {student_tg_id} not found")
+        raise ValueError(
+            f"Cannot create task: student not found in database. "
+            f"Telegram ID: {student_tg_id}. "
+            f"The student must register with the bot first."
+        )
 
     if not student.crm_id:
-        raise ValueError(f"Student with Telegram ID {student_tg_id} has no CRM ID")
+        raise ValueError(
+            f"Cannot create task: student has no linked CRM account. "
+            f"Telegram ID: {student_tg_id}, DB ID: {student.id}. "
+            f"The student's CRM ID must be set before submitting tasks."
+        )
 
-    lead = get_crm_lead(student.crm_id)
+    lead = get_crm_lead(lead_id)
     if not lead:
-        raise ValueError(f"Lead with CRM ID {student.crm_id} not found")
+        raise ValueError(
+            f"Cannot create task: CRM lead not found. "
+            f"Student Telegram ID: {student_tg_id}, CRM ID: {student.crm_id}. "
+            f"The lead may have been deleted or the CRM ID is incorrect."
+        )
 
     mentor_tg_nickname = lead.mentor_tg_nickname
     if not mentor_tg_nickname:
-        raise ValueError(f"Lead with CRM ID {student.crm_id} has no mentor ID")
+        raise ValueError(
+            f"Cannot create task: no mentor assigned in CRM. "
+            f"Student Telegram ID: {student_tg_id}, CRM ID: {student.crm_id}, Lead ID: {lead_id}. "
+            f"A mentor must be assigned to this lead in the CRM system."
+        )
     mentor_tg_nickname = mentor_tg_nickname.lstrip("@")
     if not mentor_tg_nickname:
         raise ValueError(
-            f"Lead with CRM ID {student.crm_id} has invalid mentor nickname"
+            f"Cannot create task: mentor nickname is invalid (empty after removing '@'). "
+            f"Student Telegram ID: {student_tg_id}, CRM ID: {student.crm_id}, Lead ID: {lead_id}. "
+            f"Please update the mentor's Telegram nickname in the CRM."
         )
 
     # Find mentor user by nickname
     mentor = find_by_tg_nickname(mentor_tg_nickname)
     if not mentor:
         raise ValueError(
-            f"Mentor with Telegram nickname {mentor_tg_nickname} not found"
+            f"Cannot create task: mentor not found in database. "
+            f"Mentor nickname: @{mentor_tg_nickname}, Student Telegram ID: {student_tg_id}. "
+            f"The mentor must register with the bot before receiving tasks."
         )
 
     update_lead_status(student.crm_id, config.CRM_TASK_STATUS_IS_DONE)
@@ -83,7 +106,11 @@ def create_task(student_tg_id: int, file_id: str, lead_id: str | None = None) ->
         status=TaskStatus.UNCHECKED,
     )
     if not task:
-        raise ValueError(f"Failed to create task for student {student.id}")
+        raise ValueError(
+            f"Cannot create task: database operation failed. "
+            f"Student DB ID: {student.id}, Mentor DB ID: {mentor.id}, Lead ID: {lead_id}. "
+            f"This may indicate a database connection issue or constraint violation."
+        )
 
     logger.info(
         f"Created task with id={task.id}, student_id={student.id}, mentor_id={mentor.id}, lead_id={lead_id}"

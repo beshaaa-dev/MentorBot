@@ -135,9 +135,7 @@ def update_lead_status(id: int, status_id: int | str) -> Lead | None:
 
 
 def send_note(lead_id: int, note: str):
-    with amo_crm_rate_limiter.limit():
-        leads = Lead.objects.filter(query=lead_id)
-    lead = next(iter(leads), None)
+    lead = get_crm_lead(lead_id)
     if lead:
         with amo_crm_rate_limiter.limit():
             lead.notes.objects.create(text=note, note_type=COMMON_TYPE)
