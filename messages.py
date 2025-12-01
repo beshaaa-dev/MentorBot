@@ -40,3 +40,4 @@ TASK_INFO_TEMPLATE = (
 STATUS_UPDATED = "Новый статус: {status}"
 SUPPORT_MESSAGE = "Если нужна помощь или есть вопрос — напишите в поддержку."
 CHECK_NEW_TASK_BUTTON = "Проверить новое задание"
+UNKNOWN_MESSAGE = "Чтобы начать работу с ботом, отправьте /start"

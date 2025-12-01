@@ -1,5 +1,5 @@
 from telegram import Update, ReplyKeyboardRemove
-from telegram.ext import ContextTypes, ConversationHandler, CommandHandler
+from telegram.ext import ContextTypes, ConversationHandler, CommandHandler, MessageHandler, filters
 from logger import setup_logger
 from repositories.user_repository import create_student_if_needed, get_crm_user
 from database.models import UserRole
@@ -7,6 +7,7 @@ from messages import (
     CHECKING_TASK,
     USER_NOT_FOUND,
     SUPPORT_MESSAGE,
+    UNKNOWN_MESSAGE,
 )
 from handlers.utils import send_error_message, delete_user_message
 from handlers.student import (
@@ -59,6 +60,12 @@ async def support(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
+async def unknown_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle any unrecognized commands or messages."""
+    await update.message.reply_text(UNKNOWN_MESSAGE)
+
+
 start_command_handler = CommandHandler("start", start)
 support_command_handler = CommandHandler("support", support)
 video_conversation_handler = create_student_conversation_handler(start_command_handler)
+unknown_message_handler = MessageHandler(filters.ALL, unknown_message)

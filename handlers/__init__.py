@@ -1,4 +1,4 @@
-from handlers.common import video_conversation_handler, support_command_handler
+from handlers.common import video_conversation_handler, support_command_handler, unknown_message_handler
 from handlers.mentor import (
     mentor_back_button_handler,
     mentor_action_handler,
@@ -19,4 +19,5 @@ handlers = [
     mentor_back_button_handler,
     mentor_action_handler,
     support_command_handler,
+    unknown_message_handler,  # Must be last - catches all unhandled messages
 ]
