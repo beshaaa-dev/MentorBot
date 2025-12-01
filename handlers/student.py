@@ -45,8 +45,6 @@ async def handle_student(
         reply_markup=ReplyKeyboardRemove(),
     )
     task = get_task(user.crm_id)
-    if task and task.lead_id:
-        context.user_data["lead_id"] = task.lead_id
     return await send_task_message(task, update, context)
 
 
@@ -118,10 +116,9 @@ async def confirm_video(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
         # Create task with file_id
         try:
             file_id = context.user_data.get("file_id")
-            lead_id = context.user_data.get("lead_id")
             if file_id:
                 student_tg_id = update.effective_user.id
-                task = create_task(student_tg_id=student_tg_id, file_id=file_id, lead_id=lead_id)
+                task = create_task(student_tg_id=student_tg_id, file_id=file_id)
                 # Send task notification to mentor if they have tg_id
                 if task and task.mentor_id:
                     mentor = get_by_id(task.mentor_id)

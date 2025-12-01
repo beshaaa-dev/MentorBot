@@ -11,7 +11,7 @@ from database.task_service import (
 from database.user_service import find_by_tg_id, find_by_tg_nickname
 from database.models import Task, TaskStatus
 from logger import setup_logger
-from crm.crm_service import get_crm_lead, update_lead_status, send_note
+from crm.crm_service import get_crm_user_by_id, get_first_lead, update_lead_status, update_lead_status_by_lead, send_note
 import config
 
 logger = setup_logger(__name__)
@@ -27,14 +27,13 @@ class DecidedTaskContext:
     cached_task_ids: list[int]
 
 
-def create_task(student_tg_id: int, file_id: str, lead_id: str | None = None) -> Task:
+def create_task(student_tg_id: int, file_id: str) -> Task:
     """
     Create a new task in the database.
 
     Args:
         student_tg_id: Student Telegram user ID (required)
         file_id: Telegram video file ID (required)
-        lead_id: CRM Lead ID (required)
 
     Returns:
         Created Task instance
@@ -43,12 +42,6 @@ def create_task(student_tg_id: int, file_id: str, lead_id: str | None = None) ->
         ValueError: If student with given Telegram ID is not found or student has no CRM ID
         Exception: If database operation fails
     """
-    if not lead_id:
-        raise ValueError(
-            f"Cannot create task: lead_id is required but was not provided. "
-            f"Student Telegram ID: {student_tg_id}"
-        )
-
     student = find_by_tg_id(student_tg_id)
     if not student:
         raise ValueError(
@@ -64,7 +57,14 @@ def create_task(student_tg_id: int, file_id: str, lead_id: str | None = None) ->
             f"The student's CRM ID must be set before submitting tasks."
         )
 
-    lead = get_crm_lead(lead_id)
+    crm_user = get_crm_user_by_id(student.crm_id)
+    if not crm_user:
+        raise ValueError(
+            f"Cannot create task: CRM user not found. "
+            f"Student Telegram ID: {student_tg_id}, CRM ID: {student.crm_id}."
+        )
+
+    lead = get_first_lead(crm_user)
     if not lead:
         raise ValueError(
             f"Cannot create task: CRM lead not found. "
@@ -76,14 +76,14 @@ def create_task(student_tg_id: int, file_id: str, lead_id: str | None = None) ->
     if not mentor_tg_nickname:
         raise ValueError(
             f"Cannot create task: no mentor assigned in CRM. "
-            f"Student Telegram ID: {student_tg_id}, CRM ID: {student.crm_id}, Lead ID: {lead_id}. "
+            f"Student Telegram ID: {student_tg_id}, CRM ID: {student.crm_id}, Lead ID: {lead.id}. "
             f"A mentor must be assigned to this lead in the CRM system."
         )
     mentor_tg_nickname = mentor_tg_nickname.lstrip("@")
     if not mentor_tg_nickname:
         raise ValueError(
             f"Cannot create task: mentor nickname is invalid (empty after removing '@'). "
-            f"Student Telegram ID: {student_tg_id}, CRM ID: {student.crm_id}, Lead ID: {lead_id}. "
+            f"Student Telegram ID: {student_tg_id}, CRM ID: {student.crm_id}, Lead ID: {lead.id}. "
             f"Please update the mentor's Telegram nickname in the CRM."
         )
 
@@ -96,24 +96,24 @@ def create_task(student_tg_id: int, file_id: str, lead_id: str | None = None) ->
             f"The mentor must register with the bot before receiving tasks."
         )
 
-    update_lead_status(student.crm_id, config.CRM_TASK_STATUS_IS_DONE)
+    update_lead_status_by_lead(lead, config.CRM_TASK_STATUS_IS_DONE)
 
     task = _create_task(
         student_id=student.id,
         mentor_id=mentor.id,
-        lead_id=lead_id,
+        lead_id=lead.id,
         file_id=file_id,
         status=TaskStatus.UNCHECKED,
     )
     if not task:
         raise ValueError(
             f"Cannot create task: database operation failed. "
-            f"Student DB ID: {student.id}, Mentor DB ID: {mentor.id}, Lead ID: {lead_id}. "
+            f"Student DB ID: {student.id}, Mentor DB ID: {mentor.id}, Lead ID: {lead.id}. "
             f"This may indicate a database connection issue or constraint violation."
         )
 
     logger.info(
-        f"Created task with id={task.id}, student_id={student.id}, mentor_id={mentor.id}, lead_id={lead_id}"
+        f"Created task with id={task.id}, student_id={student.id}, mentor_id={mentor.id}, lead_id={lead.id}"
     )
     return task
 
