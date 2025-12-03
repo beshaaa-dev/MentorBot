@@ -191,5 +191,5 @@ def create_student_conversation_handler(
             ],
         },
         fallbacks=[CommandHandler("cancel", cancel_video)],
-        conversation_timeout=60 * 60,  # 1 hour
+        allow_reentry=True,  # Allow /start to restart conversation
     )
