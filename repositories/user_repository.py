@@ -206,7 +206,7 @@ def get_student_anketa_pdf(student_id: int, lead_id: str) -> tuple[str, bytes | 
         logger.warning(f"User with id={student_id} not found")
         return DEFAULT_ANKETA_FILENAME, create_anketa_pdf(None), ""
 
-    student_full_name = f"{user.first_name} {user.last_name}"
+    student_full_name = " ".join(filter(None, [user.first_name, user.last_name])) or ""
 
     # Get CRM lead
     lead = get_crm_lead(lead_id)
