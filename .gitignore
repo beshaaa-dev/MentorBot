@@ -4,6 +4,7 @@ all.md
 __pycache__/
 *.pyc
 venv/
+.venv/
 *.db
 *.backup_*
 *.DS_Store
