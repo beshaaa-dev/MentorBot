@@ -4,7 +4,7 @@ ERROR_MESSAGE = "Произошла ошибка. Пожалуйста, попр
 SUPPORT_BUTTON_TEXT = "Написать в поддержку"
 GREETING_WITH_NAME_TEMPLATE = "Привет, {name}! Проверяем задание..."
 MENTOR_GREETING_TEMPLATE = "Привет! Проверяем новые работы студентов"
-CHECKING_TASK = "Проверяем задание..."
+FINDING_USER = "Ищем пользователя..."
 USER_NOT_FOUND = "Не удалось найти вас. Обратитесь к своему куратору"
 STUDENT_NO_TASK = "Задания пока нет."
 MENTOR_NO_TASK = "Заданий на проверку пока нет."
@@ -41,3 +41,14 @@ STATUS_UPDATED = "Новый статус: {status}"
 SUPPORT_MESSAGE = "Если нужна помощь или есть вопрос — напишите в поддержку."
 CHECK_NEW_TASK_BUTTON = "Проверить новое задание"
 UNKNOWN_MESSAGE = "Чтобы начать работу с ботом, отправьте /start"
+
+# Visit card flow messages
+VISIT_CARD_TASK = "*У вас есть новое задание 🧡*\n\n{text}\n\n"
+REQUEST_VISIT_CARD_VIDEO = "Пожалуйста, отправьте видео или кружок."
+INVALID_MEDIA_TYPE = (
+    "Принимаются только видео или кружок. Пожалуйста, попробуйте снова."
+)
+FILE_TOO_LARGE = "Видео слишком большое (максимум 50 МБ). Пожалуйста, отправьте файл меньшего размера."
+VISIT_CARD_VIDEO_RECEIVED = "Отправить видео-визитку?"
+VISIT_CARD_UPLOADING = "Загружаем видео..."
+VISIT_CARD_VIDEO_CONFIRMED = "Ваша видео-визитка отправлена! Ожидайте ответа."

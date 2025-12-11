@@ -1,8 +1,9 @@
+import requests
 from amocrm.v2 import Pipeline, tokens
 from amocrm.v2.entity.note import COMMON_TYPE
 from .crm_models import Contact, Lead
 import config
-from config import CRM_TASK_STATUS_IS_READY, CRM_PIPELINE_ID
+from config import CRM_TASK_STATUS, CRM_VISIT_CARD_STATUS, CRM_PIPELINE
 from logger import setup_logger
 from rate_limiter import amo_crm_rate_limiter
 
@@ -41,6 +42,10 @@ def init_amo_crm_token():
         raise e
 
 
+# Валидные статусы лида для начала работы со студентом
+VALID_LEAD_STATUSES = {CRM_TASK_STATUS, CRM_VISIT_CARD_STATUS}
+
+
 def get_first_lead(crm_user: Contact) -> Lead | None:
     """
     Get the first lead with correct pipeline and status from CRM user's leads.
@@ -58,12 +63,22 @@ def get_first_lead(crm_user: Contact) -> Lead | None:
             lead
             for lead in crm_user.leads
             if lead.pipeline
-            and str(lead.pipeline.id) == str(CRM_PIPELINE_ID)
+            and str(lead.pipeline.id) == str(CRM_PIPELINE)
             and lead.status
-            and lead.status.id == CRM_TASK_STATUS_IS_READY
+            and str(lead.status.id) in VALID_LEAD_STATUSES
         ),
         None,
     )
+
+
+def is_visit_card_lead(lead: Lead) -> bool:
+    """Check if lead has visit card status."""
+    return lead.status and str(lead.status.id) == CRM_VISIT_CARD_STATUS
+
+
+def is_task_lead(lead: Lead) -> bool:
+    """Check if lead has task status."""
+    return lead.status and str(lead.status.id) == CRM_TASK_STATUS
 
 
 def get_crm_user_by_tg_id(tg_id: int | str | None) -> Contact | None:
@@ -107,7 +122,7 @@ def get_crm_lead(id: int) -> Lead | None:
 
 def update_lead_status_by_lead(lead: Lead, status_id: int | str) -> Lead:
     """Update lead status directly using a Lead object."""
-    pipeline_id = str(config.CRM_PIPELINE_ID)
+    pipeline_id = str(config.CRM_PIPELINE)
 
     with amo_crm_rate_limiter.limit():
         pipelines = Pipeline.objects.filter(query=pipeline_id)
@@ -129,7 +144,7 @@ def update_lead_status_by_lead(lead: Lead, status_id: int | str) -> Lead:
 
 
 def update_lead_status(id: int, status_id: int | str) -> Lead | None:
-    pipeline_id = str(config.CRM_PIPELINE_ID)
+    pipeline_id = str(config.CRM_PIPELINE)
 
     with amo_crm_rate_limiter.limit():
         pipelines = Pipeline.objects.filter(query=pipeline_id)
@@ -163,3 +178,127 @@ def send_note(lead_id: int, note: str):
         with amo_crm_rate_limiter.limit():
             lead.notes.objects.create(text=note, note_type=COMMON_TYPE)
             lead.save()
+
+
+def upload_file_to_lead(lead_id: int, file_bytes: bytes, filename: str) -> bool:
+    """
+    Upload a file as an attachment to a lead via AmoCRM API.
+
+    Args:
+        lead_id: CRM lead ID
+        file_bytes: File content as bytes
+        filename: Name for the uploaded file
+
+    Returns:
+        True if upload successful, False otherwise
+    """
+    try:
+        with amo_crm_rate_limiter.limit():
+            access_token = tokens.default_token_manager.get_access_token()
+
+        headers = {
+            "Authorization": f"Bearer {access_token}",
+        }
+
+        # Step 1: Create upload session (must use drive host, not subdomain)
+        session_url = "https://drive-b.amocrm.ru/v1.0/sessions"
+        session_data = {
+            "file_name": filename,
+            "file_size": len(file_bytes),
+            "content_type": "video/mp4",
+        }
+
+        with amo_crm_rate_limiter.limit():
+            session_response = requests.post(
+                session_url,
+                headers={**headers, "Content-Type": "application/json"},
+                json=session_data,
+            )
+
+        if session_response.status_code not in (200, 201):
+            logger.error(
+                f"Failed to create upload session: {session_response.status_code} - {session_response.text}"
+            )
+            return False
+
+        session_info = session_response.json()
+        upload_url = session_info.get("upload_url")
+        max_part_size = session_info.get("max_part_size", 524288)
+
+        if not upload_url:
+            logger.error(f"No upload_url in session response: {session_info}")
+            return False
+
+        # Step 2: Upload file in parts (raw bytes, not multipart, to avoid size drift)
+        file_uuid = None
+        total_size = len(file_bytes)
+        part_size = min(max_part_size, total_size)
+        offset = 0
+
+        while offset < total_size:
+            chunk = file_bytes[offset : offset + part_size]
+            chunk_len = len(chunk)
+
+            part_headers = {
+                **headers,
+                "Content-Type": "application/octet-stream",
+                "Content-Range": f"bytes {offset}-{offset + chunk_len - 1}/{total_size}",
+            }
+
+            with amo_crm_rate_limiter.limit():
+                upload_response = requests.post(
+                    upload_url,
+                    headers=part_headers,
+                    data=chunk,
+                    timeout=30,
+                )
+
+            if upload_response.status_code not in (200, 201):
+                logger.error(
+                    f"Failed to upload file part: {upload_response.status_code} - {upload_response.text}"
+                )
+                return False
+
+            upload_data = upload_response.json()
+
+            # Check if this is the last part (contains uuid)
+            if "uuid" in upload_data:
+                file_uuid = upload_data.get("uuid")
+                break
+
+            # Get next upload URL for next part
+            next_url = upload_data.get("next_url")
+            if next_url:
+                upload_url = next_url
+
+            offset += chunk_len
+
+        if not file_uuid:
+            logger.error(f"No file UUID returned after upload")
+            return False
+
+        # Step 3: Link file to lead
+        link_url = (
+            f"https://{config.CRM_SUBDOMAIN}.amocrm.ru/api/v4/leads/{lead_id}/files"
+        )
+        link_data = [{"file_uuid": file_uuid}]
+
+        with amo_crm_rate_limiter.limit():
+            link_response = requests.put(
+                link_url,
+                headers={**headers, "Content-Type": "application/json"},
+                json=link_data,
+            )
+
+        if link_response.status_code not in (200, 201, 202, 204):
+            logger.error(
+                f"Failed to link file to lead {lead_id}: {link_response.status_code} - {link_response.text}"
+            )
+            return False
+
+        logger.info(f"Successfully uploaded file '{filename}' to lead {lead_id}")
+        return True
+
+    except Exception as e:
+        logger.error(f"Error uploading file to lead {lead_id}: {e}")
+        return False

@@ -1,10 +1,16 @@
 from telegram import Update, ReplyKeyboardRemove
-from telegram.ext import ContextTypes, ConversationHandler, CommandHandler, MessageHandler, filters
+from telegram.ext import (
+    ContextTypes,
+    ConversationHandler,
+    CommandHandler,
+    MessageHandler,
+    filters,
+)
 from logger import setup_logger
 from repositories.user_repository import create_student_if_needed, get_crm_user
 from database.models import UserRole
 from messages import (
-    CHECKING_TASK,
+    FINDING_USER,
     USER_NOT_FOUND,
     SUPPORT_MESSAGE,
     UNKNOWN_MESSAGE,
@@ -12,7 +18,6 @@ from messages import (
 from handlers.utils import send_error_message, delete_user_message
 from handlers.student import (
     handle_student,
-    send_task_message,
     create_student_conversation_handler,
 )
 from handlers.mentor import handle_mentor
@@ -36,16 +41,16 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
             return await handle_student(user, update, context)
         else:
             await update.message.reply_text(
-                CHECKING_TASK, reply_markup=ReplyKeyboardRemove()
+                FINDING_USER, reply_markup=ReplyKeyboardRemove()
             )
-            user, task = get_crm_user(user)
+            user, _ = get_crm_user(user)
             if not user:
                 await update.message.reply_text(
                     USER_NOT_FOUND, reply_markup=ReplyKeyboardRemove()
                 )
                 context.user_data.clear()
                 return ConversationHandler.END
-            return await send_task_message(task, update, context)
+            return await handle_student(user, update, context)
     except Exception as e:
         logger.error(f"Error creating user: {e}")
         await send_error_message(update)

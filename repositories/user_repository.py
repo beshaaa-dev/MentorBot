@@ -13,6 +13,8 @@ from crm.crm_service import (
     get_crm_user_by_id as _get_crm_user_by_id,
     get_first_lead,
     get_crm_lead,
+    is_visit_card_lead,
+    is_task_lead,
     Lead,
 )
 from datetime import datetime
@@ -31,6 +33,12 @@ class TaskDetails:
     deadline: str | None = None
 
 
+@dataclass(slots=True)
+class VisitCardDetails:
+    text: str
+    lead_id: str | None = None
+
+
 DEFAULT_ANKETA_FILENAME = "anketa.pdf"
 
 
@@ -44,6 +52,17 @@ def _build_task_details(lead: Lead | None) -> TaskDetails | None:
 
     deadline = _format_deadline(lead.task_deadline)
     return TaskDetails(text=task_text, lead_id=lead.id, deadline=deadline)
+
+
+def _build_visit_card_details(lead: Lead | None) -> VisitCardDetails | None:
+    if not lead:
+        return None
+
+    visit_card_text = lead.visit_card
+    if not visit_card_text:
+        return None
+
+    return VisitCardDetails(text=visit_card_text, lead_id=lead.id)
 
 
 def _build_pdf_filename(student_full_name: str) -> str:
@@ -167,7 +186,7 @@ def get_task(user_crm_id: str) -> TaskDetails | None:
 
     first_lead = get_first_lead(crm_user)
 
-    if not first_lead:
+    if not first_lead or not is_task_lead(first_lead):
         return None
 
     # Создаем ментора если он еще не существует в БД
@@ -175,6 +194,21 @@ def get_task(user_crm_id: str) -> TaskDetails | None:
     create_mentor_if_needed(mentor_tg_nickname)
 
     return _build_task_details(first_lead)
+
+
+def get_visit_card(user_crm_id: str) -> VisitCardDetails | None:
+    """Get visit card details for a student by CRM ID."""
+    crm_user = _get_crm_user_by_id(user_crm_id)
+
+    if not crm_user:
+        return None
+
+    first_lead = get_first_lead(crm_user)
+
+    if not first_lead or not is_visit_card_lead(first_lead):
+        return None
+
+    return _build_visit_card_details(first_lead)
 
 
 def _format_deadline(deadline: str | None) -> str | None:

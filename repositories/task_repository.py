@@ -96,7 +96,7 @@ def create_task(student_tg_id: int, file_id: str) -> Task:
             f"The mentor must register with the bot before receiving tasks."
         )
 
-    update_lead_status_by_lead(lead, config.CRM_TASK_STATUS_IS_DONE)
+    update_lead_status_by_lead(lead, config.CRM_TASK_IS_SENT_STATUS)
 
     task = _create_task(
         student_id=student.id,
@@ -177,7 +177,7 @@ def approve_task(task_id: int):
         logger.warning(f"Task with id={task_id} not found")
         return
 
-    update_lead_status(task.lead_id, config.CRM_TASK_STATUS_IS_APPROVED)
+    update_lead_status(task.lead_id, config.CRM_TASK_IS_APPROVED_STATUS)
 
 
 def disapprove_task(task_id: int):
@@ -192,7 +192,7 @@ def disapprove_task(task_id: int):
         logger.warning(f"Task with id={task_id} not found")
         return
 
-    update_lead_status(task.lead_id, config.CRM_TASK_STATUS_IS_DISAPPROVED)
+    update_lead_status(task.lead_id, config.CRM_TASK_IS_DISAPPROVED_STATUS)
 
 
 def mark_task_as_failed(task_id: int):
