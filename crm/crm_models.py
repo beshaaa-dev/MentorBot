@@ -6,6 +6,7 @@ class Contact(_Contact):
 
 
 class Lead(_Lead):
+    visit_card = custom_field.TextCustomField("Задание для видео-визитки")
     task = custom_field.TextCustomField("Задание от наставника")
     mentor_tg_nickname = custom_field.TextCustomField("тг наставника")
     task_deadline = custom_field.TextCustomField("Дедлайн задания")

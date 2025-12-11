@@ -7,14 +7,19 @@ CRM_CLIENT_SECRET = os.getenv("CRM_CLIENT_SECRET")
 CRM_AUTH_CODE = os.getenv("CRM_AUTH_CODE")
 CRM_SUBDOMAIN = os.getenv("CRM_SUBDOMAIN")
 CRM_REDIRECT_URL = "https://ya.ru"
-CRM_PIPELINE_ID = os.getenv("CRM_PIPELINE_ID")
-# Отправлено тестовое
-CRM_TASK_STATUS_IS_READY = os.getenv("CRM_TASK_STATUS_IS_READY")
+# Пайплайн
+CRM_PIPELINE = os.getenv("CRM_PIPELINE")
+# Ожидаем визитку
+CRM_VISIT_CARD_STATUS = os.getenv("CRM_VISIT_CARD_STATUS")
+# Визитка отправлена
+CRM_VISIT_CARD_IS_SENT_STATUS = os.getenv("CRM_VISIT_CARD_IS_SENT_STATUS")
+# Ожидаем тестовое
+CRM_TASK_STATUS = os.getenv("CRM_TASK_STATUS")
 # Тестовое отправлено наставнику
-CRM_TASK_STATUS_IS_DONE = os.getenv("CRM_TASK_STATUS_IS_DONE")
+CRM_TASK_IS_SENT_STATUS = os.getenv("CRM_TASK_IS_SENT_STATUS")
 # Наставник отклонил
-CRM_TASK_STATUS_IS_DISAPPROVED = os.getenv("CRM_TASK_STATUS_IS_DISAPPROVED")
+CRM_TASK_IS_DISAPPROVED_STATUS = os.getenv("CRM_TASK_IS_DISAPPROVED_STATUS")
 # Наставник принял
-CRM_TASK_STATUS_IS_APPROVED = os.getenv("CRM_TASK_STATUS_IS_APPROVED")
+CRM_TASK_IS_APPROVED_STATUS = os.getenv("CRM_TASK_IS_APPROVED_STATUS")
 
 SUPPORT_CONTACT_LINK = "https://t.me/Pokolenez_bot"
