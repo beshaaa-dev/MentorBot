@@ -2,7 +2,7 @@ import os
 from dotenv import load_dotenv
 
 # Load environment variables FIRST before any other imports that depend on config
-load_dotenv()
+load_dotenv(override=True)
 
 from telegram.ext import Application
 from logger import setup_logger
