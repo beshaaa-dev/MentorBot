@@ -224,7 +224,7 @@ async def send_visit_card_message(
     return WAITING_FOR_VISIT_CARD_VIDEO
 
 
-MAX_FILE_SIZE_BYTES = 50 * 1024 * 1024  # 50 MB - Telegram Bot API limit
+MAX_FILE_SIZE_BYTES = 20 * 1024 * 1024  # 20 MB - Telegram Bot API download limit
 
 
 async def receive_visit_card_video(
@@ -258,7 +258,7 @@ async def receive_visit_card_video(
         )
         return WAITING_FOR_VISIT_CARD_VIDEO
 
-    # Check file size limit (Telegram Bot API can only download files up to 50 MB)
+    # Check file size limit (Telegram Bot API can only download files up to 20 MB)
     if file_size and file_size > MAX_FILE_SIZE_BYTES:
         await update.message.reply_text(
             FILE_TOO_LARGE, reply_markup=ReplyKeyboardRemove()

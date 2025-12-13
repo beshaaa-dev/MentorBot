@@ -200,12 +200,23 @@ def upload_file_to_lead(lead_id: int, file_bytes: bytes, filename: str) -> bool:
             "Authorization": f"Bearer {access_token}",
         }
 
-        # Step 1: Create upload session (must use drive host, not subdomain)
-        session_url = "https://drive-b.amocrm.ru/v1.0/sessions"
+        # Step 0: Get drive_url from account
+        account_url = (
+            f"https://{config.CRM_SUBDOMAIN}.amocrm.ru/api/v4/account?with=drive_url"
+        )
+        with amo_crm_rate_limiter.limit():
+            account_response = requests.get(account_url, headers=headers)
+        drive_url = account_response.json().get(
+            "drive_url", "https://drive-b.amocrm.ru"
+        )
+
+        # Step 1: Create upload session
+        session_url = f"{drive_url}/v1.0/sessions"
         session_data = {
             "file_name": filename,
             "file_size": len(file_bytes),
             "content_type": "video/mp4",
+            "with_preview": True,
         }
 
         with amo_crm_rate_limiter.limit():
@@ -222,6 +233,7 @@ def upload_file_to_lead(lead_id: int, file_bytes: bytes, filename: str) -> bool:
             return False
 
         session_info = session_response.json()
+        logger.info(f"Upload session info: {session_info}")
         upload_url = session_info.get("upload_url")
         max_part_size = session_info.get("max_part_size", 524288)
 
@@ -231,6 +243,7 @@ def upload_file_to_lead(lead_id: int, file_bytes: bytes, filename: str) -> bool:
 
         # Step 2: Upload file in parts (raw bytes, not multipart, to avoid size drift)
         file_uuid = None
+        version_uuid = None
         total_size = len(file_bytes)
         part_size = min(max_part_size, total_size)
         offset = 0
@@ -253,7 +266,7 @@ def upload_file_to_lead(lead_id: int, file_bytes: bytes, filename: str) -> bool:
                     timeout=30,
                 )
 
-            if upload_response.status_code not in (200, 201):
+            if upload_response.status_code not in (200, 201, 202):
                 logger.error(
                     f"Failed to upload file part: {upload_response.status_code} - {upload_response.text}"
                 )
@@ -264,6 +277,8 @@ def upload_file_to_lead(lead_id: int, file_bytes: bytes, filename: str) -> bool:
             # Check if this is the last part (contains uuid)
             if "uuid" in upload_data:
                 file_uuid = upload_data.get("uuid")
+                version_uuid = upload_data.get("version_uuid")
+                logger.info(f"File upload response: {upload_data}")
                 break
 
             # Get next upload URL for next part
@@ -273,29 +288,39 @@ def upload_file_to_lead(lead_id: int, file_bytes: bytes, filename: str) -> bool:
 
             offset += chunk_len
 
-        if not file_uuid:
-            logger.error(f"No file UUID returned after upload")
+        if not file_uuid or not version_uuid:
+            logger.error("No file UUID or version UUID returned after upload")
             return False
 
-        # Step 3: Link file to lead
-        link_url = (
-            f"https://{config.CRM_SUBDOMAIN}.amocrm.ru/api/v4/leads/{lead_id}/files"
+        # Step 3: Create note with file attachment
+        note_url = (
+            f"https://{config.CRM_SUBDOMAIN}.amocrm.ru/api/v4/leads/{lead_id}/notes"
         )
-        link_data = [{"file_uuid": file_uuid}]
+        note_data = [
+            {
+                "note_type": "attachment",
+                "params": {
+                    "file_uuid": file_uuid,
+                    "version_uuid": version_uuid,
+                    "file_name": filename,
+                },
+            }
+        ]
 
         with amo_crm_rate_limiter.limit():
-            link_response = requests.put(
-                link_url,
+            note_response = requests.post(
+                note_url,
                 headers={**headers, "Content-Type": "application/json"},
-                json=link_data,
+                json=note_data,
             )
 
-        if link_response.status_code not in (200, 201, 202, 204):
+        if note_response.status_code not in (200, 201):
             logger.error(
-                f"Failed to link file to lead {lead_id}: {link_response.status_code} - {link_response.text}"
+                f"Failed to create attachment note for lead {lead_id}: {note_response.status_code} - {note_response.text}"
             )
             return False
 
+        logger.info(f"Note creation response: {note_response.text}")
         logger.info(f"Successfully uploaded file '{filename}' to lead {lead_id}")
         return True
 
