@@ -8,6 +8,7 @@ from database.user_service import (
 )
 from database.models import User, UserRole
 from logger import setup_logger
+from config import DEFAULT_STUDENT_ANKETA_FILENAME
 from crm.crm_service import (
     get_crm_user_by_tg_id as _get_crm_user_by_tg_id,
     get_crm_user_by_id as _get_crm_user_by_id,
@@ -39,79 +40,7 @@ class VisitCardDetails:
     lead_id: str | None = None
 
 
-DEFAULT_ANKETA_FILENAME = "anketa.pdf"
-
-
-def _build_task_details(lead: Lead | None) -> TaskDetails | None:
-    if not lead:
-        return None
-
-    task_text = lead.task
-    if not task_text:
-        return None
-
-    deadline = _format_deadline(lead.task_deadline)
-    return TaskDetails(text=task_text, lead_id=lead.id, deadline=deadline)
-
-
-def _build_visit_card_details(lead: Lead | None) -> VisitCardDetails | None:
-    if not lead:
-        return None
-
-    visit_card_text = lead.visit_card
-    if not visit_card_text:
-        return None
-
-    return VisitCardDetails(text=visit_card_text, lead_id=lead.id)
-
-
-def _build_pdf_filename(student_full_name: str) -> str:
-    sanitized = re.sub(r"\s+", " ", student_full_name.strip())
-    sanitized = re.sub(r"[^\w\s\-]+", "", sanitized, flags=re.UNICODE)
-    sanitized = sanitized.strip()
-
-    if not sanitized:
-        return DEFAULT_ANKETA_FILENAME
-
-    return f"Анкета {sanitized}.pdf"
-
-
-def create_student_if_needed(tg_id: int, tg_nickname: str | None) -> User:
-    """
-    Create a new user with duplicate checking by tg_id.
-    If duplicate found, returns existing user.
-
-    Args:
-        tg_id: Telegram user ID
-        tg_nickname: Telegram nickname (optional)
-
-    Returns:
-        Created or existing User instance
-
-    Raises:
-        Exception: If database operation fails
-    """
-    # Проверяем дупликаты
-    existing_user = find_by_tg_id(tg_id)
-    if existing_user:
-        if not existing_user.tg_nickname:
-            return _update_user(user_id=existing_user.id, tg_nickname=tg_nickname)
-        return existing_user
-
-    # Если не найден по tg_id, пробуем найти по nickname
-    if tg_nickname:
-        existing_user = find_by_tg_nickname(tg_nickname)
-        if existing_user:
-            if not existing_user.tg_id:
-                return _update_user(user_id=existing_user.id, tg_id=tg_id)
-            return existing_user
-
-    user = _create_user(tg_id=tg_id, tg_nickname=tg_nickname, role=UserRole.STUDENT)
-    logger.info(f"Created student with id={user.id}, tg_id={tg_id}")
-    return user
-
-
-def get_crm_user(user: User) -> tuple[User | None, TaskDetails | None]:
+def get_crm_user(user: User) -> User | None:
     if not user.tg_id:
         logger.debug(f"Skip CRM sync for user id={user.id}: missing tg_id")
         return None, None
@@ -130,18 +59,32 @@ def get_crm_user(user: User) -> tuple[User | None, TaskDetails | None]:
     )
     logger.info(f"Updated user with id={user.id}, crm_id={crm_user.id}")
 
-    first_lead = get_first_lead(crm_user)
+    return updated_user
 
-    if not first_lead:
-        return updated_user, None
 
-    task = _build_task_details(first_lead)
+def create_student_if_needed(tg_id: int, tg_nickname: str | None) -> User:
+    """
+    Создает нового пользователя, если не было найдено оного с совпадением в полях tg_id или tg_nickname
+    """
 
-    # Создаем ментора если он еще не существует в БД
-    mentor_tg_nickname = first_lead.mentor_tg_nickname if first_lead else None
-    create_mentor_if_needed(mentor_tg_nickname)
+    # Проверяем дупликаты
+    existing_user = find_by_tg_id(tg_id)
+    if existing_user and not existing_user.tg_nickname:
+        return _update_user(user_id=existing_user.id, tg_nickname=tg_nickname)
+    if existing_user:
+        return existing_user
 
-    return updated_user, task
+    # Если не найден по tg_id, пробуем найти по nickname
+    if tg_nickname:
+        existing_user = find_by_tg_nickname(tg_nickname)
+        if existing_user and not existing_user.tg_id:
+            return _update_user(user_id=existing_user.id, tg_id=tg_id)
+        if existing_user:
+            return existing_user
+
+    user = _create_user(tg_id=tg_id, tg_nickname=tg_nickname, role=UserRole.STUDENT)
+    logger.info(f"Created student with id={user.id}, tg_id={tg_id}")
+    return user
 
 
 def create_mentor_if_needed(mentor_tg_nickname: str | None):
@@ -196,6 +139,40 @@ def get_task(user_crm_id: str) -> TaskDetails | None:
     return _build_task_details(first_lead)
 
 
+def _build_task_details(lead: Lead | None) -> TaskDetails | None:
+    if not lead:
+        return None
+
+    task_text = lead.task
+    if not task_text:
+        return None
+
+    deadline = _format_deadline(lead.task_deadline)
+    return TaskDetails(text=task_text, lead_id=lead.id, deadline=deadline)
+
+
+def _build_visit_card_details(lead: Lead | None) -> VisitCardDetails | None:
+    if not lead:
+        return None
+
+    visit_card_text = lead.visit_card
+    if not visit_card_text:
+        return None
+
+    return VisitCardDetails(text=visit_card_text, lead_id=lead.id)
+
+
+def _build_pdf_filename(student_full_name: str) -> str:
+    sanitized = re.sub(r"\s+", " ", student_full_name.strip())
+    sanitized = re.sub(r"[^\w\s\-]+", "", sanitized, flags=re.UNICODE)
+    sanitized = sanitized.strip()
+
+    if not sanitized:
+        return DEFAULT_STUDENT_ANKETA_FILENAME
+
+    return f"Анкета {sanitized}.pdf"
+
+
 def get_visit_card(user_crm_id: str) -> VisitCardDetails | None:
     """Get visit card details for a student by CRM ID."""
     crm_user = _get_crm_user_by_id(user_crm_id)
@@ -219,11 +196,14 @@ def _format_deadline(deadline: str | None) -> str | None:
     date_obj = datetime.fromtimestamp(int(deadline))
 
     from timezone_utils import to_moscow
+
     moscow_date = to_moscow(date_obj)
     return moscow_date.strftime("%d.%m.%Y %H:%M") if moscow_date else None
 
 
-def get_student_anketa_pdf(student_id: int, lead_id: str) -> tuple[str, bytes | None, str]:
+def get_student_anketa_pdf(
+    student_id: int, lead_id: str
+) -> tuple[str, bytes | None, str]:
     """
     Get student anketa PDF by student ID.
 
@@ -238,7 +218,7 @@ def get_student_anketa_pdf(student_id: int, lead_id: str) -> tuple[str, bytes | 
     user = get_by_id(student_id)
     if not user:
         logger.warning(f"User with id={student_id} not found")
-        return DEFAULT_ANKETA_FILENAME, create_anketa_pdf(None), ""
+        return DEFAULT_STUDENT_ANKETA_FILENAME, create_anketa_pdf(None), ""
 
     student_full_name = " ".join(filter(None, [user.first_name, user.last_name])) or ""
 

@@ -28,7 +28,9 @@ logger = setup_logger(__name__)
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     logger.info(f"User {update.effective_user.id} sent /start command")
+    context.user_data.clear()
     await delete_user_message(update.message)
+
     try:
         user = create_student_if_needed(
             update.effective_user.id, update.effective_user.username
@@ -43,18 +45,17 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
             await update.message.reply_text(
                 FINDING_USER, reply_markup=ReplyKeyboardRemove()
             )
-            user, _ = get_crm_user(user)
-            if not user:
-                await update.message.reply_text(
-                    USER_NOT_FOUND, reply_markup=ReplyKeyboardRemove()
-                )
-                context.user_data.clear()
-                return ConversationHandler.END
-            return await handle_student(user, update, context)
+            user = get_crm_user(user)
+            if user:
+                return await handle_student(user, update, context)
+
+            await update.message.reply_text(
+                USER_NOT_FOUND, reply_markup=ReplyKeyboardRemove()
+            )
+            return ConversationHandler.END
     except Exception as e:
         logger.error(f"Error creating user: {e}")
         await send_error_message(update)
-        context.user_data.clear()
         return ConversationHandler.END
 
 
