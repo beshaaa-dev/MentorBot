@@ -134,7 +134,9 @@ async def _send_task_payload(
     reply_markup=None,
 ) -> None:
     if pdf_data is None:
-        pdf_data = get_student_anketa_pdf(student_id=task.student_id, lead_id=task.lead_id)
+        pdf_data = get_student_anketa_pdf(
+            student_id=task.student_id, lead_id=task.lead_id
+        )
 
     pdf_filename, pdf_bytes, _ = pdf_data
 
@@ -146,10 +148,14 @@ async def _send_task_payload(
             document=pdf_file,
         )
 
-    await send_media_to_chat(context.bot, chat_id, task.file_id, reply_markup=reply_markup)
+    await send_media_to_chat(
+        context.bot, chat_id, task.file_id, reply_markup=reply_markup
+    )
 
 
-async def send_media_to_chat(bot, chat_id: int, file_id: str, reply_markup=None) -> Message | MessageId:
+async def send_media_to_chat(
+    bot, chat_id: int, file_id: str, reply_markup=None
+) -> Message | MessageId:
     """Send task media directly to a chat and return the Telegram message metadata."""
     # Check if it's a message reference (text message)
     msg_ref = parse_message_reference(file_id)
@@ -164,28 +170,46 @@ async def send_media_to_chat(bot, chat_id: int, file_id: str, reply_markup=None)
         )
     else:
         # It's a regular file_id, try to send as different media types
-        return await _try_send_media_types(bot, chat_id, file_id, reply_markup=reply_markup)
+        return await _try_send_media_types(
+            bot, chat_id, file_id, reply_markup=reply_markup
+        )
 
 
-async def _try_send_media_types(bot, chat_id: int, file_id: str, reply_markup=None) -> Message | MessageId:
+async def _try_send_media_types(
+    bot, chat_id: int, file_id: str, reply_markup=None
+) -> Message | MessageId:
     """Try to send media as different types (video, video_note, audio, document, photo, voice)."""
     try:
-        return await bot.send_video(chat_id=chat_id, video=file_id, reply_markup=reply_markup)
+        return await bot.send_video(
+            chat_id=chat_id, video=file_id, reply_markup=reply_markup
+        )
     except Exception:
         try:
-            return await bot.send_video_note(chat_id=chat_id, video_note=file_id, reply_markup=reply_markup)
+            return await bot.send_video_note(
+                chat_id=chat_id, video_note=file_id, reply_markup=reply_markup
+            )
         except Exception:
             try:
-                return await bot.send_audio(chat_id=chat_id, audio=file_id, reply_markup=reply_markup)
+                return await bot.send_audio(
+                    chat_id=chat_id, audio=file_id, reply_markup=reply_markup
+                )
             except Exception:
                 try:
-                    return await bot.send_document(chat_id=chat_id, document=file_id, reply_markup=reply_markup)
+                    return await bot.send_document(
+                        chat_id=chat_id, document=file_id, reply_markup=reply_markup
+                    )
                 except Exception:
                     try:
-                        return await bot.send_photo(chat_id=chat_id, photo=file_id, reply_markup=reply_markup)
+                        return await bot.send_photo(
+                            chat_id=chat_id, photo=file_id, reply_markup=reply_markup
+                        )
                     except Exception:
                         try:
-                            return await bot.send_voice(chat_id=chat_id, voice=file_id, reply_markup=reply_markup)
+                            return await bot.send_voice(
+                                chat_id=chat_id,
+                                voice=file_id,
+                                reply_markup=reply_markup,
+                            )
                         except Exception as e:
                             logger.error(
                                 f"Could not send media with file_id {file_id} to chat {chat_id}: {e}"
@@ -240,9 +264,7 @@ async def handle_mentor_action(
             approve_task(current_task_id)
         elif text == DISAPPROVE_BUTTON:
             disapprove_task(current_task_id)
-        logger.info(
-            f"Updated task {current_task_id} to status {new_status.value}"
-        )
+        logger.info(f"Updated task {current_task_id} to status {new_status.value}")
     except Exception as e:
         logger.error(f"Error updating task status: {e}")
         await update.message.reply_text(
@@ -287,7 +309,10 @@ async def handle_pagination_back(
         if not history_message:
             logger.warning("No decided tasks found for back navigation")
             await update.message.reply_text(
-                NO_PREVIOUS_TASKS, reply_markup=get_mentor_menu_keyboard(), parse_mode="Markdown"
+                NO_PREVIOUS_TASKS,
+                reply_markup=get_mentor_menu_keyboard(),
+                parse_mode="Markdown",
+                disable_web_page_preview=True,
             )
             context.user_data.pop(HISTORY_STATE_KEY, None)
     except Exception as e:
@@ -489,7 +514,10 @@ async def handle_history_navigation_message(
     cached_task_ids = history_state.get("cached_task_ids")
     if not current_task_id or not cached_task_ids:
         await update.message.reply_text(
-            NO_PREVIOUS_TASKS, reply_markup=get_mentor_menu_keyboard(), parse_mode="Markdown"
+            NO_PREVIOUS_TASKS,
+            reply_markup=get_mentor_menu_keyboard(),
+            parse_mode="Markdown",
+            disable_web_page_preview=True,
         )
         return
 
@@ -498,7 +526,10 @@ async def handle_history_navigation_message(
     )
     if not decided_context:
         await update.message.reply_text(
-            NO_PREVIOUS_TASKS, reply_markup=get_mentor_menu_keyboard(), parse_mode="Markdown"
+            NO_PREVIOUS_TASKS,
+            reply_markup=get_mentor_menu_keyboard(),
+            parse_mode="Markdown",
+            disable_web_page_preview=True,
         )
         return
 
@@ -509,7 +540,12 @@ async def handle_history_navigation_message(
     )
 
     if not target_task_id:
-        await update.message.reply_text(NO_PREVIOUS_TASKS, reply_markup=get_mentor_menu_keyboard(), parse_mode="Markdown")
+        await update.message.reply_text(
+            NO_PREVIOUS_TASKS,
+            reply_markup=get_mentor_menu_keyboard(),
+            parse_mode="Markdown",
+            disable_web_page_preview=True,
+        )
         return
 
     try:
@@ -523,7 +559,10 @@ async def handle_history_navigation_message(
         )
         if not message:
             await update.message.reply_text(
-                NO_PREVIOUS_TASKS, reply_markup=get_mentor_menu_keyboard(), parse_mode="Markdown"
+                NO_PREVIOUS_TASKS,
+                reply_markup=get_mentor_menu_keyboard(),
+                parse_mode="Markdown",
+                disable_web_page_preview=True,
             )
             context.user_data.pop(HISTORY_STATE_KEY, None)
     except Exception as e:
@@ -650,7 +689,10 @@ async def handle_history_change_button(
     task_id = history_state.get("task_id")
     if not task_id:
         await update.message.reply_text(
-            NO_PREVIOUS_TASKS, reply_markup=get_mentor_menu_keyboard(), parse_mode="Markdown"
+            NO_PREVIOUS_TASKS,
+            reply_markup=get_mentor_menu_keyboard(),
+            parse_mode="Markdown",
+            disable_web_page_preview=True,
         )
         return
 
@@ -674,7 +716,10 @@ async def handle_history_change_button(
             f"Cannot toggle status {task.status} for task {task.id} in history view"
         )
         await update.message.reply_text(
-            NO_PREVIOUS_TASKS, reply_markup=get_mentor_menu_keyboard(), parse_mode="Markdown"
+            NO_PREVIOUS_TASKS,
+            reply_markup=get_mentor_menu_keyboard(),
+            parse_mode="Markdown",
+            disable_web_page_preview=True,
         )
         return
 
@@ -748,7 +793,9 @@ async def handle_mentor_student_list_request(
         await context.bot.send_message(
             chat_id=chat_id,
             text=chunk,
-            reply_markup=get_mentor_menu_keyboard() if idx == len(messages) - 1 else None,
+            reply_markup=(
+                get_mentor_menu_keyboard() if idx == len(messages) - 1 else None
+            ),
         )
 
 
@@ -782,7 +829,9 @@ mentor_history_change_handler = MessageHandler(
 )
 
 mentor_history_done_handler = MessageHandler(
-    filters.TEXT & ~filters.COMMAND & filters.Regex(f"^({DONE_BUTTON}|{CHECK_NEW_TASK_BUTTON})$"),
+    filters.TEXT
+    & ~filters.COMMAND
+    & filters.Regex(f"^({DONE_BUTTON}|{CHECK_NEW_TASK_BUTTON})$"),
     handle_history_done_message,
 )
 
