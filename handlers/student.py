@@ -58,10 +58,10 @@ async def handle_student(
         reply_markup=ReplyKeyboardRemove(),
     )
 
-    # Проверяем есть ли задание на отправку видеовизитки
-    visit_card = get_visit_card(user.crm_id)
-    if visit_card:
-        return await send_visit_card_message(visit_card, update, context)
+    # # Проверяем есть ли задание на отправку видеовизитки
+    # visit_card = get_visit_card(user.crm_id)
+    # if visit_card:
+    #     return await send_visit_card_message(visit_card, update, context)
 
     # Проверяем есть ли задание от ментора
     task = get_task(user.crm_id)

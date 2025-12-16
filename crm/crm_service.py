@@ -43,7 +43,8 @@ def init_amo_crm_token():
 
 
 # Валидные статусы лида для начала работы со студентом
-VALID_LEAD_STATUSES = {CRM_TASK_STATUS, CRM_VISIT_CARD_STATUS}
+VALID_LEAD_STATUSES = {CRM_TASK_STATUS}
+# VALID_LEAD_STATUSES = {CRM_TASK_STATUS, CRM_VISIT_CARD_STATUS}
 
 
 def get_first_lead(crm_user: Contact) -> Lead | None:
