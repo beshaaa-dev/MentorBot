@@ -4,7 +4,7 @@ from dotenv import load_dotenv
 # Load environment variables FIRST before any other imports that depend on config
 load_dotenv(override=True)
 
-from telegram.ext import Application
+from telegram.ext import Application, PicklePersistence
 from logger import setup_logger
 from handlers import handlers
 from database.db_helper import init_db
@@ -36,8 +36,11 @@ def main() -> None:
         logger.error("TELEGRAM_BOT_TOKEN not found in environment variables")
         return
 
+    # Persistence для сохранения состояния между перезапусками
+    persistence = PicklePersistence(filepath="bot_persistence.pickle")
+
     # Регистрируем обработчики (админские, общие, платежные, и т.д.)
-    application = Application.builder().token(token).build()
+    application = Application.builder().token(token).persistence(persistence).build()
     for handler in handlers:
         application.add_handler(handler)
 

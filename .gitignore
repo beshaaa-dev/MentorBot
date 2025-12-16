@@ -8,6 +8,7 @@ venv/
 *.db
 *.backup_*
 *.DS_Store
+*.pickle
 *.log
 *.logs
 tokens/
