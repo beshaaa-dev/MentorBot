@@ -22,7 +22,7 @@ from repositories.task_repository import (
     get_tasks_for_mentor_by_status,
 )
 from keyboards import (
-    get_mentor_action_keyboard,
+    get_mentor_task_decision_keyboard,
     get_support_keyboard,
     get_decided_task_navigation_keyboard,
     get_mentor_menu_keyboard,
@@ -90,9 +90,6 @@ async def send_task(
     context: ContextTypes.DEFAULT_TYPE,
 ) -> None:
     """Send a task to a mentor with action buttons that include a Back option."""
-
-    context.user_data["current_task_id"] = task.id
-
     pdf_data = get_student_anketa_pdf(student_id=task.student_id, lead_id=task.lead_id)
 
     await _send_task_info_message(
@@ -100,13 +97,14 @@ async def send_task(
         task=task,
         context=context,
         student_name=pdf_data[2],
+        reply_markup=get_mentor_task_decision_keyboard(task.id),
     )
     await _send_task_payload(
         chat_id=chat_id,
         task=task,
         context=context,
         pdf_data=pdf_data,
-        reply_markup=get_mentor_action_keyboard(),
+        reply_markup=get_mentor_menu_keyboard(),
     )
 
 
@@ -115,6 +113,7 @@ async def _send_task_info_message(
     task: Task,
     context: ContextTypes.DEFAULT_TYPE,
     student_name: str | None = None,
+    reply_markup=None,
 ) -> None:
     """Send textual information about the task before attachments."""
     text = _build_task_info_text(task, student_name=student_name)
@@ -122,7 +121,7 @@ async def _send_task_info_message(
         chat_id=chat_id,
         text=text,
         parse_mode="Markdown",
-        reply_markup=ReplyKeyboardRemove(),
+        reply_markup=reply_markup,
     )
 
 
@@ -215,71 +214,6 @@ async def _try_send_media_types(
                                 f"Could not send media with file_id {file_id} to chat {chat_id}: {e}"
                             )
                             raise
-
-
-async def handle_mentor_action(
-    update: Update, context: ContextTypes.DEFAULT_TYPE
-) -> None:
-    """Handle mentor action buttons: approve, disapprove."""
-    await delete_user_message(update.message)
-
-    text = update.message.text
-
-    user = find_by_tg_id(update.effective_user.id)
-    if not user or user.role != UserRole.MENTOR:
-        logger.warning("Mentor action attempted by non-mentor user")
-        await update.message.reply_text(
-            ERROR_MESSAGE, reply_markup=ReplyKeyboardRemove()
-        )
-        context.user_data.clear()
-        return
-
-    current_task_id = context.user_data.get("current_task_id")
-    if not current_task_id:
-        logger.warning("Missing current_task_id in context")
-        await update.message.reply_text(
-            ERROR_MESSAGE, reply_markup=ReplyKeyboardRemove()
-        )
-        context.user_data.clear()
-        return
-
-    # Map button text to TaskStatus
-    status_mapping = {
-        APPROVE_BUTTON: TaskStatus.APPROVED,
-        DISAPPROVE_BUTTON: TaskStatus.DISAPPROVED,
-    }
-
-    if text not in status_mapping:
-        # Invalid button, show error
-        await update.message.reply_text(
-            ERROR_MESSAGE, reply_markup=get_mentor_action_keyboard()
-        )
-        return
-
-    # Update task status
-    try:
-        new_status = status_mapping[text]
-        update_task_status(current_task_id, new_status)
-        if text == APPROVE_BUTTON:
-            approve_task(current_task_id)
-        elif text == DISAPPROVE_BUTTON:
-            disapprove_task(current_task_id)
-        logger.info(f"Updated task {current_task_id} to status {new_status.value}")
-    except Exception as e:
-        logger.error(f"Error updating task status: {e}")
-        await update.message.reply_text(
-            ERROR_MESSAGE, reply_markup=ReplyKeyboardRemove()
-        )
-        context.user_data.clear()
-        return
-
-    # Send status confirmation with menu keyboard
-    status_label = _get_status_label(new_status)
-    await update.message.reply_text(
-        STATUS_UPDATED.format(status=status_label),
-        reply_markup=get_mentor_menu_keyboard(),
-    )
-    context.user_data.clear()
 
 
 async def handle_pagination_back(
@@ -614,6 +548,12 @@ async def handle_check_task_callback(
     query = update.callback_query
     await query.answer()
 
+    # Delete the original message with the button
+    try:
+        await query.message.delete()
+    except Exception:
+        pass  # Ignore if message is already deleted or too old
+
     # Extract task_id from callback_data (format: "check_task_{task_id}")
     try:
         task_id = int(query.data.split("_")[-1])
@@ -655,6 +595,74 @@ async def handle_check_task_callback(
             ERROR_MESSAGE, reply_markup=ReplyKeyboardRemove()
         )
         context.user_data.clear()
+
+
+async def handle_approve_disapprove_callback(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> None:
+    """Handle callback when mentor clicks 'Approve' or 'Disapprove' inline button."""
+    query = update.callback_query
+    await query.answer()
+
+    # Extract action and task_id from callback_data (format: "approve_{task_id}" or "disapprove_{task_id}")
+    try:
+        parts = query.data.split("_")
+        action = parts[0]
+        task_id = int(parts[1])
+    except (ValueError, IndexError):
+        logger.error(f"Invalid callback data: {query.data}")
+        await query.message.reply_text(
+            ERROR_MESSAGE, reply_markup=ReplyKeyboardRemove()
+        )
+        return
+
+    # Verify user is mentor
+    user = find_by_tg_id(query.from_user.id)
+    if not user or user.role != UserRole.MENTOR:
+        logger.warning("Approve/disapprove callback by non-mentor user")
+        await query.message.reply_text(
+            ERROR_MESSAGE, reply_markup=ReplyKeyboardRemove()
+        )
+        return
+
+    # Determine status based on action
+    if action == "approve":
+        new_status = TaskStatus.APPROVED
+    elif action == "disapprove":
+        new_status = TaskStatus.DISAPPROVED
+    else:
+        logger.error(f"Unknown action in callback: {action}")
+        await query.message.reply_text(
+            ERROR_MESSAGE, reply_markup=ReplyKeyboardRemove()
+        )
+        return
+
+    # Update task status
+    try:
+        task = update_task_status(task_id, new_status)
+        if action == "approve":
+            approve_task(task_id)
+        else:
+            disapprove_task(task_id)
+        logger.info(f"Updated task {task_id} to status {new_status.value} via callback")
+    except Exception as e:
+        logger.error(f"Error updating task status: {e}")
+        await query.message.reply_text(
+            ERROR_MESSAGE, reply_markup=ReplyKeyboardRemove()
+        )
+        return
+
+    # Edit the message to show task info with updated status
+    if task:
+        text = _build_task_info_text(task)
+        try:
+            await query.edit_message_text(
+                text=text,
+                parse_mode="Markdown",
+                reply_markup=None,
+            )
+        except Exception as e:
+            logger.warning(f"Could not edit message: {e}")
 
 
 def parse_message_reference(file_id: str) -> tuple[int, int] | None:
@@ -805,15 +813,12 @@ mentor_back_button_handler = MessageHandler(
     handle_pagination_back,
 )
 
-mentor_action_handler = MessageHandler(
-    filters.TEXT
-    & ~filters.COMMAND
-    & filters.Regex(f"^({APPROVE_BUTTON}|{DISAPPROVE_BUTTON})$"),
-    handle_mentor_action,
-)
-
 mentor_check_task_handler = CallbackQueryHandler(
     handle_check_task_callback, pattern="^check_task_"
+)
+
+mentor_approve_disapprove_handler = CallbackQueryHandler(
+    handle_approve_disapprove_callback, pattern="^(approve|disapprove)_\\d+$"
 )
 
 mentor_history_nav_handler = MessageHandler(

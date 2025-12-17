@@ -36,20 +36,17 @@ def get_confirmation_keyboard() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=True)
 
 
-def get_mentor_action_keyboard() -> ReplyKeyboardMarkup:
+def get_mentor_task_decision_keyboard(task_id: int) -> InlineKeyboardMarkup:
+    """Inline keyboard with Approve/Disapprove buttons."""
     keyboard = [
         [
-            KeyboardButton(APPROVE_BUTTON),
-            KeyboardButton(DISAPPROVE_BUTTON),
-        ],
-        [
-            KeyboardButton(APPROVED_STUDENTS_BUTTON),
-            KeyboardButton(DISAPPROVED_STUDENTS_BUTTON),
-        ],
-        [KeyboardButton(BACK_BUTTON)],
+            InlineKeyboardButton(APPROVE_BUTTON, callback_data=f"approve_{task_id}"),
+            InlineKeyboardButton(
+                DISAPPROVE_BUTTON, callback_data=f"disapprove_{task_id}"
+            ),
+        ]
     ]
-    return ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=True)
-
+    return InlineKeyboardMarkup(keyboard)
 
 
 def get_check_task_keyboard(task_id: int) -> InlineKeyboardMarkup:
@@ -70,7 +67,10 @@ def get_mentor_menu_keyboard() -> ReplyKeyboardMarkup:
     keyboard = [
         [KeyboardButton(CHECK_NEW_TASK_BUTTON)],
         [KeyboardButton(BACK_BUTTON)],
-        [KeyboardButton(APPROVED_STUDENTS_BUTTON), KeyboardButton(DISAPPROVED_STUDENTS_BUTTON)],
+        [
+            KeyboardButton(APPROVED_STUDENTS_BUTTON),
+            KeyboardButton(DISAPPROVED_STUDENTS_BUTTON),
+        ],
     ]
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=True)
 
