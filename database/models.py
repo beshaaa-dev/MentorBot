@@ -13,6 +13,7 @@ class TaskStatus(str, Enum):
     UNCHECKED = "unchecked"
     APPROVED = "approved"
     DISAPPROVED = "disapproved"
+    POSTPONED = "postponed"
 
 
 class User(Base):

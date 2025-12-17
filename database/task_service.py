@@ -165,3 +165,23 @@ def get_tasks_by_status(mentor_id: int, status: TaskStatus) -> list[Task]:
                 f"Error getting tasks for mentor {mentor_id} with status {status}: {e}"
             )
             raise
+
+
+def get_postponed_tasks(mentor_id: int) -> list[Task]:
+    """
+    Возвращает все отложенные заявки, отсортированные от самых ранних до самых поздних
+    """
+    with get_db() as db:
+        try:
+            tasks = (
+                db.query(Task)
+                .filter(
+                    Task.mentor_id == mentor_id, Task.status == TaskStatus.POSTPONED
+                )
+                .order_by(Task.created_at.asc())
+                .all()
+            )
+            return tasks
+        except Exception as e:
+            logger.error(f"Error getting postponed tasks for mentor {mentor_id}: {e}")
+            raise
