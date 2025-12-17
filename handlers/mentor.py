@@ -20,27 +20,29 @@ from repositories.task_repository import (
     get_decided_task_context,
     DecidedTaskContext,
     get_tasks_for_mentor_by_status,
+    get_postponed_task_context,
+    PostponedTaskContext,
 )
 from keyboards import (
     get_mentor_task_decision_keyboard,
     get_support_keyboard,
     get_decided_task_navigation_keyboard,
     get_mentor_menu_keyboard,
+    get_postponed_task_navigation_keyboard,
 )
 from messages import (
     ERROR_MESSAGE,
     MENTOR_GREETING_TEMPLATE,
     MENTOR_NO_TASK,
-    APPROVE_BUTTON,
-    DISAPPROVE_BUTTON,
     BACK_BUTTON,
-    MENTOR_PREVIOUS_TASK_INVITE,
+    MENU_INFO,
     NO_PREVIOUS_TASKS,
     TASK_STATUS_APPROVED,
     TASK_STATUS_DISAPPROVED,
     TASK_STATUS_UNCHECKED,
+    TASK_STATUS_POSTPONED,
     TASK_INFO_TEMPLATE,
-    DONE_BUTTON,
+    TO_MENU_BUTTON,
     CHANGE_STATUS_BUTTON,
     STATUS_UPDATED,
     APPROVED_STUDENTS_BUTTON,
@@ -50,6 +52,8 @@ from messages import (
     STUDENT_LIST_EMPTY_MESSAGE,
     STUDENT_LIST_CONTINUATION_LABEL,
     CHECK_NEW_TASK_BUTTON,
+    POSTPONED_TASKS_BUTTON,
+    NO_POSTPONED_TASKS,
 )
 from database.models import Task, TaskStatus, User, UserRole
 from handlers.utils import send_error_message, delete_user_message
@@ -57,8 +61,12 @@ from handlers.utils import send_error_message, delete_user_message
 logger = setup_logger(__name__)
 
 HISTORY_STATE_KEY = "history_state"
+POSTPONED_STATE_KEY = "postponed_state"
 HISTORY_NAV_LEFT = "Назад"
 HISTORY_NAV_RIGHT = "Вперёд"
+POSTPONED_NAV_LEFT = "Предыдущая заявка"
+POSTPONED_NAV_RIGHT = "Следующая заявка"
+POSTPONED_DONE = "Готово"
 TELEGRAM_MESSAGE_CHAR_LIMIT = 4096
 
 
@@ -71,17 +79,73 @@ async def handle_mentor(
         MENTOR_GREETING_TEMPLATE,
         reply_markup=ReplyKeyboardRemove(),
     )
-    task = get_earliest_task(user.id)
+    await _send_earliest_task(
+        chat_id=update.effective_chat.id,
+        mentor_id=user.id,
+        context=context,
+        update=update,
+    )
+
+
+async def handle_check_new_task_button(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> None:
+    """Обработка экшена в меню 'Проверить задание'"""
+    message = update.message
+    await delete_user_message(message)
+
+    mentor = find_by_tg_id(update.effective_user.id)
+    if not mentor or mentor.role != UserRole.MENTOR:
+        logger.warning("Check new task button used by non-mentor user")
+        await update.message.reply_text(
+            ERROR_MESSAGE, reply_markup=get_support_keyboard()
+        )
+        context.user_data.clear()
+        return
+
+    context.user_data.clear()
+    await _send_earliest_task(
+        chat_id=update.effective_chat.id,
+        mentor_id=mentor.id,
+        context=context,
+        update=update,
+    )
+
+
+async def _send_earliest_task(
+    chat_id: int,
+    mentor_id: int,
+    context: ContextTypes.DEFAULT_TYPE,
+    update: Update,
+) -> None:
+    """Helper to send earliest task or show menu if no tasks available."""
+    task = get_earliest_task(mentor_id)
     if task:
         try:
-            await send_task(update.effective_chat.id, task, context=context)
+            await send_task(chat_id, task, context=context)
         except Exception as e:
-            logger.error(f"Error sending earliest task in handle_mentor: {e}")
+            logger.error(f"Error sending earliest task: {e}")
             await send_error_message(update)
     else:
+        await context.bot.send_message(chat_id=chat_id, text=MENTOR_NO_TASK)
         await update.message.reply_text(
-            MENTOR_NO_TASK, reply_markup=get_mentor_menu_keyboard()
+            MENU_INFO,
+            reply_markup=get_mentor_menu_keyboard(),
+            parse_mode="Markdown",
         )
+
+
+async def handle_to_menu_message(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> None:
+    """Обработка экшена 'В меню'"""
+    await delete_user_message(update.message)
+    context.user_data.clear()
+    await update.message.reply_text(
+        MENU_INFO,
+        reply_markup=get_mentor_menu_keyboard(),
+        parse_mode="Markdown",
+    )
 
 
 async def send_task(
@@ -97,7 +161,11 @@ async def send_task(
         task=task,
         context=context,
         student_name=pdf_data[2],
-        reply_markup=get_mentor_task_decision_keyboard(task.id),
+        reply_markup=get_mentor_task_decision_keyboard(
+            task.id,
+            is_check_later_button_hidden=task.status
+            in (TaskStatus.APPROVED, TaskStatus.DISAPPROVED),
+        ),
     )
     await _send_task_payload(
         chat_id=chat_id,
@@ -320,6 +388,7 @@ def _get_status_label(status: TaskStatus) -> str:
         TaskStatus.APPROVED: TASK_STATUS_APPROVED,
         TaskStatus.DISAPPROVED: TASK_STATUS_DISAPPROVED,
         TaskStatus.UNCHECKED: TASK_STATUS_UNCHECKED,
+        TaskStatus.POSTPONED: TASK_STATUS_POSTPONED,
     }
     return status_labels.get(status, status.value.title())
 
@@ -412,17 +481,6 @@ async def _notify_history_status_change(
         logger.error(f"Error notifying about history status change: {e}")
 
 
-async def end_conversation_with_mentor(
-    update: Update, context: ContextTypes.DEFAULT_TYPE, mentor_id: int
-) -> None:
-    """End conversation with mentor, checking for previous tasks."""
-    context.user_data.clear()
-    await update.message.reply_text(
-        MENTOR_PREVIOUS_TASK_INVITE,
-        reply_markup=get_mentor_menu_keyboard(),
-    )
-
-
 async def handle_history_navigation_message(
     update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> None:
@@ -505,40 +563,6 @@ async def handle_history_navigation_message(
             ERROR_MESSAGE, reply_markup=get_support_keyboard()
         )
         context.user_data.clear()
-
-
-async def handle_history_done_message(
-    update: Update, context: ContextTypes.DEFAULT_TYPE
-) -> None:
-    """Handle 'Done' or 'Check new task' button - fetch earliest task."""
-    message = update.message
-    await delete_user_message(message)
-
-    mentor = find_by_tg_id(update.effective_user.id)
-    if not mentor or mentor.role != UserRole.MENTOR:
-        logger.warning("Check new task attempted by non-mentor user")
-        await update.message.reply_text(
-            ERROR_MESSAGE, reply_markup=get_support_keyboard()
-        )
-        context.user_data.clear()
-        return
-
-    context.user_data.pop(HISTORY_STATE_KEY, None)
-
-    task = get_earliest_task(mentor.id)
-    if task:
-        try:
-            await send_task(update.effective_chat.id, task, context=context)
-        except Exception as e:
-            logger.error(f"Error sending earliest task: {e}")
-            await update.message.reply_text(
-                ERROR_MESSAGE, reply_markup=get_support_keyboard()
-            )
-            context.user_data.clear()
-    else:
-        await update.message.reply_text(
-            MENTOR_NO_TASK, reply_markup=get_mentor_menu_keyboard()
-        )
 
 
 async def handle_check_task_callback(
@@ -807,6 +831,245 @@ async def handle_mentor_student_list_request(
         )
 
 
+async def handle_postpone_callback(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> None:
+    """Обработчик экшена 'Сомневаюсь'"""
+    query = update.callback_query
+    await query.answer()
+
+    # Extract task_id from callback_data (format: "postpone_{task_id}")
+    try:
+        task_id = int(query.data.split("_")[-1])
+    except (ValueError, IndexError):
+        logger.error(f"Invalid callback data: {query.data}")
+        await query.message.reply_text(
+            ERROR_MESSAGE, reply_markup=ReplyKeyboardRemove()
+        )
+        return
+
+    # Verify user is mentor
+    user = find_by_tg_id(query.from_user.id)
+    if not user or user.role != UserRole.MENTOR:
+        logger.warning("Check later callback by non-mentor user")
+        await query.message.reply_text(
+            ERROR_MESSAGE, reply_markup=ReplyKeyboardRemove()
+        )
+        return
+
+    # Update task status to POSTPONED
+    try:
+        task = update_task_status(task_id, TaskStatus.POSTPONED)
+        logger.info(f"Updated task {task_id} to status POSTPONED via callback")
+    except Exception as e:
+        logger.error(f"Error updating task status to POSTPONED: {e}")
+        await query.message.reply_text(
+            ERROR_MESSAGE, reply_markup=ReplyKeyboardRemove()
+        )
+        return
+
+    # Edit the message to show task info with updated status
+
+    if not task:
+        logger.error("Error updating task status to POSTPONED")
+        await query.message.reply_text(
+            ERROR_MESSAGE, reply_markup=ReplyKeyboardRemove()
+        )
+        return
+
+    text = _build_task_info_text(task)
+    try:
+        await query.edit_message_text(
+            text=text,
+            parse_mode="Markdown",
+            reply_markup=None,
+        )
+    except Exception as e:
+        logger.warning(f"Could not edit message: {e}")
+
+
+async def handle_postponed_tasks_button(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> None:
+    """Обработка экшена в меню 'Отложенные заявки'"""
+    message = update.message
+    await delete_user_message(message)
+
+    mentor = find_by_tg_id(update.effective_user.id)
+    if not mentor or mentor.role != UserRole.MENTOR:
+        logger.warning("Postponed tasks button used by non-mentor user")
+        await update.message.reply_text(
+            ERROR_MESSAGE, reply_markup=get_support_keyboard()
+        )
+        context.user_data.clear()
+        return
+
+    try:
+        result = await _present_postponed_task_view(
+            chat_id=update.effective_chat.id,
+            mentor_id=mentor.id,
+            context=context,
+            resend_media=True,
+        )
+        if not result:
+            await update.message.reply_text(
+                NO_POSTPONED_TASKS,
+                reply_markup=get_mentor_menu_keyboard(),
+            )
+            context.user_data.pop(POSTPONED_STATE_KEY, None)
+    except Exception as e:
+        logger.error(f"Error showing postponed task: {e}")
+        await update.message.reply_text(
+            ERROR_MESSAGE, reply_markup=get_support_keyboard()
+        )
+        context.user_data.clear()
+
+
+async def _present_postponed_task_view(
+    chat_id: int,
+    mentor_id: int,
+    context: ContextTypes.DEFAULT_TYPE,
+    target_task_id: int | None = None,
+    resend_media: bool = True,
+    cached_task_ids: list[int] | None = None,
+) -> Message | None:
+    """Present a postponed task with navigation and decision buttons."""
+    postponed_context = get_postponed_task_context(
+        mentor_id, target_task_id, cached_task_ids=cached_task_ids
+    )
+    if not postponed_context:
+        return None
+
+    message = await _send_postponed_task_summary(
+        chat_id=chat_id,
+        postponed_context=postponed_context,
+        context=context,
+    )
+
+    if resend_media:
+        # Send navigation keyboard with task payload
+        keyboard = get_postponed_task_navigation_keyboard(
+            older_task_id=postponed_context.older_task_id,
+            newer_task_id=postponed_context.newer_task_id,
+        )
+        await _send_task_payload(
+            chat_id=chat_id,
+            task=postponed_context.task,
+            context=context,
+            reply_markup=keyboard,
+        )
+
+    context.user_data[POSTPONED_STATE_KEY] = {
+        "chat_id": chat_id,
+        "message_id": message.message_id,
+        "task_id": postponed_context.task.id,
+        "cached_task_ids": postponed_context.cached_task_ids,
+    }
+
+    return message
+
+
+async def _send_postponed_task_summary(
+    chat_id: int,
+    postponed_context: PostponedTaskContext,
+    context: ContextTypes.DEFAULT_TYPE,
+) -> Message:
+    """Send postponed task info with inline decision buttons."""
+    text = _build_task_info_text(postponed_context.task)
+    return await context.bot.send_message(
+        chat_id=chat_id,
+        text=text,
+        parse_mode="Markdown",
+        reply_markup=get_mentor_task_decision_keyboard(
+            postponed_context.task.id,
+            is_check_later_button_hidden=postponed_context.task.status
+            in (TaskStatus.APPROVED, TaskStatus.DISAPPROVED),
+        ),
+    )
+
+
+async def handle_postponed_navigation_message(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> None:
+    """Handle reply keyboard navigation buttons for postponed tasks."""
+    # Check if we're in postponed state
+    if POSTPONED_STATE_KEY not in context.user_data:
+        return
+
+    message = update.message
+    await delete_user_message(message)
+
+    text = message.text if message else None
+    if text not in (POSTPONED_NAV_LEFT, POSTPONED_NAV_RIGHT):
+        return
+
+    mentor = find_by_tg_id(update.effective_user.id)
+    if not mentor or mentor.role != UserRole.MENTOR:
+        logger.warning("Postponed navigation attempted by non-mentor user")
+        await update.message.reply_text(
+            ERROR_MESSAGE, reply_markup=get_support_keyboard()
+        )
+        context.user_data.clear()
+        return
+
+    postponed_state = context.user_data.get(POSTPONED_STATE_KEY) or {}
+    current_task_id = postponed_state.get("task_id")
+    cached_task_ids = postponed_state.get("cached_task_ids")
+    if not current_task_id or not cached_task_ids:
+        await update.message.reply_text(
+            NO_POSTPONED_TASKS,
+            reply_markup=get_mentor_menu_keyboard(),
+        )
+        context.user_data.pop(POSTPONED_STATE_KEY, None)
+        return
+
+    postponed_context = get_postponed_task_context(
+        mentor.id, current_task_id, cached_task_ids=cached_task_ids
+    )
+    if not postponed_context:
+        await update.message.reply_text(
+            NO_POSTPONED_TASKS,
+            reply_markup=get_mentor_menu_keyboard(),
+        )
+        context.user_data.pop(POSTPONED_STATE_KEY, None)
+        return
+
+    target_task_id = (
+        postponed_context.older_task_id
+        if text == POSTPONED_NAV_LEFT
+        else postponed_context.newer_task_id
+    )
+
+    if not target_task_id:
+        await update.message.reply_text(
+            NO_POSTPONED_TASKS,
+            reply_markup=get_mentor_menu_keyboard(),
+        )
+        return
+
+    try:
+        result = await _present_postponed_task_view(
+            chat_id=update.effective_chat.id,
+            mentor_id=mentor.id,
+            context=context,
+            target_task_id=target_task_id,
+            resend_media=True,
+            cached_task_ids=cached_task_ids,
+        )
+        if not result:
+            await update.message.reply_text(
+                NO_POSTPONED_TASKS,
+                reply_markup=get_mentor_menu_keyboard(),
+            )
+            context.user_data.pop(POSTPONED_STATE_KEY, None)
+    except Exception as e:
+        logger.error(f"Error navigating postponed tasks: {e}")
+        await update.message.reply_text(
+            ERROR_MESSAGE, reply_markup=get_support_keyboard()
+        )
+        context.user_data.clear()
+
+
 # Standalone handlers for mentor flow
 mentor_back_button_handler = MessageHandler(
     filters.TEXT & ~filters.COMMAND & filters.Regex(f"^{BACK_BUTTON}$"),
@@ -833,11 +1096,9 @@ mentor_history_change_handler = MessageHandler(
     handle_history_change_button,
 )
 
-mentor_history_done_handler = MessageHandler(
-    filters.TEXT
-    & ~filters.COMMAND
-    & filters.Regex(f"^({DONE_BUTTON}|{CHECK_NEW_TASK_BUTTON})$"),
-    handle_history_done_message,
+mentor_to_menu_handler = MessageHandler(
+    filters.TEXT & ~filters.COMMAND & filters.Regex(f"^{TO_MENU_BUTTON}$"),
+    handle_to_menu_message,
 )
 
 mentor_student_list_handler = MessageHandler(
@@ -845,4 +1106,25 @@ mentor_student_list_handler = MessageHandler(
     & ~filters.COMMAND
     & filters.Regex(f"^({APPROVED_STUDENTS_BUTTON}|{DISAPPROVED_STUDENTS_BUTTON})$"),
     handle_mentor_student_list_request,
+)
+
+mentor_postpone_handler = CallbackQueryHandler(
+    handle_postpone_callback, pattern="^postpone_\\d+$"
+)
+
+mentor_check_new_task_handler = MessageHandler(
+    filters.TEXT & ~filters.COMMAND & filters.Regex(f"^{CHECK_NEW_TASK_BUTTON}$"),
+    handle_check_new_task_button,
+)
+
+mentor_postponed_tasks_handler = MessageHandler(
+    filters.TEXT & ~filters.COMMAND & filters.Regex(f"^{POSTPONED_TASKS_BUTTON}$"),
+    handle_postponed_tasks_button,
+)
+
+mentor_postponed_nav_handler = MessageHandler(
+    filters.TEXT
+    & ~filters.COMMAND
+    & filters.Regex(f"^({POSTPONED_NAV_LEFT}|{POSTPONED_NAV_RIGHT})$"),
+    handle_postponed_navigation_message,
 )

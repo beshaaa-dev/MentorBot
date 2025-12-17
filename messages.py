@@ -1,6 +1,6 @@
 from config import SUPPORT_CONTACT_LINK
 
-ERROR_MESSAGE = "Что-то пошло не так. Введите команду \start и попробуйте еще раз. Есди ошибка повторится, то обратитесь в поддержку."
+ERROR_MESSAGE = "Что-то пошло не так. Зайдите в меню, выберите команду start и попробуйте еще раз. Если ошибка повторится, то обратитесь в поддержку."
 SUPPORT_BUTTON_TEXT = "Написать в поддержку"
 GREETING_WITH_NAME_TEMPLATE = "Привет, {name}! Проверяем задание..."
 MENTOR_GREETING_TEMPLATE = "Привет! Проверяем новые работы студентов"
@@ -19,7 +19,14 @@ CANCEL_BUTTON = "Нет, начать заново"
 APPROVE_BUTTON = "Одобрить"
 DISAPPROVE_BUTTON = "Отказать"
 BACK_BUTTON = "Предыдущие задания"
-MENTOR_PREVIOUS_TASK_INVITE = "Больше нет новых задания на проверку.\n\nВы можете посмотреть предыдущие и изменить свое решение, нажав кнопку 'Предыдущие задания'."
+MENU_INFO = (
+    "Вот, что Вы можете сделать в боте:\n\n"
+    "• *Проверить новое задание* — проверить следующую работу\n"
+    "• *Предыдущие задания* — посмотреть историю и изменить решение\n"
+    "• *Отложенные заявки* — вернуться к отложенным работам\n"
+    "• *Одобренные заявки* — список участников с принятыми заявками\n"
+    "• *Отклонённые заявки* — список участников с отклонёнными заявками"
+)
 MENTOR_NEW_TASK_NOTIFICATION = "У вас новое задание на проверку!"
 CHECK_TASK_BUTTON = "Посмотреть"
 NO_PREVIOUS_TASKS = f"Время для изменения решения по предыдущим заданиям истекло.\n\nЕсли нужна помощь или есть вопрос — [напишите в поддержку]({SUPPORT_CONTACT_LINK})."
@@ -28,6 +35,7 @@ TASK_STATUS_APPROVED = "✅ Одобрено"
 TASK_STATUS_DISAPPROVED = "❌ Отклонено"
 TASK_STATUS_UNCHECKED = "👀 Не проверено"
 DONE_BUTTON = "Готово"
+TO_MENU_BUTTON = "В меню"
 APPROVED_STUDENTS_BUTTON = "Одобренные студенты"
 DISAPPROVED_STUDENTS_BUTTON = "Отклонённые студенты"
 APPROVED_STUDENTS_HEADER = "✅ Одобренные студенты:"
@@ -40,6 +48,10 @@ TASK_INFO_TEMPLATE = (
 STATUS_UPDATED = "Новый статус: {status}"
 SUPPORT_MESSAGE = "Если нужна помощь или есть вопрос — напишите в поддержку."
 CHECK_NEW_TASK_BUTTON = "Проверить новое задание"
+POSTPONE_TASK_BUTTON = "Сомневаюсь"
+POSTPONED_TASKS_BUTTON = "Отложенные заявки"
+TASK_STATUS_POSTPONED = "🕐 Отложено"
+NO_POSTPONED_TASKS = "Отложенных заявок нет."
 UNKNOWN_MESSAGE = "Чтобы начать работу с ботом, отправьте /start"
 
 # Visit card flow messages

@@ -14,10 +14,12 @@ from messages import (
     BACK_BUTTON,
     CHECK_TASK_BUTTON,
     CHANGE_STATUS_BUTTON,
-    DONE_BUTTON,
+    TO_MENU_BUTTON,
     APPROVED_STUDENTS_BUTTON,
     DISAPPROVED_STUDENTS_BUTTON,
     CHECK_NEW_TASK_BUTTON,
+    POSTPONE_TASK_BUTTON,
+    POSTPONED_TASKS_BUTTON,
 )
 
 
@@ -36,16 +38,27 @@ def get_confirmation_keyboard() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=True)
 
 
-def get_mentor_task_decision_keyboard(task_id: int) -> InlineKeyboardMarkup:
-    """Inline keyboard with Approve/Disapprove buttons."""
+def get_mentor_task_decision_keyboard(
+    task_id: int, is_check_later_button_hidden: bool = False
+) -> InlineKeyboardMarkup:
     keyboard = [
         [
             InlineKeyboardButton(APPROVE_BUTTON, callback_data=f"approve_{task_id}"),
             InlineKeyboardButton(
                 DISAPPROVE_BUTTON, callback_data=f"disapprove_{task_id}"
             ),
-        ]
+        ],
     ]
+
+    if not is_check_later_button_hidden:
+        keyboard.append(
+            [
+                InlineKeyboardButton(
+                    POSTPONE_TASK_BUTTON, callback_data=f"postpone_{task_id}"
+                ),
+            ]
+        )
+
     return InlineKeyboardMarkup(keyboard)
 
 
@@ -66,7 +79,7 @@ def get_mentor_menu_keyboard() -> ReplyKeyboardMarkup:
     """Keyboard shown after mentor approves/disapproves a task."""
     keyboard = [
         [KeyboardButton(CHECK_NEW_TASK_BUTTON)],
-        [KeyboardButton(BACK_BUTTON)],
+        [KeyboardButton(POSTPONED_TASKS_BUTTON), KeyboardButton(BACK_BUTTON)],
         [
             KeyboardButton(APPROVED_STUDENTS_BUTTON),
             KeyboardButton(DISAPPROVED_STUDENTS_BUTTON),
@@ -86,12 +99,32 @@ def get_decided_task_navigation_keyboard(
     if newer_task_id is not None:
         navigation_row.append(KeyboardButton("Вперёд"))
     change_status_row = [KeyboardButton(CHANGE_STATUS_BUTTON)]
-    done_row = [KeyboardButton(DONE_BUTTON)]
+    menu_row = [KeyboardButton(TO_MENU_BUTTON)]
 
     rows: list[list[KeyboardButton]] = []
     if navigation_row:
         rows.append(navigation_row)
     rows.append(change_status_row)
-    rows.append(done_row)
+    rows.append(menu_row)
+
+    return ReplyKeyboardMarkup(rows, resize_keyboard=True, one_time_keyboard=True)
+
+
+def get_postponed_task_navigation_keyboard(
+    older_task_id: int | None,
+    newer_task_id: int | None,
+) -> ReplyKeyboardMarkup:
+    navigation_row: list[KeyboardButton] = []
+    if older_task_id is not None:
+        navigation_row.append(KeyboardButton("Предыдущая заявка"))
+    if newer_task_id is not None:
+        navigation_row.append(KeyboardButton("Следующая заявка"))
+
+    menu_row = [KeyboardButton("В меню")]
+
+    rows: list[list[KeyboardButton]] = []
+    if navigation_row:
+        rows.append(navigation_row)
+    rows.append(menu_row)
 
     return ReplyKeyboardMarkup(rows, resize_keyboard=True, one_time_keyboard=True)

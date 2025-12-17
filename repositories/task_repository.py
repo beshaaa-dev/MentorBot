@@ -7,11 +7,18 @@ from database.task_service import (
     get_task_by_id as _get_task_by_id,
     get_recent_decided_tasks,
     get_tasks_by_status as _get_tasks_by_status,
+    get_postponed_tasks as _get_postponed_tasks,
 )
 from database.user_service import find_by_tg_id, find_by_tg_nickname
 from database.models import Task, TaskStatus
 from logger import setup_logger
-from crm.crm_service import get_crm_user_by_id, get_first_lead, update_lead_status, update_lead_status_by_lead, send_note
+from crm.crm_service import (
+    get_crm_user_by_id,
+    get_first_lead,
+    update_lead_status,
+    update_lead_status_by_lead,
+    send_note,
+)
 import config
 
 logger = setup_logger(__name__)
@@ -19,6 +26,16 @@ logger = setup_logger(__name__)
 
 @dataclass
 class DecidedTaskContext:
+    task: Task
+    index: int
+    total: int
+    older_task_id: int | None
+    newer_task_id: int | None
+    cached_task_ids: list[int]
+
+
+@dataclass
+class PostponedTaskContext:
     task: Task
     index: int
     total: int
@@ -282,3 +299,53 @@ def get_tasks_for_mentor_by_status(mentor_id: int, status: TaskStatus) -> list[T
         f"Retrieved {len(tasks)} tasks with status={status.value} for mentor_id={mentor_id}"
     )
     return tasks
+
+
+def get_postponed_task_context(
+    mentor_id: int,
+    target_task_id: int | None = None,
+    cached_task_ids: list[int] | None = None,
+) -> PostponedTaskContext | None:
+    """
+    Создает контекст для навигации по отложенным заявкам.
+
+    Args:
+        mentor_id: Mentor user ID.
+        target_task_id: Task ID to navigate to (optional).
+        cached_task_ids: Pre-cached list of task IDs to preserve navigation order.
+
+    Returns:
+        PostponedTaskContext or None if nothing to show.
+    """
+    if cached_task_ids is not None:
+        task_ids = cached_task_ids
+    else:
+        tasks = _get_postponed_tasks(mentor_id)
+        task_ids = [task.id for task in tasks]
+
+    if not task_ids:
+        return None
+
+    index = 0
+    if target_task_id is not None:
+        try:
+            index = task_ids.index(target_task_id)
+        except ValueError:
+            index = 0
+
+    task = _get_task_by_id(task_ids[index])
+    if not task:
+        return None
+
+    total = len(task_ids)
+    older_task_id = task_ids[index - 1] if index - 1 >= 0 else None
+    newer_task_id = task_ids[index + 1] if index + 1 < total else None
+
+    return PostponedTaskContext(
+        task=task,
+        index=index,
+        total=total,
+        older_task_id=older_task_id,
+        newer_task_id=newer_task_id,
+        cached_task_ids=task_ids,
+    )
