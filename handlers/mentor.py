@@ -156,6 +156,14 @@ async def send_task(
     """Send a task to a mentor with action buttons that include a Back option."""
     pdf_data = get_student_anketa_pdf(student_id=task.student_id, lead_id=task.lead_id)
 
+    await _send_task_payload(
+        chat_id=chat_id,
+        task=task,
+        context=context,
+        pdf_data=pdf_data,
+        reply_markup=get_mentor_menu_keyboard(),
+    )
+
     await _send_task_info_message(
         chat_id=chat_id,
         task=task,
@@ -166,13 +174,6 @@ async def send_task(
             is_check_later_button_hidden=task.status
             in (TaskStatus.APPROVED, TaskStatus.DISAPPROVED),
         ),
-    )
-    await _send_task_payload(
-        chat_id=chat_id,
-        task=task,
-        context=context,
-        pdf_data=pdf_data,
-        reply_markup=get_mentor_menu_keyboard(),
     )
 
 
@@ -339,12 +340,6 @@ async def _present_decided_task_view(
     if not decided_context:
         return None
 
-    message = await _send_decided_task_summary(
-        chat_id=chat_id,
-        decided_context=decided_context,
-        context=context,
-    )
-
     if resend_media:
         navigation_keyboard = get_decided_task_navigation_keyboard(
             older_task_id=decided_context.older_task_id,
@@ -356,6 +351,12 @@ async def _present_decided_task_view(
             context=context,
             reply_markup=navigation_keyboard,
         )
+
+    message = await _send_decided_task_summary(
+        chat_id=chat_id,
+        decided_context=decided_context,
+        context=context,
+    )
 
     context.user_data[HISTORY_STATE_KEY] = {
         "chat_id": chat_id,
@@ -844,12 +845,7 @@ async def _present_postponed_task_view(
     if not postponed_context:
         return None
 
-    message = await _send_postponed_task_summary(
-        chat_id=chat_id,
-        postponed_context=postponed_context,
-        context=context,
-    )
-
+    
     if resend_media:
         # Send navigation keyboard with task payload
         keyboard = get_postponed_task_navigation_keyboard(
@@ -862,6 +858,12 @@ async def _present_postponed_task_view(
             context=context,
             reply_markup=keyboard,
         )
+
+    message = await _send_postponed_task_summary(
+        chat_id=chat_id,
+        postponed_context=postponed_context,
+        context=context,
+    )
 
     context.user_data[POSTPONED_STATE_KEY] = {
         "chat_id": chat_id,
