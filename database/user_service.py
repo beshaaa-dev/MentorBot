@@ -2,6 +2,7 @@ from database.db_helper import get_db
 from database.models import User, UserRole
 from datetime import datetime
 from logger import setup_logger
+from sqlalchemy import func
 
 logger = setup_logger(__name__)
 
@@ -22,16 +23,26 @@ def find_by_tg_id(tg_id: int | None) -> User | None:
 
 def find_by_tg_nickname(tg_nickname: str | None) -> User | None:
     """
-    Find user by Telegram nickname.
+    Find user by Telegram nickname (case-insensitive).
 
     Args:
-        tg_nickname: Telegram nickname (can be None)
+        tg_nickname: Telegram nickname (required, cannot be None)
 
     Returns:
         User instance if found, None otherwise
+
+    Raises:
+        ValueError: If tg_nickname is None
     """
+    if tg_nickname is None:
+        raise ValueError("tg_nickname cannot be None")
+
     with get_db() as db:
-        return db.query(User).filter(User.tg_nickname == tg_nickname).first()
+        return (
+            db.query(User)
+            .filter(func.lower(User.tg_nickname) == func.lower(tg_nickname))
+            .first()
+        )
 
 
 def get_by_id(user_id: int) -> User | None:

@@ -43,12 +43,12 @@ class VisitCardDetails:
 def get_crm_user(user: User) -> User | None:
     if not user.tg_id:
         logger.debug(f"Skip CRM sync for user id={user.id}: missing tg_id")
-        return None, None
+        return None
 
     crm_user = _get_crm_user_by_tg_id(user.tg_id)
 
     if not crm_user:
-        return None, None
+        return None
 
     updated_user = _update_user(
         user.id,
