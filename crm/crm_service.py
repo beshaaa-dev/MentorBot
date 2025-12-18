@@ -144,35 +144,6 @@ def update_lead_status_by_lead(lead: Lead, status_id: int | str) -> Lead:
     return lead
 
 
-def update_lead_status(id: int, status_id: int | str) -> Lead | None:
-    pipeline_id = str(config.CRM_PIPELINE)
-
-    with amo_crm_rate_limiter.limit():
-        pipelines = Pipeline.objects.filter(query=pipeline_id)
-    pipeline = None
-    for p in pipelines:
-        if str(p.id) == pipeline_id:
-            pipeline = p
-            break
-
-    if not pipeline:
-        raise ValueError(f"Pipeline with id={pipeline_id} not found")
-
-    status = next((s for s in pipeline.statuses if str(s.id) == str(status_id)), None)
-    if status is None:
-        status = next((s for s in pipeline.statuses if s.name == status_id), None)
-    if status is None:
-        raise ValueError(f"Status '{status_id}' not found in pipeline")
-
-    lead = get_crm_lead(id)
-    if lead:
-        with amo_crm_rate_limiter.limit():
-            lead.status = status
-            lead.save()
-        return lead
-    return None
-
-
 def send_note(lead_id: int, note: str):
     lead = get_crm_lead(lead_id)
     if lead:

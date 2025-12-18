@@ -5,7 +5,7 @@ from database.task_service import (
     update_task_status as _update_task_status,
     find_earliest_task as _find_earliest_task,
     get_task_by_id as _get_task_by_id,
-    get_recent_decided_tasks,
+    get_decided_tasks,
     get_tasks_by_status as _get_tasks_by_status,
     get_postponed_tasks as _get_postponed_tasks,
 )
@@ -13,15 +13,19 @@ from database.user_service import find_by_tg_id, find_by_tg_nickname
 from database.models import Task, TaskStatus
 from logger import setup_logger
 from crm.crm_service import (
+    get_crm_lead,
     get_crm_user_by_id,
     get_first_lead,
-    update_lead_status,
     update_lead_status_by_lead,
     send_note,
 )
 import config
 
 logger = setup_logger(__name__)
+
+
+class TaskStatusChangeNotAllowedError(Exception):
+    pass
 
 
 @dataclass
@@ -191,10 +195,20 @@ def approve_task(task_id: int):
     """
     task = get_task_by_id(task_id)
     if not task:
-        logger.warning(f"Task with id={task_id} not found")
-        return
+        raise ValueError(f"Task with id={task_id} not found")
 
-    update_lead_status(task.lead_id, config.CRM_TASK_IS_APPROVED_STATUS)
+    lead = get_crm_lead(task.lead_id)
+
+    if not lead:
+        raise ValueError(f"CRM lead with id={task.lead_id} not found; skipping approve")
+        
+    if not lead.status:
+        raise ValueError(f"CRM lead with id={task.lead_id} has no status; skipping approve")
+
+    if lead.status.id in {"142", "143"}:
+        raise TaskStatusChangeNotAllowedError(f"Cannot approve task_id={task_id} because lead_id={task.lead_id} has status 142 or 143")
+
+    update_lead_status_by_lead(lead, config.CRM_TASK_IS_APPROVED_STATUS)
 
 
 def disapprove_task(task_id: int):
@@ -206,10 +220,19 @@ def disapprove_task(task_id: int):
     """
     task = get_task_by_id(task_id)
     if not task:
-        logger.warning(f"Task with id={task_id} not found")
-        return
+        raise ValueError(f"Task with id={task_id} not found")
 
-    update_lead_status(task.lead_id, config.CRM_TASK_IS_DISAPPROVED_STATUS)
+    lead = get_crm_lead(task.lead_id)
+    if not lead:
+        raise ValueError(f"CRM lead with id={task.lead_id} not found; skipping disapprove")
+
+    if not lead.status:
+        raise ValueError(f"CRM lead with id={task.lead_id} has no status; skipping disapprove")
+
+    if lead.status.id in {"142", "143"}:
+        raise TaskStatusChangeNotAllowedError(f"Cannot disapprove task_id={task_id} because lead_id={task.lead_id} has status 142 or 143")
+    
+    update_lead_status_by_lead(lead, config.CRM_TASK_IS_DISAPPROVED_STATUS)
 
 
 def mark_task_as_failed(task_id: int):
@@ -259,7 +282,7 @@ def get_decided_task_context(
     if cached_task_ids is not None:
         task_ids = cached_task_ids
     else:
-        tasks = get_recent_decided_tasks(mentor_id)
+        tasks = get_decided_tasks(mentor_id)
         task_ids = [task.id for task in tasks]
 
     if not task_ids:

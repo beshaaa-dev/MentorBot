@@ -1,6 +1,5 @@
 from database.db_helper import get_db
 from database.models import Task, TaskStatus
-from datetime import datetime, timedelta, timezone
 from logger import setup_logger
 from timezone_utils import now_moscow
 
@@ -120,22 +119,19 @@ def find_earliest_task(mentor_id: int, status: TaskStatus) -> Task | None:
             raise
 
 
-def get_recent_decided_tasks(mentor_id: int, window_minutes: int = 180) -> list[Task]:
+def get_decided_tasks(mentor_id: int) -> list[Task]:
     """
-    Return mentor tasks that were decided (approved/disapproved) within the last window.
+    Return mentor tasks that were decided (approved/disapproved).
 
     Args:
         mentor_id: Mentor user ID.
-        window_minutes: Time window (minutes) to consider.
     """
     with get_db() as db:
         try:
-            threshold_time = now_moscow() - timedelta(minutes=window_minutes)
             tasks = (
                 db.query(Task)
                 .filter(
                     Task.mentor_id == mentor_id,
-                    Task.updated_at >= threshold_time,
                     Task.status.in_([TaskStatus.APPROVED, TaskStatus.DISAPPROVED]),
                 )
                 .order_by(Task.updated_at.desc())

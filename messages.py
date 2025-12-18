@@ -29,8 +29,7 @@ MENU_INFO = (
 )
 MENTOR_NEW_TASK_NOTIFICATION = "У вас новое задание на проверку!"
 CHECK_TASK_BUTTON = "Посмотреть"
-NO_PREVIOUS_TASKS = f"Время для изменения решения по предыдущим заданиям истекло.\n\nЕсли нужна помощь или есть вопрос — [напишите в поддержку]({SUPPORT_CONTACT_LINK})."
-CHANGE_STATUS_BUTTON = "Изменить статус"
+NO_PREVIOUS_TASKS = "Проверенных заданий нет."
 TASK_STATUS_APPROVED = "✅ Одобрено"
 TASK_STATUS_DISAPPROVED = "❌ Отклонено"
 TASK_STATUS_UNCHECKED = "👀 Не проверено"
@@ -45,7 +44,6 @@ STUDENT_LIST_CONTINUATION_LABEL = "Продолжение списка ⬇️"
 TASK_INFO_TEMPLATE = (
     "*{student_name}*\n\n" "*Текущий статус*: {status}\n" "*Отправлено*: {created_at}"
 )
-STATUS_UPDATED = "Новый статус: {status}"
 SUPPORT_MESSAGE = "Если нужна помощь или есть вопрос — напишите в поддержку."
 CHECK_NEW_TASK_BUTTON = "Проверить новое задание"
 POSTPONE_TASK_BUTTON = "Сомневаюсь"
@@ -53,6 +51,8 @@ POSTPONED_TASKS_BUTTON = "Отложенные заявки"
 TASK_STATUS_POSTPONED = "🕐 Отложено"
 NO_POSTPONED_TASKS = "Отложенных заявок нет."
 UNKNOWN_MESSAGE = "Чтобы начать работу с ботом, отправьте /start"
+
+TASK_STATUS_CHANGE_NOT_ALLOWED = "Заявка уже закрыта, поэтому статус изменить невозможно"
 
 # Visit card flow messages
 VISIT_CARD_TASK = "*У вас есть новое задание 🧡*\n\n{text}\n\n"

@@ -17,6 +17,7 @@ from repositories.task_repository import (
     get_task_by_id,
     approve_task,
     disapprove_task,
+    TaskStatusChangeNotAllowedError,
     get_decided_task_context,
     DecidedTaskContext,
     get_tasks_for_mentor_by_status,
@@ -43,8 +44,6 @@ from messages import (
     TASK_STATUS_POSTPONED,
     TASK_INFO_TEMPLATE,
     TO_MENU_BUTTON,
-    CHANGE_STATUS_BUTTON,
-    STATUS_UPDATED,
     APPROVED_STUDENTS_BUTTON,
     DISAPPROVED_STUDENTS_BUTTON,
     APPROVED_STUDENTS_HEADER,
@@ -54,6 +53,7 @@ from messages import (
     CHECK_NEW_TASK_BUTTON,
     POSTPONED_TASKS_BUTTON,
     NO_POSTPONED_TASKS,
+    TASK_STATUS_CHANGE_NOT_ALLOWED,
 )
 from database.models import Task, TaskStatus, User, UserRole
 from handlers.utils import send_error_message, delete_user_message
@@ -346,11 +346,15 @@ async def _present_decided_task_view(
     )
 
     if resend_media:
+        navigation_keyboard = get_decided_task_navigation_keyboard(
+            older_task_id=decided_context.older_task_id,
+            newer_task_id=decided_context.newer_task_id,
+        )
         await _send_task_payload(
             chat_id=chat_id,
             task=decided_context.task,
             context=context,
-            reply_markup=None,
+            reply_markup=navigation_keyboard,
         )
 
     context.user_data[HISTORY_STATE_KEY] = {
@@ -368,9 +372,8 @@ async def _send_decided_task_summary(
     decided_context: DecidedTaskContext,
     context: ContextTypes.DEFAULT_TYPE,
 ) -> Message:
-    keyboard = get_decided_task_navigation_keyboard(
-        older_task_id=decided_context.older_task_id,
-        newer_task_id=decided_context.newer_task_id,
+    keyboard = get_mentor_task_decision_keyboard(
+        decided_context.task.id, is_check_later_button_hidden=True
     )
     text = _build_task_info_text(decided_context.task)
 
@@ -445,40 +448,6 @@ def _chunk_student_list_messages(header: str, student_names: list[str]) -> list[
 
     messages.append(current)
     return messages
-
-
-async def _notify_history_status_change(
-    context: ContextTypes.DEFAULT_TYPE,
-    mentor_id: int,
-    task_id: int,
-) -> None:
-    """Refresh inline summary after mentor changes status via history flow."""
-    history_state = context.user_data.get(HISTORY_STATE_KEY, {})
-    chat_id = history_state.get("chat_id")
-    cached_task_ids = history_state.get("cached_task_ids")
-
-    if chat_id is None:
-        return
-
-    try:
-        decided_context = get_decided_task_context(
-            mentor_id, task_id, cached_task_ids=cached_task_ids
-        )
-        if not decided_context:
-            return
-
-        keyboard = get_decided_task_navigation_keyboard(
-            older_task_id=decided_context.older_task_id,
-            newer_task_id=decided_context.newer_task_id,
-        )
-        status_text = _get_status_label(decided_context.task.status)
-        await context.bot.send_message(
-            chat_id=chat_id,
-            text=STATUS_UPDATED.format(status=status_text),
-            reply_markup=keyboard,
-        )
-    except Exception as e:
-        logger.error(f"Error notifying about history status change: {e}")
 
 
 async def handle_history_navigation_message(
@@ -649,26 +618,26 @@ async def handle_approve_disapprove_callback(
         )
         return
 
-    # Determine status based on action
-    if action == "approve":
-        new_status = TaskStatus.APPROVED
-    elif action == "disapprove":
-        new_status = TaskStatus.DISAPPROVED
-    else:
-        logger.error(f"Unknown action in callback: {action}")
-        await query.message.reply_text(
-            ERROR_MESSAGE, reply_markup=ReplyKeyboardRemove()
-        )
-        return
-
     # Update task status
     try:
-        task = update_task_status(task_id, new_status)
         if action == "approve":
+            new_status = TaskStatus.APPROVED
             approve_task(task_id)
-        else:
+        elif action == "disapprove":
+            new_status = TaskStatus.DISAPPROVED
             disapprove_task(task_id)
-        logger.info(f"Updated task {task_id} to status {new_status.value} via callback")
+        else:
+            raise ValueError(f"Unknown action: {action}")
+
+        task = update_task_status(task_id, new_status)
+        logger.info(f"Updated task {task_id} to action {action} via callback")
+    except TaskStatusChangeNotAllowedError as e:
+        logger.info(f"Task status change is not allowed for task_id={task_id}: {e}")
+        await query.message.reply_text(
+            TASK_STATUS_CHANGE_NOT_ALLOWED,
+            reply_markup=get_mentor_menu_keyboard(),
+        )
+        return
     except Exception as e:
         logger.error(f"Error updating task status: {e}")
         await query.message.reply_text(
@@ -683,7 +652,10 @@ async def handle_approve_disapprove_callback(
             await query.edit_message_text(
                 text=text,
                 parse_mode="Markdown",
-                reply_markup=None,
+                reply_markup=get_mentor_task_decision_keyboard(
+                    task.id,
+                    is_check_later_button_hidden=True,
+                ),
             )
         except Exception as e:
             logger.warning(f"Could not edit message: {e}")
@@ -699,77 +671,6 @@ def parse_message_reference(file_id: str) -> tuple[int, int] | None:
             logger.error(f"Error parsing message reference: {e}")
             return None
     return None
-
-
-async def handle_history_change_button(
-    update: Update, context: ContextTypes.DEFAULT_TYPE
-) -> None:
-    """Toggle decided task status between approved/disapproved."""
-    message = update.message
-    await delete_user_message(message)
-
-    mentor = find_by_tg_id(update.effective_user.id)
-    if not mentor or mentor.role != UserRole.MENTOR:
-        logger.warning("History change attempted by non-mentor user")
-        await update.message.reply_text(
-            ERROR_MESSAGE, reply_markup=get_support_keyboard()
-        )
-        context.user_data.clear()
-        return
-
-    history_state = context.user_data.get(HISTORY_STATE_KEY) or {}
-    task_id = history_state.get("task_id")
-    if not task_id:
-        await update.message.reply_text(
-            NO_PREVIOUS_TASKS,
-            reply_markup=get_mentor_menu_keyboard(),
-            parse_mode="Markdown",
-            disable_web_page_preview=True,
-        )
-        return
-
-    task = get_task_by_id(task_id)
-    if not task:
-        logger.warning(f"History task {task_id} not found for mentor {mentor.id}")
-        await update.message.reply_text(
-            ERROR_MESSAGE, reply_markup=get_support_keyboard()
-        )
-        context.user_data.pop(HISTORY_STATE_KEY, None)
-        return
-
-    if task.status == TaskStatus.APPROVED:
-        new_status = TaskStatus.DISAPPROVED
-        status_callback = disapprove_task
-    elif task.status == TaskStatus.DISAPPROVED:
-        new_status = TaskStatus.APPROVED
-        status_callback = approve_task
-    else:
-        logger.warning(
-            f"Cannot toggle status {task.status} for task {task.id} in history view"
-        )
-        await update.message.reply_text(
-            NO_PREVIOUS_TASKS,
-            reply_markup=get_mentor_menu_keyboard(),
-            parse_mode="Markdown",
-            disable_web_page_preview=True,
-        )
-        return
-
-    try:
-        update_task_status(task.id, new_status)
-        status_callback(task.id)
-        logger.info(
-            f"Toggled history task {task.id} status to {new_status.value} for mentor {mentor.id}"
-        )
-    except Exception as e:
-        logger.error(f"Error toggling history task {task.id} status: {e}")
-        await update.message.reply_text(
-            ERROR_MESSAGE, reply_markup=get_support_keyboard()
-        )
-        context.user_data.clear()
-        return
-
-    await _notify_history_status_change(context, mentor.id, task.id)
 
 
 async def handle_mentor_student_list_request(
@@ -882,7 +783,10 @@ async def handle_postpone_callback(
         await query.edit_message_text(
             text=text,
             parse_mode="Markdown",
-            reply_markup=None,
+            reply_markup=get_mentor_task_decision_keyboard(
+                task.id,
+                is_check_later_button_hidden=True,
+            ),
         )
     except Exception as e:
         logger.warning(f"Could not edit message: {e}")
@@ -1089,11 +993,6 @@ mentor_history_nav_handler = MessageHandler(
     & ~filters.COMMAND
     & filters.Regex(f"^({HISTORY_NAV_LEFT}|{HISTORY_NAV_RIGHT})$"),
     handle_history_navigation_message,
-)
-
-mentor_history_change_handler = MessageHandler(
-    filters.TEXT & ~filters.COMMAND & filters.Regex(f"^{CHANGE_STATUS_BUTTON}$"),
-    handle_history_change_button,
 )
 
 mentor_to_menu_handler = MessageHandler(

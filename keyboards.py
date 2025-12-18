@@ -13,7 +13,6 @@ from messages import (
     DISAPPROVE_BUTTON,
     BACK_BUTTON,
     CHECK_TASK_BUTTON,
-    CHANGE_STATUS_BUTTON,
     TO_MENU_BUTTON,
     APPROVED_STUDENTS_BUTTON,
     DISAPPROVED_STUDENTS_BUTTON,
@@ -98,13 +97,11 @@ def get_decided_task_navigation_keyboard(
         navigation_row.append(KeyboardButton("Назад"))
     if newer_task_id is not None:
         navigation_row.append(KeyboardButton("Вперёд"))
-    change_status_row = [KeyboardButton(CHANGE_STATUS_BUTTON)]
     menu_row = [KeyboardButton(TO_MENU_BUTTON)]
 
     rows: list[list[KeyboardButton]] = []
     if navigation_row:
         rows.append(navigation_row)
-    rows.append(change_status_row)
     rows.append(menu_row)
 
     return ReplyKeyboardMarkup(rows, resize_keyboard=True, one_time_keyboard=True)
