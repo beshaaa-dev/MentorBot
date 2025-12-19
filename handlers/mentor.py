@@ -946,8 +946,7 @@ async def _send_postponed_task_summary(
         parse_mode="Markdown",
         reply_markup=get_mentor_task_decision_keyboard(
             postponed_context.task.id,
-            is_check_later_button_hidden=postponed_context.task.status
-            in (TaskStatus.APPROVED, TaskStatus.DISAPPROVED),
+            is_check_later_button_hidden=True,
         ),
     )
 
