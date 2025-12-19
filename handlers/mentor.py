@@ -70,6 +70,10 @@ POSTPONED_DONE = "Готово"
 TELEGRAM_MESSAGE_CHAR_LIMIT = 4096
 
 
+# ================================
+# Mentor: entry/menu handlers
+# ================================
+
 async def handle_mentor(
     user: User, update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> None:
@@ -111,6 +115,10 @@ async def handle_check_new_task_button(
         update=update,
     )
 
+
+# ================================
+# Mentor: task sending helpers
+# ================================
 
 async def _send_earliest_task(
     chat_id: int,
@@ -285,6 +293,10 @@ async def _try_send_media_types(
                             raise
 
 
+# ================================
+# Mentor: decided tasks history (navigation)
+# ================================
+
 async def handle_pagination_back(
     update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> None:
@@ -386,6 +398,10 @@ async def _send_decided_task_summary(
     )
 
 
+# ================================
+# Mentor: text/formatting helpers
+# ================================
+
 def _get_status_label(status: TaskStatus) -> str:
     """Get human-readable label for a task status."""
     status_labels = {
@@ -450,6 +466,10 @@ def _chunk_student_list_messages(header: str, student_names: list[str]) -> list[
     messages.append(current)
     return messages
 
+
+# ================================
+# Mentor: decided tasks history (reply-keyboard navigation)
+# ================================
 
 async def handle_history_navigation_message(
     update: Update, context: ContextTypes.DEFAULT_TYPE
@@ -534,6 +554,10 @@ async def handle_history_navigation_message(
         )
         context.user_data.clear()
 
+
+# ================================
+# Mentor: inline callbacks (task actions)
+# ================================
 
 async def handle_check_task_callback(
     update: Update, context: ContextTypes.DEFAULT_TYPE
@@ -674,6 +698,10 @@ def parse_message_reference(file_id: str) -> tuple[int, int] | None:
     return None
 
 
+# ================================
+# Mentor: approved/disapproved students lists
+# ================================
+
 async def handle_mentor_student_list_request(
     update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> None:
@@ -792,6 +820,10 @@ async def handle_postpone_callback(
     except Exception as e:
         logger.warning(f"Could not edit message: {e}")
 
+
+# ================================
+# Mentor: postponed tasks flow (list & navigation)
+# ================================
 
 async def handle_postponed_tasks_button(
     update: Update, context: ContextTypes.DEFAULT_TYPE
@@ -975,6 +1007,10 @@ async def handle_postponed_navigation_message(
         )
         context.user_data.clear()
 
+
+# ================================
+# Mentor: handler registrations
+# ================================
 
 # Standalone handlers for mentor flow
 mentor_back_button_handler = MessageHandler(
