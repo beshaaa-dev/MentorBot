@@ -151,6 +151,7 @@ def send_note(lead_id: int, note: str):
             lead.save()
 
 
+# TODO: - Сделать Асинхронным
 def upload_file_to_lead(lead_id: int, file_bytes: bytes, filename: str) -> bool:
     """
     Upload a file as an attachment to a lead via AmoCRM API.
