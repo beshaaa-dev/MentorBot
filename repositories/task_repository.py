@@ -201,12 +201,16 @@ def approve_task(task_id: int):
 
     if not lead:
         raise ValueError(f"CRM lead with id={task.lead_id} not found; skipping approve")
-        
-    if not lead.status:
-        raise ValueError(f"CRM lead with id={task.lead_id} has no status; skipping approve")
 
-    if lead.status.id in {"142", "143"}:
-        raise TaskStatusChangeNotAllowedError(f"Cannot approve task_id={task_id} because lead_id={task.lead_id} has status 142 or 143")
+    if not lead.status:
+        raise ValueError(
+            f"CRM lead with id={task.lead_id} has no status; skipping approve"
+        )
+
+    if str(lead.status.id) in {"142", "143"}:
+        raise TaskStatusChangeNotAllowedError(
+            f"Cannot approve task_id={task_id} because lead_id={task.lead_id} has status 142 or 143"
+        )
 
     update_lead_status_by_lead(lead, config.CRM_TASK_IS_APPROVED_STATUS)
 
@@ -224,14 +228,20 @@ def disapprove_task(task_id: int):
 
     lead = get_crm_lead(task.lead_id)
     if not lead:
-        raise ValueError(f"CRM lead with id={task.lead_id} not found; skipping disapprove")
+        raise ValueError(
+            f"CRM lead with id={task.lead_id} not found; skipping disapprove"
+        )
 
     if not lead.status:
-        raise ValueError(f"CRM lead with id={task.lead_id} has no status; skipping disapprove")
+        raise ValueError(
+            f"CRM lead with id={task.lead_id} has no status; skipping disapprove"
+        )
 
-    if lead.status.id in {"142", "143"}:
-        raise TaskStatusChangeNotAllowedError(f"Cannot disapprove task_id={task_id} because lead_id={task.lead_id} has status 142 or 143")
-    
+    if str(lead.status.id) in {"142", "143"}:
+        raise TaskStatusChangeNotAllowedError(
+            f"Cannot disapprove task_id={task_id} because lead_id={task.lead_id} has status 142 or 143"
+        )
+
     update_lead_status_by_lead(lead, config.CRM_TASK_IS_DISAPPROVED_STATUS)
 
 
