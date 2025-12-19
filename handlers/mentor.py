@@ -117,7 +117,7 @@ async def handle_check_new_task_button(
 
 
 # ================================
-# Mentor: task sending helpers
+# Mentor: Task sending
 # ================================
 
 async def _send_earliest_task(
@@ -250,6 +250,17 @@ async def send_media_to_chat(
             bot, chat_id, file_id, reply_markup=reply_markup
         )
 
+
+def parse_message_reference(file_id: str) -> tuple[int, int] | None:
+    """Parse message reference from file_id field. Returns (chat_id, message_id) or None."""
+    if file_id.startswith("msg:"):
+        try:
+            data = json.loads(file_id[4:])
+            return (data["chat_id"], data["message_id"])
+        except (json.JSONDecodeError, KeyError) as e:
+            logger.error(f"Error parsing message reference: {e}")
+            return None
+    return None
 
 async def _try_send_media_types(
     bot, chat_id: int, file_id: str, reply_markup=None
@@ -615,10 +626,14 @@ async def handle_check_task_callback(
         context.user_data.clear()
 
 
+# ================================
+# Mentor: approve/disapprove/postpone actions
+# ================================
+
 async def handle_approve_disapprove_callback(
     update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> None:
-    """Handle callback when mentor clicks 'Approve' or 'Disapprove' inline button."""
+    """Обработка экшенов 'Одобрить' и 'Отклонить'"""
     query = update.callback_query
     await query.answer()
 
@@ -686,16 +701,64 @@ async def handle_approve_disapprove_callback(
             logger.warning(f"Could not edit message: {e}")
 
 
-def parse_message_reference(file_id: str) -> tuple[int, int] | None:
-    """Parse message reference from file_id field. Returns (chat_id, message_id) or None."""
-    if file_id.startswith("msg:"):
-        try:
-            data = json.loads(file_id[4:])
-            return (data["chat_id"], data["message_id"])
-        except (json.JSONDecodeError, KeyError) as e:
-            logger.error(f"Error parsing message reference: {e}")
-            return None
-    return None
+async def handle_postpone_callback(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> None:
+    """Обработчик экшена 'Сомневаюсь'"""
+    query = update.callback_query
+    await query.answer()
+
+    # Extract task_id from callback_data (format: "postpone_{task_id}")
+    try:
+        task_id = int(query.data.split("_")[-1])
+    except (ValueError, IndexError):
+        logger.error(f"Invalid callback data: {query.data}")
+        await query.message.reply_text(
+            ERROR_MESSAGE, reply_markup=ReplyKeyboardRemove()
+        )
+        return
+
+    # Verify user is mentor
+    user = find_by_tg_id(query.from_user.id)
+    if not user or user.role != UserRole.MENTOR:
+        logger.warning("Check later callback by non-mentor user")
+        await query.message.reply_text(
+            ERROR_MESSAGE, reply_markup=ReplyKeyboardRemove()
+        )
+        return
+
+    # Update task status to POSTPONED
+    try:
+        task = update_task_status(task_id, TaskStatus.POSTPONED)
+        logger.info(f"Updated task {task_id} to status POSTPONED via callback")
+    except Exception as e:
+        logger.error(f"Error updating task status to POSTPONED: {e}")
+        await query.message.reply_text(
+            ERROR_MESSAGE, reply_markup=ReplyKeyboardRemove()
+        )
+        return
+
+    # Edit the message to show task info with updated status
+
+    if not task:
+        logger.error("Error updating task status to POSTPONED")
+        await query.message.reply_text(
+            ERROR_MESSAGE, reply_markup=ReplyKeyboardRemove()
+        )
+        return
+
+    text = _build_task_info_text(task)
+    try:
+        await query.edit_message_text(
+            text=text,
+            parse_mode="Markdown",
+            reply_markup=get_mentor_task_decision_keyboard(
+                task.id,
+                is_check_later_button_hidden=True,
+            ),
+        )
+    except Exception as e:
+        logger.warning(f"Could not edit message: {e}")
 
 
 # ================================
@@ -759,66 +822,6 @@ async def handle_mentor_student_list_request(
                 get_mentor_menu_keyboard() if idx == len(messages) - 1 else None
             ),
         )
-
-
-async def handle_postpone_callback(
-    update: Update, context: ContextTypes.DEFAULT_TYPE
-) -> None:
-    """Обработчик экшена 'Сомневаюсь'"""
-    query = update.callback_query
-    await query.answer()
-
-    # Extract task_id from callback_data (format: "postpone_{task_id}")
-    try:
-        task_id = int(query.data.split("_")[-1])
-    except (ValueError, IndexError):
-        logger.error(f"Invalid callback data: {query.data}")
-        await query.message.reply_text(
-            ERROR_MESSAGE, reply_markup=ReplyKeyboardRemove()
-        )
-        return
-
-    # Verify user is mentor
-    user = find_by_tg_id(query.from_user.id)
-    if not user or user.role != UserRole.MENTOR:
-        logger.warning("Check later callback by non-mentor user")
-        await query.message.reply_text(
-            ERROR_MESSAGE, reply_markup=ReplyKeyboardRemove()
-        )
-        return
-
-    # Update task status to POSTPONED
-    try:
-        task = update_task_status(task_id, TaskStatus.POSTPONED)
-        logger.info(f"Updated task {task_id} to status POSTPONED via callback")
-    except Exception as e:
-        logger.error(f"Error updating task status to POSTPONED: {e}")
-        await query.message.reply_text(
-            ERROR_MESSAGE, reply_markup=ReplyKeyboardRemove()
-        )
-        return
-
-    # Edit the message to show task info with updated status
-
-    if not task:
-        logger.error("Error updating task status to POSTPONED")
-        await query.message.reply_text(
-            ERROR_MESSAGE, reply_markup=ReplyKeyboardRemove()
-        )
-        return
-
-    text = _build_task_info_text(task)
-    try:
-        await query.edit_message_text(
-            text=text,
-            parse_mode="Markdown",
-            reply_markup=get_mentor_task_decision_keyboard(
-                task.id,
-                is_check_later_button_hidden=True,
-            ),
-        )
-    except Exception as e:
-        logger.warning(f"Could not edit message: {e}")
 
 
 # ================================
