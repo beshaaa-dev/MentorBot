@@ -74,6 +74,7 @@ TELEGRAM_MESSAGE_CHAR_LIMIT = 4096
 # Mentor: entry/menu handlers
 # ================================
 
+
 async def handle_mentor(
     user: User, update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> None:
@@ -119,6 +120,7 @@ async def handle_check_new_task_button(
 # ================================
 # Mentor: Task sending
 # ================================
+
 
 async def _send_earliest_task(
     chat_id: int,
@@ -262,6 +264,7 @@ def parse_message_reference(file_id: str) -> tuple[int, int] | None:
             return None
     return None
 
+
 async def _try_send_media_types(
     bot, chat_id: int, file_id: str, reply_markup=None
 ) -> Message | MessageId:
@@ -308,6 +311,7 @@ async def _try_send_media_types(
 # Mentor: decided tasks history (navigation)
 # ================================
 
+
 async def handle_pagination_back(
     update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> None:
@@ -330,7 +334,6 @@ async def handle_pagination_back(
             chat_id=update.effective_chat.id,
             mentor_id=mentor.id,
             context=context,
-            resend_media=True,
         )
         if not history_message:
             logger.warning("No decided tasks found for back navigation")
@@ -354,7 +357,6 @@ async def _present_decided_task_view(
     mentor_id: int,
     context: ContextTypes.DEFAULT_TYPE,
     target_task_id: int | None = None,
-    resend_media: bool = True,
     cached_task_ids: list[int] | None = None,
 ) -> Message | None:
     decided_context = get_decided_task_context(
@@ -363,17 +365,16 @@ async def _present_decided_task_view(
     if not decided_context:
         return None
 
-    if resend_media:
-        navigation_keyboard = get_decided_task_navigation_keyboard(
-            older_task_id=decided_context.older_task_id,
-            newer_task_id=decided_context.newer_task_id,
-        )
-        await _send_task_payload(
-            chat_id=chat_id,
-            task=decided_context.task,
-            context=context,
-            reply_markup=navigation_keyboard,
-        )
+    navigation_keyboard = get_decided_task_navigation_keyboard(
+        older_task_id=decided_context.older_task_id,
+        newer_task_id=decided_context.newer_task_id,
+    )
+    await _send_task_payload(
+        chat_id=chat_id,
+        task=decided_context.task,
+        context=context,
+        reply_markup=navigation_keyboard,
+    )
 
     message = await _send_decided_task_summary(
         chat_id=chat_id,
@@ -412,6 +413,7 @@ async def _send_decided_task_summary(
 # ================================
 # Mentor: text/formatting helpers
 # ================================
+
 
 def _get_status_label(status: TaskStatus) -> str:
     """Get human-readable label for a task status."""
@@ -482,6 +484,7 @@ def _chunk_student_list_messages(header: str, student_names: list[str]) -> list[
 # Mentor: decided tasks history (reply-keyboard navigation)
 # ================================
 
+
 async def handle_history_navigation_message(
     update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> None:
@@ -547,7 +550,6 @@ async def handle_history_navigation_message(
             mentor_id=mentor.id,
             context=context,
             target_task_id=target_task_id,
-            resend_media=True,
             cached_task_ids=cached_task_ids,
         )
         if not message:
@@ -569,6 +571,7 @@ async def handle_history_navigation_message(
 # ================================
 # Mentor: inline callbacks (task actions)
 # ================================
+
 
 async def handle_check_task_callback(
     update: Update, context: ContextTypes.DEFAULT_TYPE
@@ -629,6 +632,7 @@ async def handle_check_task_callback(
 # ================================
 # Mentor: approve/disapprove/postpone actions
 # ================================
+
 
 async def handle_approve_disapprove_callback(
     update: Update, context: ContextTypes.DEFAULT_TYPE
@@ -699,7 +703,7 @@ async def handle_approve_disapprove_callback(
             )
         except Exception as e:
             logger.warning(f"Could not edit message: {e}")
-    
+
     # Check for next earliest task
     next_task = get_earliest_task(user.id)
     if next_task:
@@ -768,7 +772,7 @@ async def handle_postpone_callback(
         )
     except Exception as e:
         logger.warning(f"Could not edit message: {e}")
-    
+
     # Check for next earliest task
     next_task = get_earliest_task(user.id)
     if next_task:
@@ -782,6 +786,7 @@ async def handle_postpone_callback(
 # ================================
 # Mentor: approved/disapproved students lists
 # ================================
+
 
 async def handle_mentor_student_list_request(
     update: Update, context: ContextTypes.DEFAULT_TYPE
@@ -846,6 +851,7 @@ async def handle_mentor_student_list_request(
 # Mentor: postponed tasks flow (list & navigation)
 # ================================
 
+
 async def handle_postponed_tasks_button(
     update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> None:
@@ -898,7 +904,6 @@ async def _present_postponed_task_view(
     if not postponed_context:
         return None
 
-    
     if resend_media:
         # Send navigation keyboard with task payload
         keyboard = get_postponed_task_navigation_keyboard(
