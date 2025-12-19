@@ -699,6 +699,15 @@ async def handle_approve_disapprove_callback(
             )
         except Exception as e:
             logger.warning(f"Could not edit message: {e}")
+    
+    # Check for next earliest task
+    next_task = get_earliest_task(user.id)
+    if next_task:
+        try:
+            await send_task(query.message.chat_id, next_task, context=context)
+        except Exception as e:
+            logger.error(f"Error sending next earliest task: {e}")
+            await send_error_message(update)
 
 
 async def handle_postpone_callback(
@@ -759,6 +768,15 @@ async def handle_postpone_callback(
         )
     except Exception as e:
         logger.warning(f"Could not edit message: {e}")
+    
+    # Check for next earliest task
+    next_task = get_earliest_task(user.id)
+    if next_task:
+        try:
+            await send_task(query.message.chat_id, next_task, context=context)
+        except Exception as e:
+            logger.error(f"Error sending next earliest task: {e}")
+            await send_error_message(update)
 
 
 # ================================
