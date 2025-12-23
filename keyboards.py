@@ -19,6 +19,10 @@ from messages import (
     CHECK_NEW_TASK_BUTTON,
     POSTPONE_TASK_BUTTON,
     POSTPONED_TASKS_BUTTON,
+    CHANGE_TASK_1_BUTTON,
+    CHANGE_TASK_2_BUTTON,
+    CHANGE_TASK_3_BUTTON,
+    CONFIRM_ALL_BUTTON,
 )
 
 
@@ -124,4 +128,19 @@ def get_postponed_task_navigation_keyboard(
         rows.append(navigation_row)
     rows.append(menu_row)
 
+    return ReplyKeyboardMarkup(rows, resize_keyboard=True, one_time_keyboard=True)
+
+
+def get_task_review_keyboard(has_task_2: bool, has_task_3: bool) -> ReplyKeyboardMarkup:
+    """Keyboard for reviewing all task answers with change options."""
+    row: list[KeyboardButton] = []
+
+    row.append(KeyboardButton(CHANGE_TASK_1_BUTTON))
+    if has_task_2:
+        row.append(KeyboardButton(CHANGE_TASK_2_BUTTON))
+    if has_task_3:
+        row.append(KeyboardButton(CHANGE_TASK_3_BUTTON))
+
+    rows = [row]
+    rows.append([KeyboardButton(CONFIRM_ALL_BUTTON)])
     return ReplyKeyboardMarkup(rows, resize_keyboard=True, one_time_keyboard=True)

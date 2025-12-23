@@ -1,7 +1,8 @@
 from database.db_helper import get_db
-from database.models import Task, TaskStatus
+from database.models import Task, TaskStatus, TaskMessage
 from logger import setup_logger
 from timezone_utils import now_moscow
+from sqlalchemy.orm import joinedload
 
 logger = setup_logger(__name__)
 
@@ -10,21 +11,21 @@ def create_task(
     student_id: int,
     mentor_id: int,
     lead_id: str,
-    file_id: str,
+    task_messages: list[dict[str, str | int]],
     status: TaskStatus = TaskStatus.UNCHECKED,
 ) -> Task:
     """
-    Create a new task in the database.
+    Create a new task in the database with TaskMessages.
 
     Args:
         student_id: Student user ID (required)
         mentor_id: Mentor user ID (required)
         lead_id: AmoCRM lead ID (required)
-        file_id: File ID (required)
+        task_messages: List of dicts with 'file_id' (str) and 'task_number' (int) (required)
         status: Task status (optional, default is UNCHECKED)
 
     Returns:
-        Created Task instance
+        Created Task instance with TaskMessages
 
     Raises:
         Exception: If database operation fails
@@ -35,10 +36,20 @@ def create_task(
                 student_id=student_id,
                 mentor_id=mentor_id,
                 lead_id=lead_id,
-                file_id=file_id,
                 status=status,
             )
             db.add(task)
+            db.flush()  # Flush to get task.id before creating TaskMessages
+
+            # Create TaskMessage records
+            for msg_data in task_messages:
+                task_message = TaskMessage(
+                    task_id=task.id,
+                    file_id=msg_data["file_id"],
+                    task_number=msg_data["task_number"],
+                )
+                db.add(task_message)
+
             db.commit()
             db.refresh(task)
             return task
@@ -50,7 +61,12 @@ def create_task(
 def get_task_by_id(task_id: int) -> Task | None:
     with get_db() as db:
         try:
-            task = db.query(Task).filter(Task.id == task_id).first()
+            task = (
+                db.query(Task)
+                .options(joinedload(Task.task_messages))
+                .filter(Task.id == task_id)
+                .first()
+            )
             return task
         except Exception as e:
             logger.error(f"Error getting task {task_id}: {e}")
@@ -73,7 +89,12 @@ def update_task_status(task_id: int, status: TaskStatus | None = None) -> Task |
     """
     with get_db() as db:
         try:
-            task = db.query(Task).filter(Task.id == task_id).first()
+            task = (
+                db.query(Task)
+                .options(joinedload(Task.task_messages))
+                .filter(Task.id == task_id)
+                .first()
+            )
             if not task:
                 return None
 
@@ -107,6 +128,7 @@ def find_earliest_task(mentor_id: int, status: TaskStatus) -> Task | None:
         try:
             task = (
                 db.query(Task)
+                .options(joinedload(Task.task_messages))
                 .filter(Task.mentor_id == mentor_id, Task.status == status)
                 .order_by(Task.created_at.asc())
                 .first()
@@ -130,6 +152,7 @@ def get_decided_tasks(mentor_id: int) -> list[Task]:
         try:
             tasks = (
                 db.query(Task)
+                .options(joinedload(Task.task_messages))
                 .filter(
                     Task.mentor_id == mentor_id,
                     Task.status.in_([TaskStatus.APPROVED, TaskStatus.DISAPPROVED]),
@@ -151,6 +174,7 @@ def get_tasks_by_status(mentor_id: int, status: TaskStatus) -> list[Task]:
         try:
             tasks = (
                 db.query(Task)
+                .options(joinedload(Task.task_messages))
                 .filter(Task.mentor_id == mentor_id, Task.status == status)
                 .order_by(Task.updated_at.desc(), Task.id.desc())
                 .all()
@@ -171,6 +195,7 @@ def get_postponed_tasks(mentor_id: int) -> list[Task]:
         try:
             tasks = (
                 db.query(Task)
+                .options(joinedload(Task.task_messages))
                 .filter(
                     Task.mentor_id == mentor_id, Task.status == TaskStatus.POSTPONED
                 )

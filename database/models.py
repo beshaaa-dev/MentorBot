@@ -1,6 +1,7 @@
 from enum import Enum
 from datetime import datetime
-from sqlalchemy import Column, Integer, String, DateTime, Enum as SQLEnum
+from sqlalchemy import Column, Integer, String, DateTime, Enum as SQLEnum, ForeignKey
+from sqlalchemy.orm import relationship
 from database.db_helper import Base
 
 
@@ -50,8 +51,6 @@ class Task(Base):
     mentor_id = Column(Integer, nullable=False)
     # ID лида в AmoCRM
     lead_id = Column(String, nullable=False)
-    # ID видео в Telegram
-    file_id = Column(String, nullable=False)
     # Статус задачи
     status = Column(SQLEnum(TaskStatus), nullable=False)
     # Дата создания задачи
@@ -60,3 +59,24 @@ class Task(Base):
     updated_at = Column(
         DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow
     )
+    # Связь с сообщениями задачи
+    task_messages = relationship(
+        "TaskMessage", back_populates="task", cascade="all, delete-orphan"
+    )
+
+
+class TaskMessage(Base):
+    __tablename__ = "task_messages"
+
+    # Уникальный id
+    id = Column(Integer, primary_key=True, nullable=False)
+    # ID задачи
+    task_id = Column(Integer, ForeignKey("tasks.id"), nullable=False)
+    # ID файла/сообщения в Telegram
+    file_id = Column(String, nullable=False)
+    # Номер задания (1, 2 или 3)
+    task_number = Column(Integer, nullable=False)
+    # Дата создания сообщения
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    # Связь с задачей
+    task = relationship("Task", back_populates="task_messages")

@@ -10,12 +10,12 @@ STUDENT_NO_TASK = "Задания пока нет."
 MENTOR_NO_TASK = "Заданий на проверку пока нет."
 TASK = "*У вас есть новое задание 🧡*\n\n" "{text}\n\n"
 TASK_DEADLINE = "*Дедлайн*: {deadline}\n\n"
-REQUEST_VIDEO = "Пожалуйста, отправь ответ."
+REQUEST_TASK_ANSWER = "Пожалуйста, отправь ответ."
 VIDEO_RECEIVED = "Отправить ответ ментору?"
 VIDEO_CONFIRMED = "Ваш ответ отправлен ментору! Ожидайте фидбек"
 VIDEO_CANCELLED = "Отправка видео отменена."
 CONFIRM_BUTTON = "Да, отправить"
-CANCEL_BUTTON = "Нет, начать заново"
+CANCEL_BUTTON = "Нет, попробовать ещё раз"
 APPROVE_BUTTON = "Одобрить"
 DISAPPROVE_BUTTON = "Отказать"
 BACK_BUTTON = "Предыдущие задания"
@@ -52,7 +52,9 @@ TASK_STATUS_POSTPONED = "🕐 Отложено"
 NO_POSTPONED_TASKS = "Отложенных заявок нет."
 UNKNOWN_MESSAGE = "Чтобы начать работу с ботом, отправьте /start"
 
-TASK_STATUS_CHANGE_NOT_ALLOWED = "Заявка уже закрыта, поэтому статус изменить невозможно"
+TASK_STATUS_CHANGE_NOT_ALLOWED = (
+    "Заявка уже закрыта, поэтому статус изменить невозможно"
+)
 
 # Visit card flow messages
 VISIT_CARD_TASK = "*У вас есть новое задание 🧡*\n\n{text}\n\n"
@@ -64,3 +66,12 @@ FILE_TOO_LARGE = "Видео слишком большое (максимум 20 
 VISIT_CARD_VIDEO_RECEIVED = "Отправить видео-визитку?"
 VISIT_CARD_UPLOADING = "Загружаем видео..."
 VISIT_CARD_VIDEO_CONFIRMED = "Ваша видео-визитка отправлена! Ожидайте ответа."
+
+# Multiple task answers flow messages
+TASK_ANSWER_RECEIVED = "Отправить этот ответ?"
+TASK_ANSWERS_REVIEW_HEADER = "Вот твои ответы"
+TASK_ANSWERS_REVIEW_QUESTION = "Хочешь что-то изменить?"
+CHANGE_TASK_1_BUTTON = "Изменить задание 1"
+CHANGE_TASK_2_BUTTON = "Изменить задание 2"
+CHANGE_TASK_3_BUTTON = "Изменить задание 3"
+CONFIRM_ALL_BUTTON = "Всё верно, отправить"

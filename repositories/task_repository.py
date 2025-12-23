@@ -29,6 +29,14 @@ class TaskStatusChangeNotAllowedError(Exception):
 
 
 @dataclass
+class TaskMessageData:
+    """Data class for task message information."""
+
+    file_id: str
+    task_number: int  # 1, 2, or 3
+
+
+@dataclass
 class DecidedTaskContext:
     task: Task
     index: int
@@ -48,13 +56,13 @@ class PostponedTaskContext:
     cached_task_ids: list[int]
 
 
-def create_task(student_tg_id: int, file_id: str) -> Task:
+def create_task(student_tg_id: int, task_messages: list[TaskMessageData]) -> Task:
     """
-    Create a new task in the database.
+    Create a new task in the database with TaskMessages.
 
     Args:
         student_tg_id: Student Telegram user ID (required)
-        file_id: Telegram video file ID (required)
+        task_messages: List of TaskMessageData objects (required)
 
     Returns:
         Created Task instance
@@ -63,6 +71,12 @@ def create_task(student_tg_id: int, file_id: str) -> Task:
         ValueError: If student with given Telegram ID is not found or student has no CRM ID
         Exception: If database operation fails
     """
+    if not task_messages:
+        raise ValueError(
+            "Cannot create task: task_messages list is empty. "
+            "At least one task message is required."
+        )
+
     student = find_by_tg_id(student_tg_id)
     if not student:
         raise ValueError(
@@ -119,11 +133,17 @@ def create_task(student_tg_id: int, file_id: str) -> Task:
 
     update_lead_status_by_lead(lead, config.CRM_TASK_IS_SENT_STATUS)
 
+    # Convert TaskMessageData to dict format for database service
+    task_messages_dict = [
+        {"file_id": msg.file_id, "task_number": msg.task_number}
+        for msg in task_messages
+    ]
+
     task = _create_task(
         student_id=student.id,
         mentor_id=mentor.id,
         lead_id=lead.id,
-        file_id=file_id,
+        task_messages=task_messages_dict,
         status=TaskStatus.UNCHECKED,
     )
     if not task:
@@ -134,7 +154,8 @@ def create_task(student_tg_id: int, file_id: str) -> Task:
         )
 
     logger.info(
-        f"Created task with id={task.id}, student_id={student.id}, mentor_id={mentor.id}, lead_id={lead.id}"
+        f"Created task with id={task.id}, student_id={student.id}, mentor_id={mentor.id}, lead_id={lead.id}, "
+        f"with {len(task_messages)} task message(s)"
     )
     return task
 

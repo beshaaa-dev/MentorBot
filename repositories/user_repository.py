@@ -29,7 +29,9 @@ logger = setup_logger(__name__)
 
 @dataclass(slots=True)
 class TaskDetails:
-    text: str
+    first_task: str
+    second_task: str | None = None
+    third_task: str | None = None
     lead_id: str | None = None
     deadline: str | None = None
 
@@ -143,12 +145,18 @@ def _build_task_details(lead: Lead | None) -> TaskDetails | None:
     if not lead:
         return None
 
-    task_text = lead.task
-    if not task_text:
+    first_task_text = lead.first_task
+    if not first_task_text:
         return None
 
     deadline = _format_deadline(lead.task_deadline)
-    return TaskDetails(text=task_text, lead_id=lead.id, deadline=deadline)
+    return TaskDetails(
+        first_task=first_task_text,
+        second_task=lead.second_task if lead.second_task else None,
+        third_task=lead.third_task if lead.third_task else None,
+        lead_id=lead.id,
+        deadline=deadline,
+    )
 
 
 def _build_visit_card_details(lead: Lead | None) -> VisitCardDetails | None:
