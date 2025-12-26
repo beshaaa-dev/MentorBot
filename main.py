@@ -1,16 +1,8 @@
 import os
-from pathlib import Path
 from dotenv import load_dotenv
 
-
-def _load_env() -> None:
-    """Load .env next to this file (project root), regardless of absolute path."""
-    env_path = Path(__file__).resolve().parent / ".env"
-    load_dotenv(dotenv_path=env_path, override=True)
-
-
 # Load environment variables FIRST before any other imports that depend on config
-_load_env()
+load_dotenv(override=True)
 
 from telegram.ext import Application, PicklePersistence
 from logger import setup_logger
