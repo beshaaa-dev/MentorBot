@@ -6,6 +6,8 @@ import config
 from config import CRM_TASK_STATUS, CRM_VISIT_CARD_STATUS, CRM_PIPELINE
 from logger import setup_logger
 from rate_limiter import amo_crm_rate_limiter
+from async_rate_limiter import async_amo_crm_rate_limiter
+import aiohttp
 
 logger = setup_logger(__name__)
 
@@ -151,22 +153,21 @@ def send_note(lead_id: int, note: str):
             lead.save()
 
 
-# TODO: - Сделать Асинхронным
-def upload_file_to_lead(lead_id: int, file_bytes: bytes, filename: str) -> bool:
+async def upload_video(file_bytes: bytes, filename: str) -> tuple[str, int] | tuple[None, None]:
     """
-    Upload a file as an attachment to a lead via AmoCRM API.
-
+    Upload a video file to AMoCRM Drive and return the download URL.
+    
     Args:
-        lead_id: CRM lead ID
         file_bytes: File content as bytes
         filename: Name for the uploaded file
-
+        
     Returns:
-        True if upload successful, False otherwise
+        Tuple of (download_url, file_size) if successful, (None, None) otherwise
     """
+    
     try:
-        with amo_crm_rate_limiter.limit():
-            access_token = tokens.default_token_manager.get_access_token()
+        # Get access token (synchronous operation)
+        access_token = tokens.default_token_manager.get_access_token()
 
         headers = {
             "Authorization": f"Bearer {access_token}",
@@ -176,44 +177,47 @@ def upload_file_to_lead(lead_id: int, file_bytes: bytes, filename: str) -> bool:
         account_url = (
             f"https://{config.CRM_SUBDOMAIN}.amocrm.ru/api/v4/account?with=drive_url"
         )
-        with amo_crm_rate_limiter.limit():
-            account_response = requests.get(account_url, headers=headers)
-        drive_url = account_response.json().get(
-            "drive_url", "https://drive-b.amocrm.ru"
-        )
+        
+        async with aiohttp.ClientSession() as session:
+            async with async_amo_crm_rate_limiter.limit():
+                async with session.get(account_url, headers=headers) as account_response:
+                    account_data = await account_response.json()
+                    drive_url = account_data.get("drive_url", "https://drive-b.amocrm.ru")
 
         # Step 1: Create upload session
+        file_size = len(file_bytes)
         session_url = f"{drive_url}/v1.0/sessions"
         session_data = {
             "file_name": filename,
-            "file_size": len(file_bytes),
+            "file_size": file_size,
             "content_type": "video/mp4",
             "with_preview": True,
         }
 
-        with amo_crm_rate_limiter.limit():
-            session_response = requests.post(
-                session_url,
-                headers={**headers, "Content-Type": "application/json"},
-                json=session_data,
-            )
+        async with aiohttp.ClientSession() as session:
+            async with async_amo_crm_rate_limiter.limit():
+                async with session.post(
+                    session_url,
+                    headers={**headers, "Content-Type": "application/json"},
+                    json=session_data,
+                ) as session_response:
+                    if session_response.status not in (200, 201):
+                        text = await session_response.text()
+                        logger.error(
+                            f"Failed to create upload session: {session_response.status} - {text}"
+                        )
+                        return None, None
 
-        if session_response.status_code not in (200, 201):
-            logger.error(
-                f"Failed to create upload session: {session_response.status_code} - {session_response.text}"
-            )
-            return False
-
-        session_info = session_response.json()
-        logger.info(f"Upload session info: {session_info}")
-        upload_url = session_info.get("upload_url")
-        max_part_size = session_info.get("max_part_size", 524288)
+                    session_info = await session_response.json()
+                    logger.info(f"Upload session info: {session_info}")
+                    upload_url = session_info.get("upload_url")
+                    max_part_size = session_info.get("max_part_size", 524288)
 
         if not upload_url:
             logger.error(f"No upload_url in session response: {session_info}")
-            return False
+            return None, None
 
-        # Step 2: Upload file in parts (raw bytes, not multipart, to avoid size drift)
+        # Step 2: Upload file in parts
         file_uuid = None
         version_uuid = None
         total_size = len(file_bytes)
@@ -230,28 +234,36 @@ def upload_file_to_lead(lead_id: int, file_bytes: bytes, filename: str) -> bool:
                 "Content-Range": f"bytes {offset}-{offset + chunk_len - 1}/{total_size}",
             }
 
-            with amo_crm_rate_limiter.limit():
-                upload_response = requests.post(
-                    upload_url,
-                    headers=part_headers,
-                    data=chunk,
-                    timeout=30,
-                )
+            async with aiohttp.ClientSession() as session:
+                async with async_amo_crm_rate_limiter.limit():
+                    async with session.post(
+                        upload_url,
+                        headers=part_headers,
+                        data=chunk,
+                        timeout=aiohttp.ClientTimeout(total=30),
+                    ) as upload_response:
+                        if upload_response.status not in (200, 201, 202):
+                            text = await upload_response.text()
+                            logger.error(
+                                f"Failed to upload file part: {upload_response.status} - {text}"
+                            )
+                            return None, None
 
-            if upload_response.status_code not in (200, 201, 202):
-                logger.error(
-                    f"Failed to upload file part: {upload_response.status_code} - {upload_response.text}"
-                )
-                return False
-
-            upload_data = upload_response.json()
+                        upload_data = await upload_response.json()
 
             # Check if this is the last part (contains uuid)
             if "uuid" in upload_data:
-                file_uuid = upload_data.get("uuid")
-                version_uuid = upload_data.get("version_uuid")
                 logger.info(f"File upload response: {upload_data}")
-                break
+                
+                # Get download URL from API response
+                download_url = upload_data.get("_links", {}).get("download", {}).get("href")
+                
+                if not download_url:
+                    logger.error("No download URL in upload response")
+                    return None, None
+                
+                logger.info(f"Successfully uploaded video to Drive: {download_url}")
+                return download_url, file_size
 
             # Get next upload URL for next part
             next_url = upload_data.get("next_url")
@@ -260,42 +272,10 @@ def upload_file_to_lead(lead_id: int, file_bytes: bytes, filename: str) -> bool:
 
             offset += chunk_len
 
-        if not file_uuid or not version_uuid:
-            logger.error("No file UUID or version UUID returned after upload")
-            return False
-
-        # Step 3: Create note with file attachment
-        note_url = (
-            f"https://{config.CRM_SUBDOMAIN}.amocrm.ru/api/v4/leads/{lead_id}/notes"
-        )
-        note_data = [
-            {
-                "note_type": "attachment",
-                "params": {
-                    "file_uuid": file_uuid,
-                    "version_uuid": version_uuid,
-                    "file_name": filename,
-                },
-            }
-        ]
-
-        with amo_crm_rate_limiter.limit():
-            note_response = requests.post(
-                note_url,
-                headers={**headers, "Content-Type": "application/json"},
-                json=note_data,
-            )
-
-        if note_response.status_code not in (200, 201):
-            logger.error(
-                f"Failed to create attachment note for lead {lead_id}: {note_response.status_code} - {note_response.text}"
-            )
-            return False
-
-        logger.info(f"Note creation response: {note_response.text}")
-        logger.info(f"Successfully uploaded file '{filename}' to lead {lead_id}")
-        return True
+        logger.error("No file UUID or download URL returned after upload")
+        return None, None
 
     except Exception as e:
-        logger.error(f"Error uploading file to lead {lead_id}: {e}")
-        return False
+        logger.error(f"Error uploading video to Drive: {e}")
+        return None, None
+

@@ -581,75 +581,48 @@ async def confirm_visit_card_video(
     update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> int:
     """Handle visit card video confirmation."""
-    from crm.crm_service import (
-        upload_file_to_lead,
-        update_lead_status_by_lead,
-        get_crm_lead,
-    )
-    from config import CRM_VISIT_CARD_IS_SENT_STATUS
-    from database.user_service import find_by_tg_id
+    from repositories.visit_card_repository import process_visit_card_video, VisitCardProcessingError
 
     text = update.message.text
     await delete_user_message(update.message)
 
     if text == CONFIRM_BUTTON:
+        file_id = context.user_data.get("visit_card_file_id")
+        
+        if not file_id:
+            logger.warning("No file_id found in context for visit card")
+            await send_error_message(update)
+            context.user_data.clear()
+            return ConversationHandler.END
+
+        # Send uploading message
+        uploading_msg = await update.message.reply_text(
+            VISIT_CARD_UPLOADING, reply_markup=ReplyKeyboardRemove()
+        )
+
         try:
-            file_id = context.user_data.get("visit_card_file_id")
+            # Download video from Telegram
+            file = await context.bot.get_file(file_id)
+            file_bytes = await file.download_as_bytearray()
 
-            # Get lead_id from database
-            user = find_by_tg_id(update.effective_user.id)
-            if not user or not user.crm_id:
-                logger.warning(
-                    f"User not found or no crm_id for tg_id={update.effective_user.id}"
-                )
-                await send_error_message(update)
-                context.user_data.clear()
-                return ConversationHandler.END
+            # Process visit card video (upload to Drive + send to chat)
+            await process_visit_card_video(
+                telegram_user_id=update.effective_user.id,
+                file_bytes=bytes(file_bytes)
+            )
 
-            visit_card = get_visit_card(user.crm_id)
-            lead_id = visit_card.lead_id if visit_card else None
+            await uploading_msg.delete()
+            await update.message.reply_text(
+                VISIT_CARD_VIDEO_CONFIRMED, reply_markup=ReplyKeyboardRemove()
+            )
 
-            if file_id and lead_id:
-                # Send uploading message
-                uploading_msg = await update.message.reply_text(
-                    VISIT_CARD_UPLOADING, reply_markup=ReplyKeyboardRemove()
-                )
-
-                # Download video from Telegram
-                file = await context.bot.get_file(file_id)
-                file_bytes = await file.download_as_bytearray()
-
-                # Upload to AmoCRM
-                filename = f"visit_card_{lead_id}.mp4"
-                upload_success = upload_file_to_lead(
-                    int(lead_id), bytes(file_bytes), filename
-                )
-
-                if not upload_success:
-                    logger.error(
-                        f"Failed to upload visit card video for lead {lead_id}"
-                    )
-                    await uploading_msg.delete()
-                    await send_error_message(update)
-                    context.user_data.clear()
-                    return ConversationHandler.END
-
-                # Обновляем статус
-                lead = get_crm_lead(int(lead_id))
-                if lead:
-                    update_lead_status_by_lead(lead, CRM_VISIT_CARD_IS_SENT_STATUS)
-                    logger.info(
-                        f"Updated lead {lead_id} status to CRM_VISIT_CARD_IS_SENT_STATUS"
-                    )
-
-                await update.message.reply_text(
-                    VISIT_CARD_VIDEO_CONFIRMED, reply_markup=ReplyKeyboardRemove()
-                )
-            else:
-                logger.warning("No file_id or lead_id found in context for visit card")
-                await send_error_message(update)
+        except VisitCardProcessingError as e:
+            logger.error(f"Visit card processing failed: {e}")
+            await uploading_msg.delete()
+            await send_error_message(update)
         except Exception as e:
-            logger.error(f"Error processing visit card video: {e}")
+            logger.error(f"Unexpected error in visit card video handler: {e}", exc_info=True)
+            await uploading_msg.delete()
             await send_error_message(update)
 
         context.user_data.clear()
