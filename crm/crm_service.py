@@ -209,9 +209,9 @@ async def upload_video(file_bytes: bytes, filename: str) -> tuple[str, int] | tu
                         return None, None
 
                     session_info = await session_response.json()
-                    logger.info(f"Upload session info: {session_info}")
                     upload_url = session_info.get("upload_url")
                     max_part_size = session_info.get("max_part_size", 524288)
+                    logger.info(f"Upload session created: session_id={session_info.get('session_id')}")
 
         if not upload_url:
             logger.error(f"No upload_url in session response: {session_info}")
@@ -253,16 +253,15 @@ async def upload_video(file_bytes: bytes, filename: str) -> tuple[str, int] | tu
 
             # Check if this is the last part (contains uuid)
             if "uuid" in upload_data:
-                logger.info(f"File upload response: {upload_data}")
-                
                 # Get download URL from API response
                 download_url = upload_data.get("_links", {}).get("download", {}).get("href")
+                file_uuid = upload_data.get("uuid")
                 
                 if not download_url:
                     logger.error("No download URL in upload response")
                     return None, None
                 
-                logger.info(f"Successfully uploaded video to Drive: {download_url}")
+                logger.info(f"Successfully uploaded video to Drive: uuid={file_uuid}, size={file_size} bytes")
                 return download_url, file_size
 
             # Get next upload URL for next part

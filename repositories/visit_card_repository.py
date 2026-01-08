@@ -8,7 +8,7 @@ from crm.crm_service import upload_video, update_lead_status_by_lead, get_crm_le
 from crm.crm_chat_service import send_video_to_chat
 from config import CRM_VISIT_CARD_IS_SENT_STATUS
 from database.user_service import find_by_tg_id
-from repositories.task_repository import get_visit_card
+from repositories.user_repository import get_visit_card
 
 logger = logging.getLogger(__name__)
 
