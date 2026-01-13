@@ -169,7 +169,7 @@ def get_access_token() -> str:
     except (EnvironmentError, ValueError) as token_error:
         logger.error(f"Token refresh failed: {token_error}")
         logger.info("Re-initializing token manager with auth code...")
-        init_amo_crm_integration()
+        init_amo_crm_token()
         with amo_crm_rate_limiter.limit():
             return tokens.default_token_manager.get_access_token()
 
