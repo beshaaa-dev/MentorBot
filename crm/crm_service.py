@@ -153,6 +153,27 @@ def send_note(lead_id: int, note: str):
             lead.save()
 
 
+def get_access_token() -> str:
+    """
+    Get access token with automatic refresh handling.
+    
+    The token manager auto-refreshes expired tokens, but if refresh fails
+    (e.g., expired refresh token), re-initialize with auth code.
+    
+    Returns:
+        Valid access token
+    """
+    try:
+        with amo_crm_rate_limiter.limit():
+            return tokens.default_token_manager.get_access_token()
+    except (EnvironmentError, ValueError) as token_error:
+        logger.error(f"Token refresh failed: {token_error}")
+        logger.info("Re-initializing token manager with auth code...")
+        init_amo_crm_integration()
+        with amo_crm_rate_limiter.limit():
+            return tokens.default_token_manager.get_access_token()
+
+
 async def upload_video(file_bytes: bytes, filename: str) -> tuple[str, int] | tuple[None, None]:
     """
     Upload a video file to AMoCRM Drive and return the download URL.
@@ -166,8 +187,7 @@ async def upload_video(file_bytes: bytes, filename: str) -> tuple[str, int] | tu
     """
     
     try:
-        # Get access token (synchronous operation)
-        access_token = tokens.default_token_manager.get_access_token()
+        access_token = get_access_token()
 
         headers = {
             "Authorization": f"Bearer {access_token}",

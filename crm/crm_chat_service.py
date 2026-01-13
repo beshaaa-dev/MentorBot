@@ -110,7 +110,8 @@ async def send_video_to_chat(
         # Step 2: Attach chat to contact
         logger.info(f"Attaching chat {chat_id} to contact {contact_id}")
         
-        access_token = tokens.default_token_manager.get_access_token()
+        from crm.crm_service import get_access_token
+        access_token = get_access_token()
         
         attach_url = f"https://{config.CRM_SUBDOMAIN}.amocrm.ru/api/v4/contacts/chats"
         attach_headers = {
@@ -200,7 +201,8 @@ async def send_video_to_chat(
 
 async def _get_amojo_id() -> str:
     try:
-        access_token = tokens.default_token_manager.get_access_token()
+        from crm.crm_service import get_access_token
+        access_token = get_access_token()
         url = f"https://{config.CRM_SUBDOMAIN}.amocrm.ru/api/v4/account?with=amojo_id"
         headers = {"Authorization": f"Bearer {access_token}"}
         
