@@ -231,10 +231,13 @@ async def upload_video(file_bytes: bytes, filename: str) -> tuple[str, int] | tu
         session_data = {
             "file_name": filename,
             "file_size": file_size,
-            "content_type": "video/mp4",
-            "with_preview": True,
+            "content_type": "video/mp4"
         }
-        session_headers = {**headers, "Content-Type": "application/json"}
+        access_token = get_access_token()
+        session_headers = {
+            "Authorization": f"Bearer {access_token}",
+            "Content-Type": "application/json"
+        }
         
         logger.info(f"="*80)
         logger.info(f"STEP 1: CREATE UPLOAD SESSION")

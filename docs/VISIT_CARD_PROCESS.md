@@ -31,8 +31,7 @@ Content-Type: application/json
 {
     "file_name": "visit_2024-01-09.mp4",
     "file_size": 1234567,
-    "content_type": "video/mp4",
-    "with_preview": true
+    "content_type": "video/mp4"
 }
 ```
 
