@@ -7,6 +7,7 @@ from config import CRM_TASK_STATUS, CRM_VISIT_CARD_STATUS, CRM_PIPELINE
 from logger import setup_logger
 from rate_limiter import amo_crm_rate_limiter
 from async_rate_limiter import async_amo_crm_rate_limiter
+from thread_safe_token_manager import ThreadSafeTokenManager
 import aiohttp
 
 logger = setup_logger(__name__)
@@ -14,7 +15,6 @@ logger = setup_logger(__name__)
 
 def init_amo_crm_integration():
     """Initialize AmoCRM token manager and handle token setup."""
-
     tokens.default_token_manager(
         client_id=config.CRM_CLIENT_ID,
         client_secret=config.CRM_CLIENT_SECRET,
@@ -22,6 +22,8 @@ def init_amo_crm_integration():
         redirect_url=config.CRM_REDIRECT_URL,
         storage=tokens.FileTokensStorage(directory_path="tokens"),
     )
+    
+    ThreadSafeTokenManager(tokens.default_token_manager)
 
     try:
         with amo_crm_rate_limiter.limit():
@@ -153,25 +155,16 @@ def send_note(lead_id: int, note: str):
             lead.save()
 
 
-def get_access_token() -> str:
-    """
-    Get access token with automatic refresh handling.
-    
-    The token manager auto-refreshes expired tokens, but if refresh fails
-    (e.g., expired refresh token), re-initialize with auth code.
-    
-    Returns:
-        Valid access token
-    """
+async def get_access_token() -> str:
     try:
-        with amo_crm_rate_limiter.limit():
-            return tokens.default_token_manager.get_access_token()
+        token_manager = ThreadSafeTokenManager.get_instance()
+        return await token_manager.get_access_token()
     except (EnvironmentError, ValueError) as token_error:
         logger.error(f"Token refresh failed: {token_error}")
         logger.info("Re-initializing token manager with auth code...")
         init_amo_crm_token()
-        with amo_crm_rate_limiter.limit():
-            return tokens.default_token_manager.get_access_token()
+        token_manager = ThreadSafeTokenManager.get_instance()
+        return await token_manager.get_access_token()
 
 
 async def upload_video(file_bytes: bytes, filename: str) -> tuple[str, int] | tuple[None, None]:
@@ -190,7 +183,7 @@ async def upload_video(file_bytes: bytes, filename: str) -> tuple[str, int] | tu
     
     try:
         logger.debug("Getting access token...")
-        access_token = get_access_token()
+        access_token = await get_access_token()
         logger.debug(f"Access token obtained: {access_token[:20]}...")
 
         headers = {
@@ -233,7 +226,7 @@ async def upload_video(file_bytes: bytes, filename: str) -> tuple[str, int] | tu
             "file_size": file_size,
             "content_type": "video/mp4"
         }
-        access_token = get_access_token()
+        access_token = await get_access_token()
         session_headers = {
             "Authorization": f"Bearer {access_token}",
             "Content-Type": "application/json"

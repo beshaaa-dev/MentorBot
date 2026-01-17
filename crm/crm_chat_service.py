@@ -3,6 +3,7 @@ import json
 import hashlib
 import hmac
 import aiohttp
+import asyncio
 import time
 from email.utils import formatdate
 from typing import Optional
@@ -17,6 +18,7 @@ logger = logging.getLogger(__name__)
 # scope_id текущего аккаунта (перезаписывается при перезапуске бота)
 # По сути у аккаунта будет один и тот же scope_id до отключения интеграции
 _cached_scope_id = None
+_scope_id_lock = asyncio.Lock()
 
 
 async def send_video_to_chat(
@@ -111,7 +113,7 @@ async def send_video_to_chat(
         logger.info(f"Attaching chat {chat_id} to contact {contact_id}")
         
         from crm.crm_service import get_access_token
-        access_token = get_access_token()
+        access_token = await get_access_token()
         
         attach_url = f"https://{config.CRM_SUBDOMAIN}.amocrm.ru/api/v4/contacts/chats"
         attach_headers = {
@@ -202,7 +204,7 @@ async def send_video_to_chat(
 async def _get_amojo_id() -> str:
     try:
         from crm.crm_service import get_access_token
-        access_token = get_access_token()
+        access_token = await get_access_token()
         url = f"https://{config.CRM_SUBDOMAIN}.amocrm.ru/api/v4/account?with=amojo_id"
         headers = {"Authorization": f"Bearer {access_token}"}
         
@@ -276,31 +278,37 @@ async def _get_or_create_scope_id() -> str:
     """
     global _cached_scope_id
     
-    # Проверяем если в кэше
+    # Проверяем если в кэше (быстрая проверка без блокировки)
     if _cached_scope_id:
         return _cached_scope_id
     
-    # Подключаем аккаут к каналу чатов 
-    logger.info("Connecting channel to get scope_id...")
-    
-    channel_id = config.CRM_CHAT_CHANNEL_ID
-    channel_secret = config.CRM_CHAT_CHANNEL_SECRET
-    bot_name = config.CRM_CHAT_BOT_NAME
-    
-    if not all([channel_id, channel_secret]):
-        logger.error("Missing channel_id or channel_secret")
+    # Используем блокировку для thread-safe инициализации
+    async with _scope_id_lock:
+        # Двойная проверка после получения блокировки
+        if _cached_scope_id:
+            return _cached_scope_id
+        
+        # Подключаем аккаут к каналу чатов 
+        logger.info("Connecting channel to get scope_id...")
+        
+        channel_id = config.CRM_CHAT_CHANNEL_ID
+        channel_secret = config.CRM_CHAT_CHANNEL_SECRET
+        bot_name = config.CRM_CHAT_BOT_NAME
+        
+        if not all([channel_id, channel_secret]):
+            logger.error("Missing channel_id or channel_secret")
+            return None
+        
+        amojo_id = await _get_amojo_id()
+        if not amojo_id:
+            return None
+        
+        scope_id = await _connect_channel(channel_id, channel_secret, amojo_id, bot_name)
+        
+        if scope_id:
+            logger.info("✅ Channel connected")
+            # Сохраняем в кэше
+            _cached_scope_id = scope_id  
+            return scope_id
+        
         return None
-    
-    amojo_id = await _get_amojo_id()
-    if not amojo_id:
-        return None
-    
-    scope_id = await _connect_channel(channel_id, channel_secret, amojo_id, bot_name)
-    
-    if scope_id:
-        logger.info("✅ Channel connected")
-        # Сохраняем в кэше
-        _cached_scope_id = scope_id  
-        return scope_id
-    
-    return None

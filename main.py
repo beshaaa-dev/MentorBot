@@ -4,11 +4,12 @@ from dotenv import load_dotenv
 # Load environment variables FIRST before any other imports that depend on config
 load_dotenv(override=True)
 
-from telegram.ext import Application, PicklePersistence
+from telegram.ext import Application
 from logger import setup_logger
 from handlers import handlers
 from database.db_helper import init_db
 from crm.crm_service import init_amo_crm_integration
+from thread_safe_persistence import ThreadSafePicklePersistence
 
 logger = setup_logger(__name__)
 
@@ -37,10 +38,19 @@ def main() -> None:
         return
 
     # Persistence для сохранения состояния между перезапусками
-    persistence = PicklePersistence(filepath="bot_persistence.pickle")
+    persistence = ThreadSafePicklePersistence(
+        filepath="bot_persistence.pickle",
+        update_interval=60
+    )
 
     # Регистрируем обработчики (админские, общие, платежные, и т.д.)
-    application = Application.builder().token(token).persistence(persistence).build()
+    application = (
+        Application.builder()
+        .token(token)
+        .persistence(persistence)
+        .concurrent_updates(True)
+        .build()
+    )
     for handler in handlers:
         application.add_handler(handler)
 
