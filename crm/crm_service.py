@@ -231,7 +231,7 @@ async def upload_video(file_bytes: bytes, filename: str) -> tuple[str, int] | tu
             async with async_amo_crm_rate_limiter.limit():
                 async with session.post(
                     session_url,
-                    headers={**headers, "Content-Type": "application/json"},
+                    headers=session_headers,
                     json=session_data,
                 ) as session_response:
                     if session_response.status not in (200, 201):
@@ -261,8 +261,10 @@ async def upload_video(file_bytes: bytes, filename: str) -> tuple[str, int] | tu
             chunk = file_bytes[offset : offset + part_size]
             chunk_len = len(chunk)
 
+            access_token = await get_access_token()
+
             part_headers = {
-                **headers,
+                "Authorization": f"Bearer {access_token}",
                 "Content-Type": "application/octet-stream",
                 "Content-Range": f"bytes {offset}-{offset + chunk_len - 1}/{total_size}",
             }
