@@ -14,6 +14,7 @@ from crm.crm_service import (
     get_crm_user_by_id as _get_crm_user_by_id,
     get_first_lead,
     get_crm_lead,
+    is_test_lead,
     is_visit_card_lead,
     is_task_lead,
     Lead,
@@ -40,6 +41,11 @@ class TaskDetails:
 class VisitCardDetails:
     text: str
     lead_id: str | None = None
+
+
+@dataclass(slots=True)
+class TestDetails:
+    lead_id: str
 
 
 def get_crm_user(user: User) -> User | None:
@@ -179,6 +185,21 @@ def _build_pdf_filename(student_full_name: str) -> str:
         return DEFAULT_STUDENT_ANKETA_FILENAME
 
     return f"Анкета {sanitized}.pdf"
+
+
+def get_test(user_crm_id: str) -> TestDetails | None:
+    """Get test details for a student by CRM ID."""
+    crm_user = _get_crm_user_by_id(user_crm_id)
+
+    if not crm_user:
+        return None
+
+    first_lead = get_first_lead(crm_user)
+
+    if not first_lead or not is_test_lead(first_lead):
+        return None
+
+    return TestDetails(lead_id=first_lead.id)
 
 
 def get_visit_card(user_crm_id: str) -> VisitCardDetails | None:

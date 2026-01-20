@@ -3,6 +3,15 @@ from amocrm.v2 import Contact as _Contact, Lead as _Lead, custom_field
 
 class Contact(_Contact):
     telegram_id = custom_field.TextCustomField("TelegramId_WZ")
+    honesty = custom_field.NumericCustomField("Честность")
+    motivation = custom_field.NumericCustomField("Мотивация")
+    responsibility = custom_field.NumericCustomField("Ответственность")
+    teamwork = custom_field.NumericCustomField("Командность")
+    emotional_stability = custom_field.NumericCustomField("Эмоциональная устойчивость")
+    reliability = custom_field.NumericCustomField("Надежность")
+    case1 = custom_field.NumericCustomField("Кейс 1")
+    case2 = custom_field.NumericCustomField("Кейс 2")
+    total_score = custom_field.NumericCustomField("Общий бал")
 
 
 class Lead(_Lead):

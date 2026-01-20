@@ -4,6 +4,7 @@ from telegram.ext import (
     CommandHandler,
     ConversationHandler,
     MessageHandler,
+    CallbackQueryHandler,
     filters,
 )
 from logger import setup_logger
@@ -11,8 +12,10 @@ import json
 from repositories.user_repository import (
     get_task,
     get_visit_card,
+    get_test,
     TaskDetails,
     VisitCardDetails,
+    TestDetails,
 )
 from repositories.task_repository import (
     create_task,
@@ -68,6 +71,12 @@ WAITING_FOR_THIRD_TASK_CONFIRMATION = 6
 WAITING_FOR_REVIEW = 7
 WAITING_FOR_VISIT_CARD_VIDEO = 8
 WAITING_FOR_VISIT_CARD_CONFIRMATION = 9
+# Test states
+ASKING_QUESTION = 10
+ASKING_CASE = 11
+
+# Import test handlers for callback handling (after defining states to avoid circular import)
+from handlers.test import handle_question_answer, handle_case_answer
 
 
 async def handle_student(
@@ -77,6 +86,12 @@ async def handle_student(
         GREETING_WITH_NAME_TEMPLATE.format(name=user.first_name),
         reply_markup=ReplyKeyboardRemove(),
     )
+
+    # Проверяем есть ли задание на прохождение теста
+    test = get_test(user.crm_id)
+    if test:
+        from handlers.test import start_test
+        return await start_test(user, test, update, context)
 
     # Проверяем есть ли задание на отправку видеовизитки
     visit_card = get_visit_card(user.crm_id)
@@ -681,7 +696,23 @@ def create_student_conversation_handler(
                     filters.TEXT & ~filters.COMMAND, confirm_visit_card_video
                 ),
             ],
+            ASKING_QUESTION: [
+                CallbackQueryHandler(
+                    handle_question_answer,
+                    pattern=r"^answer_(yes|no)_\d+$"
+                )
+            ],
+            ASKING_CASE: [
+                CallbackQueryHandler(
+                    handle_case_answer,
+                    pattern=r"^case_\d+_[A-D]$"
+                )
+            ],
         },
         fallbacks=[CommandHandler("cancel", cancel_task)],
         allow_reentry=True,  # Allow /start to restart conversation
+        per_message=False,
+        name="student_conversation",
+        persistent=True,
+        conversation_timeout=60*60*24*3,  # 3 дня
     )

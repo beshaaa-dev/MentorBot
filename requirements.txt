@@ -1,6 +1,6 @@
 SQLAlchemy==2.0.40
 greenlet==3.0.3
-python-telegram-bot==22.0
+python-telegram-bot[job-queue]==22.0
 python-dotenv==1.1.0
 requests==2.31.0
 httpx>=0.24.0

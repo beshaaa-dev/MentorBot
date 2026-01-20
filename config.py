@@ -9,6 +9,10 @@ CRM_SUBDOMAIN = os.getenv("CRM_SUBDOMAIN")
 CRM_REDIRECT_URL = "https://ya.ru"
 # Пайплайн
 CRM_PIPELINE = os.getenv("CRM_PIPELINE")
+# Ожидаем тест
+CRM_TEST_STATUS = os.getenv("CRM_TEST_STATUS")
+# Тест в процессе
+CRM_TEST_IS_IN_PROGRESS_STATUS = os.getenv("CRM_TEST_IS_IN_PROGRESS_STATUS")
 # Ожидаем визитку
 CRM_VISIT_CARD_STATUS = os.getenv("CRM_VISIT_CARD_STATUS")
 # Визитка отправлена

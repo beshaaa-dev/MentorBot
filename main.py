@@ -4,7 +4,7 @@ from dotenv import load_dotenv
 # Load environment variables FIRST before any other imports that depend on config
 load_dotenv(override=True)
 
-from telegram.ext import Application
+from telegram.ext import Application, JobQueue
 from logger import setup_logger
 from handlers import handlers
 from database.db_helper import init_db
@@ -49,6 +49,7 @@ def main() -> None:
         .token(token)
         .persistence(persistence)
         .concurrent_updates(True)
+        .job_queue(JobQueue())
         .build()
     )
     for handler in handlers:

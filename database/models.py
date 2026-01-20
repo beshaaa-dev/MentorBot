@@ -80,3 +80,30 @@ class TaskMessage(Base):
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     # Связь с задачей
     task = relationship("Task", back_populates="task_messages")
+
+
+class TestResult(Base):
+    __tablename__ = "test_results"
+
+    # Уникальный id
+    id = Column(Integer, primary_key=True, nullable=False)
+    # ID пользователя
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    # ID лида в AmoCRM
+    lead_id = Column(String, nullable=False)
+    # Баллы по блокам
+    block1_score = Column(Integer, nullable=False)
+    block2_score = Column(Integer, nullable=False)
+    block3_score = Column(Integer, nullable=False)
+    block4_score = Column(Integer, nullable=False)
+    block5_score = Column(Integer, nullable=False)
+    block6_score = Column(Integer, nullable=False)
+    # Баллы за кейсы
+    case1_score = Column(Integer, nullable=False)
+    case2_score = Column(Integer, nullable=False)
+    # Общий балл
+    total_score = Column(Integer, nullable=False)
+    # Тип профиля
+    profile_type = Column(String, nullable=False)
+    # Дата прохождения теста
+    completed_at = Column(DateTime, nullable=False, default=datetime.utcnow)

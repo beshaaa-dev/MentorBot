@@ -3,7 +3,13 @@ from amocrm.v2 import Pipeline, tokens
 from amocrm.v2.entity.note import COMMON_TYPE
 from .crm_models import Contact, Lead
 import config
-from config import CRM_TASK_STATUS, CRM_VISIT_CARD_STATUS, CRM_PIPELINE
+from config import (
+    CRM_TASK_STATUS,
+    CRM_VISIT_CARD_STATUS,
+    CRM_TEST_STATUS,
+    CRM_TEST_IS_IN_PROGRESS_STATUS,
+    CRM_PIPELINE,
+)
 from logger import setup_logger
 from rate_limiter import amo_crm_rate_limiter
 from async_rate_limiter import async_amo_crm_rate_limiter
@@ -47,7 +53,12 @@ def init_amo_crm_token():
 
 
 # Валидные статусы лида для начала работы со студентом
-VALID_LEAD_STATUSES = {CRM_TASK_STATUS, CRM_VISIT_CARD_STATUS}
+VALID_LEAD_STATUSES = {
+    CRM_TEST_STATUS,
+    CRM_TEST_IS_IN_PROGRESS_STATUS,
+    CRM_TASK_STATUS,
+    CRM_VISIT_CARD_STATUS,
+}
 
 
 def get_first_lead(crm_user: Contact) -> Lead | None:
@@ -73,6 +84,11 @@ def get_first_lead(crm_user: Contact) -> Lead | None:
         ),
         None,
     )
+
+
+def is_test_lead(lead: Lead) -> bool:
+    """Check if lead has test status or test in progress status."""
+    return lead.status and str(lead.status.id) in {CRM_TEST_STATUS, CRM_TEST_IS_IN_PROGRESS_STATUS}
 
 
 def is_visit_card_lead(lead: Lead) -> bool:
