@@ -198,6 +198,22 @@ async def handle_question_answer(update: Update, context: ContextTypes.DEFAULT_T
     await query.answer()
     
     data = query.data
+    
+    if not data.startswith("answer_"):
+        logger.warning(f"Invalid question answer callback data: {data}")
+        return ASKING_QUESTION
+    
+    try:
+        question_num_from_callback = int(data.split("_")[-1])
+        current_question = context.user_data.get("current_question", 0)
+        
+        if question_num_from_callback != current_question:
+            logger.warning(f"Question number mismatch: expected {current_question}, got {question_num_from_callback}")
+            return ASKING_QUESTION
+    except (ValueError, IndexError):
+        logger.error(f"Failed to parse question number from callback data: {data}")
+        return ASKING_QUESTION
+    
     answer = "Да" if "yes" in data else "Нет"
     
     context.user_data["test_answers"].append(answer)
@@ -250,6 +266,23 @@ async def handle_case_answer(update: Update, context: ContextTypes.DEFAULT_TYPE)
     await query.answer()
     
     data = query.data
+    
+    if not data.startswith("case_"):
+        logger.warning(f"Invalid case answer callback data: {data}")
+        return ASKING_CASE
+    
+    try:
+        parts = data.split("_")
+        case_num_from_callback = int(parts[1])
+        current_case = context.user_data.get("current_case", 0)
+        
+        if case_num_from_callback != current_case:
+            logger.warning(f"Case number mismatch: expected {current_case}, got {case_num_from_callback}")
+            return ASKING_CASE
+    except (ValueError, IndexError):
+        logger.error(f"Failed to parse case number from callback data: {data}")
+        return ASKING_CASE
+    
     answer = data.split("_")[-1]
     
     context.user_data["test_answers"].append(answer)
