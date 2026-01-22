@@ -15,7 +15,6 @@ class Contact(_Contact):
 
 
 class Lead(_Lead):
-    visit_card = custom_field.TextCustomField("Задание для видео-визитки")
     first_task = custom_field.TextCustomField("Задание от наставника")
     second_task = custom_field.TextCustomField("Задание 2 от наставника")
     third_task = custom_field.TextCustomField("Задание 3 от наставника")
