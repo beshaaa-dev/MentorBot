@@ -45,25 +45,33 @@ async def send_video_to_chat(
     Returns:
         True if successful, False otherwise
     """
+    logger.info(f"[send_video_to_chat] Starting video send: contact_id={contact_id}, lead_id={lead_id}, filename={filename}")
+    
     # Get or create scope_id (auto-connects channel if needed)
+    logger.debug(f"[send_video_to_chat] Getting scope_id...")
     scope_id = await _get_or_create_scope_id()
     
     if not scope_id:
-        logger.error("Failed to get scope_id")
+        logger.error("[send_video_to_chat] Failed to get scope_id")
         return False
+    
+    logger.info(f"[send_video_to_chat] Got scope_id: {scope_id}")
     
     channel_secret = config.CRM_CHAT_CHANNEL_SECRET
     
     if not channel_secret:
-        logger.error("Missing channel_secret in config")
+        logger.error("[send_video_to_chat] Missing channel_secret in config")
         return False
+    
+    logger.debug(f"[send_video_to_chat] Channel secret present: {len(channel_secret)} chars")
         
     try:
         # Step 1: Create chat
-        logger.info(f"Creating chat for contact {contact_id}")
+        logger.info(f"[send_video_to_chat] Step 1: Creating chat for contact {contact_id}")
         
         conversation_id = f"tgbot-{contact_id}"
         user_id = f"tgbot-user-{contact_id}"
+        logger.debug(f"[send_video_to_chat] conversation_id={conversation_id}, user_id={user_id}")
         
         chat_body = {
             "conversation_id": conversation_id,
@@ -83,6 +91,8 @@ async def send_video_to_chat(
         signature_string = "\n".join([method.upper(), content_md5, "application/json", date, path])
         signature = hmac.new(channel_secret.encode(), signature_string.encode(), hashlib.sha1).hexdigest()
         
+        logger.debug(f"[send_video_to_chat] Chat creation signature: method={method}, path={path}, content_md5={content_md5}")
+        
         headers = {
             "Date": date,
             "Content-Type": "application/json",
@@ -92,28 +102,45 @@ async def send_video_to_chat(
         
         url = f"https://amojo.amocrm.ru{path}"
         
+        logger.info(f"[send_video_to_chat] === CHAT CREATION REQUEST ===")
+        logger.info(f"[send_video_to_chat] URL: {url}")
+        logger.info(f"[send_video_to_chat] Headers: {headers}")
+        logger.info(f"[send_video_to_chat] Body: {chat_request_body}")
+        
         async with aiohttp.ClientSession() as session:
             async with async_amo_crm_rate_limiter.limit():
                 async with session.post(url, headers=headers, data=chat_request_body, timeout=aiohttp.ClientTimeout(total=30)) as response:
+                    text = await response.text()
+                    logger.info(f"[send_video_to_chat] === CHAT CREATION RESPONSE ===")
+                    logger.info(f"[send_video_to_chat] Status: {response.status}")
+                    logger.info(f"[send_video_to_chat] Response headers: {dict(response.headers)}")
+                    logger.info(f"[send_video_to_chat] Response body: {text}")
+                    
                     if response.status not in (200, 201):
-                        text = await response.text()
-                        logger.error(f"Failed to create chat: {response.status} - {text}")
+                        logger.error(f"[send_video_to_chat] Failed to create chat: {response.status}")
                         return False
                     
-                    result = await response.json()
+                    result = json.loads(text)
                     chat_id = result.get("id")
         
         if not chat_id:
-            logger.error(f"No chat ID in response: {result}")
+            logger.error(f"[send_video_to_chat] No chat ID in response: {result}")
             return False
         
-        logger.info(f"Chat created: {chat_id}")
+        logger.info(f"[send_video_to_chat] Chat created successfully: {chat_id}")
         
         # Step 2: Attach chat to contact
-        logger.info(f"Attaching chat {chat_id} to contact {contact_id}")
+        logger.info(f"[send_video_to_chat] Step 2: Attaching chat {chat_id} to contact {contact_id}")
         
         from crm.crm_service import get_access_token
+        logger.debug(f"[send_video_to_chat] Requesting access token...")
         access_token = await get_access_token()
+        
+        if not access_token:
+            logger.error(f"[send_video_to_chat] Failed to get access token!")
+            return False
+        
+        logger.debug(f"[send_video_to_chat] Access token obtained: {access_token[:20]}...")
         
         attach_url = f"https://{config.CRM_SUBDOMAIN}.amocrm.ru/api/v4/contacts/chats"
         attach_headers = {
@@ -122,21 +149,32 @@ async def send_video_to_chat(
         }
         attach_body = [{"contact_id": contact_id, "chat_id": chat_id}]
         
+        logger.info(f"[send_video_to_chat] === CHAT ATTACH REQUEST ===")
+        logger.info(f"[send_video_to_chat] URL: {attach_url}")
+        logger.info(f"[send_video_to_chat] Headers: Authorization=Bearer {access_token[:20]}..., Content-Type=application/json")
+        logger.info(f"[send_video_to_chat] Body: {json.dumps(attach_body)}")
+        
         async with aiohttp.ClientSession() as session:
             async with async_amo_crm_rate_limiter.limit():
                 async with session.post(attach_url, headers=attach_headers, json=attach_body, timeout=aiohttp.ClientTimeout(total=30)) as attach_response:
+                    text = await attach_response.text()
+                    logger.info(f"[send_video_to_chat] === CHAT ATTACH RESPONSE ===")
+                    logger.info(f"[send_video_to_chat] Status: {attach_response.status}")
+                    logger.info(f"[send_video_to_chat] Response headers: {dict(attach_response.headers)}")
+                    logger.info(f"[send_video_to_chat] Response body: {text}")
+                    
                     if attach_response.status not in (200, 201):
-                        text = await attach_response.text()
-                        logger.warning(f"Failed to attach chat: {attach_response.status} - {text}")
+                        logger.warning(f"[send_video_to_chat] Failed to attach chat: {attach_response.status}")
                         # Continue anyway
                     else:
-                        logger.info(f"Chat attached to contact {contact_id}")
+                        logger.info(f"[send_video_to_chat] Chat attached successfully to contact {contact_id}")
         
         # Step 3: Send video message
-        logger.info(f"Sending video message to chat {chat_id}")
+        logger.info(f"[send_video_to_chat] Step 3: Sending video message to chat {chat_id}")
         
         msgid = f"tgbot-video-{int(time.time() * 1000)}"
         sender_id = f"tgbot-contact-{int(time.time())}"
+        logger.debug(f"[send_video_to_chat] Message ID: {msgid}, Sender ID: {sender_id}")
         
         sender = {
             "id": sender_id,
@@ -176,6 +214,8 @@ async def send_video_to_chat(
         signature_string = "\n".join([method.upper(), content_md5, "application/json", date, path])
         signature = hmac.new(channel_secret.encode(), signature_string.encode(), hashlib.sha1).hexdigest()
         
+        logger.debug(f"[send_video_to_chat] Video message signature: method={method}, path={path}, content_md5={content_md5}")
+        
         headers = {
             "Date": date,
             "Content-Type": "application/json",
@@ -185,64 +225,99 @@ async def send_video_to_chat(
         
         url = f"https://amojo.amocrm.ru{path}"
         
+        logger.info(f"[send_video_to_chat] === VIDEO MESSAGE REQUEST ===")
+        logger.info(f"[send_video_to_chat] URL: {url}")
+        logger.info(f"[send_video_to_chat] Headers: {headers}")
+        logger.info(f"[send_video_to_chat] Body: {video_request_body}")
+        
         async with aiohttp.ClientSession() as session:
             async with async_amo_crm_rate_limiter.limit():
                 async with session.post(url, headers=headers, data=video_request_body, timeout=aiohttp.ClientTimeout(total=30)) as response:
+                    text = await response.text()
+                    logger.info(f"[send_video_to_chat] === VIDEO MESSAGE RESPONSE ===")
+                    logger.info(f"[send_video_to_chat] Status: {response.status}")
+                    logger.info(f"[send_video_to_chat] Response headers: {dict(response.headers)}")
+                    logger.info(f"[send_video_to_chat] Response body: {text}")
+                    
                     if response.status in (200, 201):
-                        logger.info(f"Video sent successfully to contact {contact_id}, lead {lead_id}")
+                        logger.info(f"[send_video_to_chat] Video sent successfully to contact {contact_id}, lead {lead_id}")
                         return True
                     else:
-                        text = await response.text()
-                        logger.error(f"Failed to send video: {response.status} - {text}")
+                        logger.error(f"[send_video_to_chat] Failed to send video: {response.status}")
                         return False
             
     except Exception as e:
-        logger.error(f"Error sending video: {e}")
+        logger.error(f"[send_video_to_chat] Exception occurred: {e}", exc_info=True)
         return False
 
 
 async def _get_amojo_id() -> str:
+    logger.debug(f"[_get_amojo_id] Starting to fetch amojo_id...")
     try:
         from crm.crm_service import get_access_token
+        logger.debug(f"[_get_amojo_id] Requesting access token...")
         access_token = await get_access_token()
+        
+        if not access_token:
+            logger.error(f"[_get_amojo_id] Failed to get access token!")
+            return None
+        
+        logger.debug(f"[_get_amojo_id] Access token obtained: {access_token[:20]}...")
+        
         url = f"https://{config.CRM_SUBDOMAIN}.amocrm.ru/api/v4/account?with=amojo_id"
         headers = {"Authorization": f"Bearer {access_token}"}
+        
+        logger.info(f"[_get_amojo_id] === GET AMOJO_ID REQUEST ===")
+        logger.info(f"[_get_amojo_id] URL: {url}")
+        logger.info(f"[_get_amojo_id] Headers: Authorization=Bearer {access_token[:20]}...")
         
         async with aiohttp.ClientSession() as session:
             async with async_amo_crm_rate_limiter.limit():
                 async with session.get(url, headers=headers, timeout=aiohttp.ClientTimeout(total=30)) as response:
+                    text = await response.text()
+                    logger.info(f"[_get_amojo_id] === GET AMOJO_ID RESPONSE ===")
+                    logger.info(f"[_get_amojo_id] Status: {response.status}")
+                    logger.info(f"[_get_amojo_id] Response headers: {dict(response.headers)}")
+                    logger.info(f"[_get_amojo_id] Response body: {text}")
+                    
                     if response.status == 200:
-                        result = await response.json()
+                        result = json.loads(text)
                         amojo_id = result.get("amojo_id")
                         if amojo_id:
-                            logger.info(f"Retrieved amojo_id: {amojo_id}")
+                            logger.info(f"[_get_amojo_id] Got amojo_id: {amojo_id}")
                             return amojo_id
-                    
-                    logger.error(f"Failed to get amojo_id: {response.status}")
-                    return None
+                        else:
+                            logger.error(f"[_get_amojo_id] No amojo_id in response")
+                            return None
+                    else:
+                        logger.error(f"[_get_amojo_id] Failed to get amojo_id: {response.status}")
+                        return None
     except Exception as e:
-        logger.error(f"Error getting amojo_id: {e}")
+        logger.error(f"[_get_amojo_id] Exception occurred: {e}", exc_info=True)
         return None
 
 
 async def _connect_channel(channel_id: str, channel_secret: str, amojo_id: str, bot_name: str = "TG BOT") -> str:
     """Connect chat channel to AMoCRM account."""
     try:
-        body = {
+        connect_body = {
             "account_id": amojo_id,
             "title": bot_name,
             "hook_api_version": "v2",
         }
         
-        request_body = json.dumps(body, separators=(',', ':'))
+        connect_request_body = json.dumps(connect_body, separators=(',', ':'))
+        logger.debug(f"[_connect_channel] Connect request body: {connect_request_body}")
         method = "POST"
         content_type = "application/json"
         date = formatdate(timeval=None, localtime=False, usegmt=True)
         path = f"/v2/origin/custom/{channel_id}/connect"
         
-        content_md5 = hashlib.md5(request_body.encode()).hexdigest()
+        content_md5 = hashlib.md5(connect_request_body.encode()).hexdigest()
         signature_string = "\n".join([method.upper(), content_md5, content_type, date, path])
         signature = hmac.new(channel_secret.encode(), signature_string.encode(), hashlib.sha1).hexdigest()
+        
+        logger.debug(f"[_connect_channel] Connect signature: method={method}, path={path}, content_md5={content_md5}")
         
         headers = {
             "Date": date,
@@ -253,34 +328,53 @@ async def _connect_channel(channel_id: str, channel_secret: str, amojo_id: str, 
         
         url = f"https://amojo.amocrm.ru{path}"
         
+        logger.info(f"[_connect_channel] === CONNECT CHANNEL REQUEST ===")
+        logger.info(f"[_connect_channel] URL: {url}")
+        logger.info(f"[_connect_channel] Headers: {headers}")
+        logger.info(f"[_connect_channel] Body: {connect_request_body}")
+        
         async with aiohttp.ClientSession() as session:
             async with async_amo_crm_rate_limiter.limit():
-                async with session.post(url, headers=headers, data=request_body, timeout=aiohttp.ClientTimeout(total=30)) as response:
+                async with session.post(url, headers=headers, data=connect_request_body, timeout=aiohttp.ClientTimeout(total=30)) as response:
+                    text = await response.text()
+                    logger.info(f"[_connect_channel] === CONNECT CHANNEL RESPONSE ===")
+                    logger.info(f"[_connect_channel] Status: {response.status}")
+                    logger.info(f"[_connect_channel] Response headers: {dict(response.headers)}")
+                    logger.info(f"[_connect_channel] Response body: {text}")
+                    
                     if response.status in (200, 201):
-                        result = await response.json()
+                        result = json.loads(text)
                         scope_id = result.get("scope_id")
                         if scope_id:
-                            logger.info(f"Channel connected successfully")
+                            logger.info(f"[_connect_channel] Channel connected successfully, scope_id: {scope_id}")
                             return scope_id
-                    
-                    logger.error(f"Failed to connect channel: {response.status}")
-                    return None
+                        else:
+                            logger.error(f"[_connect_channel] No scope_id in response")
+                            return None
+                    else:
+                        logger.error(f"[_connect_channel] Failed to connect channel: {response.status}")
+                        return None
     except Exception as e:
-        logger.error(f"Error connecting channel: {e}")
+        logger.error(f"[_connect_channel] Exception occurred: {e}", exc_info=True)
         return None
 
 
 async def _get_or_create_scope_id() -> str:
     """
-    Возвращает scope_id аккаунта.
-
-    Существует только в рамках текущей сессии.  
+    Get cached scope_id or create new one by connecting channel.
+    
+    Returns:
+        scope_id string or None if failed
     """
     global _cached_scope_id
     
-    # Проверяем если в кэше (быстрая проверка без блокировки)
-    if _cached_scope_id:
-        return _cached_scope_id
+    logger.debug(f"[_get_or_create_scope_id] Acquiring lock...")
+    async with _scope_id_lock:
+        if _cached_scope_id:
+            logger.info(f"[_get_or_create_scope_id] Using cached scope_id: {_cached_scope_id}")
+            return _cached_scope_id
+        
+        logger.info(f"[_get_or_create_scope_id] No cached scope_id, fetching new one...")
     
     # Используем блокировку для thread-safe инициализации
     async with _scope_id_lock:
@@ -293,22 +387,29 @@ async def _get_or_create_scope_id() -> str:
         
         channel_id = config.CRM_CHAT_CHANNEL_ID
         channel_secret = config.CRM_CHAT_CHANNEL_SECRET
-        bot_name = config.CRM_CHAT_BOT_NAME
         
-        if not all([channel_id, channel_secret]):
-            logger.error("Missing channel_id or channel_secret")
+        if not channel_id or not channel_secret:
+            logger.error(f"[_get_or_create_scope_id] Missing channel_id or channel_secret in config")
             return None
+        
+        logger.debug(f"[_get_or_create_scope_id] Channel ID: {channel_id}, Secret: {len(channel_secret)} chars")
         
         amojo_id = await _get_amojo_id()
         if not amojo_id:
+            logger.error(f"[_get_or_create_scope_id] Failed to get amojo_id")
             return None
         
-        scope_id = await _connect_channel(channel_id, channel_secret, amojo_id, bot_name)
+        logger.info(f"[_get_or_create_scope_id] Got amojo_id: {amojo_id}")
+        
+        scope_id = await _connect_channel(channel_id, channel_secret, amojo_id)
         
         if scope_id:
-            logger.info("✅ Channel connected")
+            logger.info(f"[_get_or_create_scope_id] Channel connected successfully, scope_id: {scope_id}")
             # Сохраняем в кэше
-            _cached_scope_id = scope_id  
+            _cached_scope_id = scope_id
             return scope_id
+        else:
+            logger.error(f"[_get_or_create_scope_id] Failed to connect channel")
+            return None
         
         return None
