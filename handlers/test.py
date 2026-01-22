@@ -56,8 +56,8 @@ REVERSE_QUESTIONS = {2, 3, 5, 6, 8, 10, 14, 16, 19, 21, 22, 24, 27, 30}
 
 # Границы блоков (индексы вопросов, начиная с 1)
 BLOCK_RANGES = [
-    (1, 6),    # Блок 1: вопросы 1-6
-    (7, 12),   # Блок 2: вопросы 7-12
+    (1, 6),  # Блок 1: вопросы 1-6
+    (7, 12),  # Блок 2: вопросы 7-12
     (13, 17),  # Блок 3: вопросы 13-17
     (18, 22),  # Блок 4: вопросы 18-22
     (23, 25),  # Блок 5: вопросы 23-25
@@ -135,36 +135,52 @@ PROFILE_FEEDBACK = {
 }
 
 
-async def start_test(user, test_details, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+async def start_test(
+    user, test_details, update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> int:
     from handlers.student import ASKING_QUESTION, ASKING_CASE
-    
+
     context.user_data["test_user"] = user
     context.user_data["test_lead_id"] = test_details.lead_id
     context.user_data["test_answers"] = []
     context.user_data["current_question"] = 0
-    
+
     try:
         update_lead_status_to_in_progress(test_details.lead_id)
     except Exception as e:
         logger.error(f"Failed to update lead status: {e}")
-    
-    await update.message.reply_text(
-        "Сейчас вы пройдёте тест из 30 вопросов и 2 кейсов.\n"
-        "Отвечайте честно — здесь нет правильных или неправильных ответов.\n\n"
-        "Начнём!",
-        parse_mode="Markdown"
-    )
-    
+
+    text = """
+Супер, что ты здесь! 🧡
+
+Задание — пройти тест. 
+
+⏳ Дедлайн: 24 часа
+Тест занимает не более 10–15 минут.
+
+Очень важно:
+— не нужно казаться лучше или правильнее
+— здесь нет хороших и плохих ответов
+
+Тест — это не отдельный этап, а дополнение к анкете.
+Он помогает нам лучше тебя понять.
+
+Готов(а)? Тогда начинаем ✨
+"""
+
+    await update.message.reply_text(text, parse_mode="Markdown")
+
     return await ask_next_question(update, context)
 
 
 async def ask_next_question(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     from handlers.student import ASKING_QUESTION
+
     question_num = context.user_data["current_question"]
-    
+
     if question_num < len(TEST_QUESTIONS):
         question_text = TEST_QUESTIONS[question_num]
-        
+
         keyboard = [
             [
                 InlineKeyboardButton("Да", callback_data=f"answer_yes_{question_num}"),
@@ -172,53 +188,53 @@ async def ask_next_question(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             ]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
-        
+
         message_text = f"*Вопрос {question_num + 1} из 30*\n\n{question_text}"
-        
+
         if update.callback_query:
             await update.callback_query.edit_message_text(
-                message_text,
-                reply_markup=reply_markup,
-                parse_mode="Markdown"
+                message_text, reply_markup=reply_markup, parse_mode="Markdown"
             )
         else:
             await update.message.reply_text(
-                message_text,
-                reply_markup=reply_markup,
-                parse_mode="Markdown"
+                message_text, reply_markup=reply_markup, parse_mode="Markdown"
             )
-        
+
         return ASKING_QUESTION
     else:
         return await ask_first_case(update, context)
 
 
-async def handle_question_answer(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+async def handle_question_answer(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> int:
     query = update.callback_query
     await query.answer()
-    
+
     data = query.data
-    
+
     if not data.startswith("answer_"):
         logger.warning(f"Invalid question answer callback data: {data}")
         return ASKING_QUESTION
-    
+
     try:
         question_num_from_callback = int(data.split("_")[-1])
         current_question = context.user_data.get("current_question", 0)
-        
+
         if question_num_from_callback != current_question:
-            logger.warning(f"Question number mismatch: expected {current_question}, got {question_num_from_callback}")
+            logger.warning(
+                f"Question number mismatch: expected {current_question}, got {question_num_from_callback}"
+            )
             return ASKING_QUESTION
     except (ValueError, IndexError):
         logger.error(f"Failed to parse question number from callback data: {data}")
         return ASKING_QUESTION
-    
+
     answer = "Да" if "yes" in data else "Нет"
-    
+
     context.user_data["test_answers"].append(answer)
     context.user_data["current_question"] += 1
-    
+
     return await ask_next_question(update, context)
 
 
@@ -229,33 +245,30 @@ async def ask_first_case(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
 async def ask_case(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     from handlers.student import ASKING_CASE
+
     case_num = context.user_data["current_case"]
-    
+
     if case_num < len(CASE_STUDIES):
         case = CASE_STUDIES[case_num]
-        
+
         keyboard = [
             [InlineKeyboardButton(opt[0], callback_data=f"case_{case_num}_{opt[0]}")]
             for opt in case["options"]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
-        
+
         options_text = "\n".join(case["options"])
         message_text = f"*{case['title']}*\n\n{case['description']}\n\n{options_text}"
-        
+
         if update.callback_query:
             await update.callback_query.edit_message_text(
-                message_text,
-                reply_markup=reply_markup,
-                parse_mode="Markdown"
+                message_text, reply_markup=reply_markup, parse_mode="Markdown"
             )
         else:
             await update.message.reply_text(
-                message_text,
-                reply_markup=reply_markup,
-                parse_mode="Markdown"
+                message_text, reply_markup=reply_markup, parse_mode="Markdown"
             )
-        
+
         return ASKING_CASE
     else:
         return await calculate_and_send_results(update, context)
@@ -264,73 +277,77 @@ async def ask_case(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
 async def handle_case_answer(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     query = update.callback_query
     await query.answer()
-    
+
     data = query.data
-    
+
     if not data.startswith("case_"):
         logger.warning(f"Invalid case answer callback data: {data}")
         return ASKING_CASE
-    
+
     try:
         parts = data.split("_")
         case_num_from_callback = int(parts[1])
         current_case = context.user_data.get("current_case", 0)
-        
+
         if case_num_from_callback != current_case:
-            logger.warning(f"Case number mismatch: expected {current_case}, got {case_num_from_callback}")
+            logger.warning(
+                f"Case number mismatch: expected {current_case}, got {case_num_from_callback}"
+            )
             return ASKING_CASE
     except (ValueError, IndexError):
         logger.error(f"Failed to parse case number from callback data: {data}")
         return ASKING_CASE
-    
+
     answer = data.split("_")[-1]
-    
+
     context.user_data["test_answers"].append(answer)
     context.user_data["current_case"] += 1
-    
+
     return await ask_case(update, context)
 
 
-async def calculate_and_send_results(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+async def calculate_and_send_results(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> int:
     await update.callback_query.edit_message_text("Грузим результаты...")
-    
+
     answers = context.user_data["test_answers"]
     user = context.user_data["test_user"]
-    
+
     block_scores = []
     for start, end in BLOCK_RANGES:
         score = 0
         for i in range(start - 1, end):
             question_num = i + 1
             answer = answers[i]
-            
+
             if question_num in REVERSE_QUESTIONS:
                 score += 1 if answer == "Нет" else 0
             else:
                 score += 1 if answer == "Да" else 0
-        
+
         block_scores.append(score)
-    
+
     case1_answer = answers[30]
     case2_answer = answers[31]
-    
+
     # Кейс 1 scoring
     case1_scores = {"A": 1, "B": 2, "C": 4, "D": 3}
     case1_score = case1_scores.get(case1_answer, 0)
-    
+
     # Кейс 2 scoring
     case2_scores = {"A": 1, "B": 2, "C": 4, "D": 3}
     case2_score = case2_scores.get(case2_answer, 0)
-    
+
     total_score = sum(block_scores) + case1_score + case2_score
-    
+
     if total_score >= 24:
         profile_type = "Внутренняя опора"
     elif total_score >= 18:
         profile_type = "Движение и поиск"
     else:
         profile_type = "Ресурс и чувствительность"
-    
+
     # # Case 1 explanation
     # case1_explanations = {
     #     "A": "низкая инициативность и попустительство (низкая включенность в общее дело)",
@@ -339,7 +356,7 @@ async def calculate_and_send_results(update: Update, context: ContextTypes.DEFAU
     #     "D": "средне-высокая инициативность, средне-высокая включенность"
     # }
     # case1_explanation = case1_explanations.get(case1_answer, "")
-    # 
+    #
     # # Case 2 explanation
     # case2_explanations = {
     #     "A": "низкие коммуникативные навыки, низкая целенаправленность, орг способности и умение мыслить в понятиях результата",
@@ -348,9 +365,9 @@ async def calculate_and_send_results(update: Update, context: ContextTypes.DEFAU
     #     "D": "средне-высокие коммуникативные навыки, средне-высокая целенаправленность, орг способности и умение мыслить в понятиях результата"
     # }
     # case2_explanation = case2_explanations.get(case2_answer, "")
-    
+
     lead_id = context.user_data.get("test_lead_id")
-    
+
     scores = TestScores(
         block1_score=block_scores[0],
         block2_score=block_scores[1],
@@ -363,40 +380,41 @@ async def calculate_and_send_results(update: Update, context: ContextTypes.DEFAU
         total_score=total_score,
         profile_type=profile_type,
     )
-    
+
     save_test_results(user.id, lead_id, scores)
-    
+
     try:
-        send_test_results_to_crm(user.id, lead_id, scores, answers, case1_answer, case2_answer)
+        send_test_results_to_crm(
+            user.id, lead_id, scores, answers, case1_answer, case2_answer
+        )
     except Exception as e:
         logger.error(f"Failed to send test results to CRM: {e}")
-    
+
     try:
         update_contact_test_scores(int(user.crm_id), scores)
     except Exception as e:
         logger.error(f"Failed to update contact test scores: {e}")
-    
+
     try:
         update_lead_status_to_visit_card(lead_id)
     except Exception as e:
         logger.error(f"Failed to update lead status after test: {e}")
-    
+
     feedback = PROFILE_FEEDBACK[profile_type]
-    
+
     # # Build complete feedback with case explanations
     # complete_feedback = f"*Тест завершён!*\n\n{feedback}\n\n"
-    # 
+    #
     # if case1_explanation:
     #     complete_feedback += f"*Кейс 1 ({case1_score} балла):* {case1_explanation}\n\n"
-    # 
+    #
     # if case2_explanation:
     #     complete_feedback += f"*Кейс 2 ({case2_score} балла):* {case2_explanation}"
-    
+
     await update.callback_query.edit_message_text(
-        f"*Тест завершён!*\n\n{feedback}",
-        parse_mode="Markdown"
+        f"*Тест завершён!*\n\n{feedback}", parse_mode="Markdown"
     )
-    
+
     context.user_data.clear()
     return ConversationHandler.END
 
