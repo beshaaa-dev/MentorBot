@@ -7,13 +7,13 @@ import asyncio
 import time
 from email.utils import formatdate
 from typing import Optional
-import logging
 
 from amocrm.v2 import tokens
 import config
 from async_rate_limiter import async_amo_crm_rate_limiter
+from logger import setup_logger
 
-logger = logging.getLogger(__name__)
+logger = setup_logger(__name__)
 
 # scope_id текущего аккаунта (перезаписывается при перезапуске бота)
 # По сути у аккаунта будет один и тот же scope_id до отключения интеграции

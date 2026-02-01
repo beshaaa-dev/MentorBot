@@ -12,17 +12,21 @@ def setup_logger(name: str = None) -> logging.Logger:
     Returns:
         Configured logger instance
     """
+    # Create logs directory if it doesn't exist
+    if not os.path.exists("logs"):
+        os.makedirs("logs")
+
+    # Get or create logger
     logger = logging.getLogger(name)
+    
+    # Set logging level
+    logger.setLevel(logging.DEBUG)  # Set to DEBUG to catch all levels
+    
+    # Prevent propagation to root logger to avoid duplicate logs
+    logger.propagate = False
 
     # Only configure if not already configured
     if not logger.handlers:
-        # Create logs directory if it doesn't exist
-        if not os.path.exists("logs"):
-            os.makedirs("logs")
-
-        # Set logging level
-        logger.setLevel(logging.INFO)
-
         # Create formatter
         formatter = logging.Formatter(
             "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
@@ -34,8 +38,8 @@ def setup_logger(name: str = None) -> logging.Logger:
         console_handler.setFormatter(formatter)
 
         # File handler
-        file_handler = logging.FileHandler("logs/bot.log")
-        file_handler.setLevel(logging.INFO)
+        file_handler = logging.FileHandler("logs/bot.log", encoding='utf-8')
+        file_handler.setLevel(logging.DEBUG)  # Log everything to file
         file_handler.setFormatter(formatter)
 
         # Add handlers
