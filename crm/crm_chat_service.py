@@ -45,7 +45,10 @@ async def send_video_to_chat(
     Returns:
         True if successful, False otherwise
     """
+    start_time = time.time()
+    logger.info(f"[send_video_to_chat] === STARTING VIDEO SEND ===")
     logger.info(f"[send_video_to_chat] Starting video send: contact_id={contact_id}, lead_id={lead_id}, filename={filename}")
+    logger.info(f"[send_video_to_chat] Parameters: video_url={video_url}, file_size={file_size} bytes ({file_size / 1024 / 1024:.2f} MB)")
     
     # Get or create scope_id (auto-connects channel if needed)
     logger.debug(f"[send_video_to_chat] Getting scope_id...")
@@ -67,6 +70,7 @@ async def send_video_to_chat(
         
     try:
         # Step 1: Create chat
+        step1_start = time.time()
         logger.info(f"[send_video_to_chat] Step 1: Creating chat for contact {contact_id}")
         
         conversation_id = f"tgbot-{contact_id}"
@@ -127,9 +131,11 @@ async def send_video_to_chat(
             logger.error(f"[send_video_to_chat] No chat ID in response: {result}")
             return False
         
-        logger.info(f"[send_video_to_chat] Chat created successfully: {chat_id}")
+        step1_time = time.time() - step1_start
+        logger.info(f"[send_video_to_chat] Chat created successfully: {chat_id} (took {step1_time:.2f}s)")
         
         # Step 2: Attach chat to contact
+        step2_start = time.time()
         logger.info(f"[send_video_to_chat] Step 2: Attaching chat {chat_id} to contact {contact_id}")
         
         from crm.crm_service import get_access_token
@@ -167,13 +173,19 @@ async def send_video_to_chat(
                         logger.warning(f"[send_video_to_chat] Failed to attach chat: {attach_response.status}")
                         # Continue anyway
                     else:
-                        logger.info(f"[send_video_to_chat] Chat attached successfully to contact {contact_id}")
+                        step2_time = time.time() - step2_start
+                        logger.info(f"[send_video_to_chat] Chat attached successfully to contact {contact_id} (took {step2_time:.2f}s)")
         
         # Step 3: Send video message
+        step3_start = time.time()
         logger.info(f"[send_video_to_chat] Step 3: Sending video message to chat {chat_id}")
         
-        msgid = f"tgbot-video-{int(time.time() * 1000)}"
-        sender_id = f"tgbot-contact-{int(time.time())}"
+        timestamp = int(time.time())
+        msec_timestamp = int(time.time() * 1000)
+        msgid = f"tgbot-video-{msec_timestamp}"
+        sender_id = f"tgbot-contact-{timestamp}"
+        
+        logger.debug(f"[send_video_to_chat] Timestamps: timestamp={timestamp}, msec_timestamp={msec_timestamp}")
         logger.debug(f"[send_video_to_chat] Message ID: {msgid}, Sender ID: {sender_id}")
         
         sender = {
@@ -182,8 +194,8 @@ async def send_video_to_chat(
         }
         
         payload = {
-            "timestamp": int(time.time()),
-            "msec_timestamp": int(time.time() * 1000),
+            "timestamp": timestamp,
+            "msec_timestamp": msec_timestamp,
             "msgid": msgid,
             "conversation_ref_id": chat_id,  # CRITICAL: Use conversation_ref_id for AMoCRM-generated IDs
             "sender": sender,
@@ -198,6 +210,16 @@ async def send_video_to_chat(
         
         if lead_id:
             payload["source"] = {"external_id": str(lead_id)}
+            logger.debug(f"[send_video_to_chat] Added lead_id to payload source: {lead_id}")
+        
+        logger.debug(f"[send_video_to_chat] Payload structure:")
+        logger.debug(f"[send_video_to_chat]   - conversation_ref_id: {chat_id}")
+        logger.debug(f"[send_video_to_chat]   - sender: {sender}")
+        logger.debug(f"[send_video_to_chat]   - message.type: video")
+        logger.debug(f"[send_video_to_chat]   - message.media: {video_url}")
+        logger.debug(f"[send_video_to_chat]   - message.file_name: {filename}")
+        logger.debug(f"[send_video_to_chat]   - message.file_size: {file_size} bytes ({file_size / 1024 / 1024:.2f} MB)")
+        logger.debug(f"[send_video_to_chat]   - source.external_id: {lead_id if lead_id else 'None'}")
         
         video_body = {
             "event_type": "new_message",
@@ -240,14 +262,26 @@ async def send_video_to_chat(
                     logger.info(f"[send_video_to_chat] Response body: {text}")
                     
                     if response.status in (200, 201):
-                        logger.info(f"[send_video_to_chat] Video sent successfully to contact {contact_id}, lead {lead_id}")
+                        step3_time = time.time() - step3_start
+                        total_time = time.time() - start_time
+                        
+                        logger.info(f"[send_video_to_chat] ✓ Video sent successfully!")
+                        logger.info(f"[send_video_to_chat] ✓ Contact: {contact_id} ({contact_name})")
+                        logger.info(f"[send_video_to_chat] ✓ Lead: {lead_id}")
+                        logger.info(f"[send_video_to_chat] ✓ Chat: {chat_id}")
+                        logger.info(f"[send_video_to_chat] ✓ Video: {video_url}")
+                        logger.info(f"[send_video_to_chat] ✓ File: {filename} ({file_size / 1024 / 1024:.2f} MB)")
+                        logger.info(f"[send_video_to_chat] ✓ Timing: step3={step3_time:.2f}s, total={total_time:.2f}s")
+                        logger.info(f"[send_video_to_chat] === VIDEO SEND COMPLETED ===")
                         return True
                     else:
-                        logger.error(f"[send_video_to_chat] Failed to send video: {response.status}")
+                        logger.error(f"[send_video_to_chat] ✗ Failed to send video: HTTP {response.status}")
+                        logger.error(f"[send_video_to_chat] ✗ Response: {text}")
                         return False
             
     except Exception as e:
-        logger.error(f"[send_video_to_chat] Exception occurred: {e}", exc_info=True)
+        total_time = time.time() - start_time
+        logger.error(f"[send_video_to_chat] Exception occurred after {total_time:.2f}s: {e}", exc_info=True)
         return False
 
 
