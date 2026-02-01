@@ -177,7 +177,7 @@ async def start_test(
 async def ask_next_question(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     from handlers.student import ASKING_QUESTION
 
-    question_num = context.user_data["current_question"]
+    question_num = context.user_data.get("current_question", 0)
 
     if question_num < len(TEST_QUESTIONS):
         question_text = TEST_QUESTIONS[question_num]
@@ -209,6 +209,8 @@ async def ask_next_question(update: Update, context: ContextTypes.DEFAULT_TYPE) 
 async def handle_question_answer(
     update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> int:
+    from handlers.student import ASKING_QUESTION
+    
     query = update.callback_query
     await query.answer()
 
@@ -233,8 +235,13 @@ async def handle_question_answer(
 
     answer = "Да" if "yes" in data else "Нет"
 
+    # Defensive check for test_answers
+    if "test_answers" not in context.user_data:
+        logger.error("test_answers not found in user_data")
+        return ConversationHandler.END
+    
     context.user_data["test_answers"].append(answer)
-    context.user_data["current_question"] += 1
+    context.user_data["current_question"] = context.user_data.get("current_question", 0) + 1
 
     return await ask_next_question(update, context)
 
@@ -247,7 +254,7 @@ async def ask_first_case(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 async def ask_case(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     from handlers.student import ASKING_CASE
 
-    case_num = context.user_data["current_case"]
+    case_num = context.user_data.get("current_case", 0)
 
     if case_num < len(CASE_STUDIES):
         case = CASE_STUDIES[case_num]
@@ -276,6 +283,8 @@ async def ask_case(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
 
 
 async def handle_case_answer(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    from handlers.student import ASKING_CASE
+    
     query = update.callback_query
     await query.answer()
 
@@ -301,8 +310,13 @@ async def handle_case_answer(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
     answer = data.split("_")[-1]
 
+    # Defensive check for test_answers
+    if "test_answers" not in context.user_data:
+        logger.error("test_answers not found in user_data")
+        return ConversationHandler.END
+    
     context.user_data["test_answers"].append(answer)
-    context.user_data["current_case"] += 1
+    context.user_data["current_case"] = context.user_data.get("current_case", 0) + 1
 
     return await ask_case(update, context)
 
@@ -312,8 +326,25 @@ async def calculate_and_send_results(
 ) -> int:
     await update.callback_query.edit_message_text("Грузим результаты...")
 
-    answers = context.user_data["test_answers"]
-    user = context.user_data["test_user"]
+    # Defensive checks for required user_data
+    answers = context.user_data.get("test_answers")
+    user = context.user_data.get("test_user")
+    lead_id = context.user_data.get("test_lead_id")
+    
+    if not answers or not user or not lead_id:
+        logger.error(f"Missing required data: answers={bool(answers)}, user={bool(user)}, lead_id={bool(lead_id)}")
+        await update.callback_query.edit_message_text(
+            "Произошла ошибка при обработке результатов. Попробуйте начать тест заново."
+        )
+        return ConversationHandler.END
+    
+    # Validate we have all answers (30 questions + 2 cases)
+    if len(answers) != 32:
+        logger.error(f"Invalid number of answers: expected 32, got {len(answers)}")
+        await update.callback_query.edit_message_text(
+            "Произошла ошибка при обработке результатов. Попробуйте начать тест заново."
+        )
+        return ConversationHandler.END
 
     block_scores = []
     for start, end in BLOCK_RANGES:
@@ -366,8 +397,6 @@ async def calculate_and_send_results(
     #     "D": "средне-высокие коммуникативные навыки, средне-высокая целенаправленность, орг способности и умение мыслить в понятиях результата"
     # }
     # case2_explanation = case2_explanations.get(case2_answer, "")
-
-    lead_id = context.user_data.get("test_lead_id")
 
     scores = TestScores(
         block1_score=block_scores[0],
