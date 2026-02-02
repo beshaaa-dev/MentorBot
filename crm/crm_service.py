@@ -28,7 +28,7 @@ def init_amo_crm_integration():
         redirect_url=config.CRM_REDIRECT_URL,
         storage=tokens.FileTokensStorage(directory_path="tokens"),
     )
-    
+
     ThreadSafeTokenManager(tokens.default_token_manager)
 
     try:
@@ -88,7 +88,10 @@ def get_first_lead(crm_user: Contact) -> Lead | None:
 
 def is_test_lead(lead: Lead) -> bool:
     """Check if lead has test status or test in progress status."""
-    return lead.status and str(lead.status.id) in {CRM_TEST_STATUS, CRM_TEST_IS_IN_PROGRESS_STATUS}
+    return lead.status and str(lead.status.id) in {
+        CRM_TEST_STATUS,
+        CRM_TEST_IS_IN_PROGRESS_STATUS,
+    }
 
 
 def is_visit_card_lead(lead: Lead) -> bool:
@@ -183,27 +186,31 @@ async def get_access_token() -> str:
         return await token_manager.get_access_token()
 
 
-async def upload_video(file_bytes: bytes, filename: str) -> tuple[str, int] | tuple[None, None]:
+async def upload_video(
+    file_bytes: bytes, filename: str
+) -> tuple[str, int] | tuple[None, None]:
     """
     Upload a video file to AMoCRM Drive and return the download URL.
-    
+
     Args:
         file_bytes: File content as bytes
         filename: Name for the uploaded file
-        
+
     Returns:
         Tuple of (download_url, file_size) if successful, (None, None) otherwise
     """
-    
+
     try:
         logger.info(f"[upload_video] === STARTING VIDEO UPLOAD ===")
-        logger.info(f"[upload_video] Filename: {filename}, Size: {len(file_bytes)} bytes ({len(file_bytes) / 1024 / 1024:.2f} MB)")
-        
+        logger.info(
+            f"[upload_video] Filename: {filename}, Size: {len(file_bytes)} bytes ({len(file_bytes) / 1024 / 1024:.2f} MB)"
+        )
+
         access_token = await get_access_token()
         if not access_token:
             logger.error(f"[upload_video] Failed to get access token!")
             return None, None
-        
+
         logger.debug(f"[upload_video] Access token obtained: {access_token[:20]}...")
 
         headers = {
@@ -214,26 +221,40 @@ async def upload_video(file_bytes: bytes, filename: str) -> tuple[str, int] | tu
         account_url = (
             f"https://{config.CRM_SUBDOMAIN}.amocrm.ru/api/v4/account?with=drive_url"
         )
-        
+
         logger.info(f"[upload_video] === STEP 0: GET DRIVE URL ===")
         logger.info(f"[upload_video] URL: {account_url}")
-        logger.info(f"[upload_video] Headers: Authorization=Bearer {access_token[:20]}...")
-        
+        logger.info(
+            f"[upload_video] Headers: Authorization=Bearer {access_token[:20]}..."
+        )
+
         async with aiohttp.ClientSession() as session:
             async with async_amo_crm_rate_limiter.limit():
-                async with session.get(account_url, headers=headers) as account_response:
+                async with session.get(
+                    account_url, headers=headers
+                ) as account_response:
                     text = await account_response.text()
                     logger.info(f"[upload_video] === STEP 0 RESPONSE ===")
                     logger.info(f"[upload_video] Status: {account_response.status}")
-                    logger.info(f"[upload_video] Response headers: {dict(account_response.headers)}")
+                    logger.info(
+                        f"[upload_video] Response headers: {dict(account_response.headers)}"
+                    )
                     logger.info(f"[upload_video] Response body: {text}")
-                    
+
                     if account_response.status != 200:
-                        logger.error(f"[upload_video] Failed to get drive_url: {account_response.status}")
+                        logger.error(
+                            f"[upload_video] Failed to get drive_url: {account_response.status}"
+                        )
                         return None, None
-                    
-                    account_data = await account_response.json() if account_response.content_type == 'application/json' else {}
-                    drive_url = account_data.get("drive_url", "https://drive-b.amocrm.ru")
+
+                    account_data = (
+                        await account_response.json()
+                        if account_response.content_type == "application/json"
+                        else {}
+                    )
+                    drive_url = account_data.get(
+                        "drive_url", "https://drive-b.amocrm.ru"
+                    )
                     logger.info(f"[upload_video] Got drive_url: {drive_url}")
 
         # Step 1: Create upload session
@@ -242,26 +263,31 @@ async def upload_video(file_bytes: bytes, filename: str) -> tuple[str, int] | tu
         session_data = {
             "file_name": filename,
             "file_size": file_size,
-            "content_type": "video/mp4"
+            "content_type": "video/mp4",
         }
-        
+
         logger.info(f"[upload_video] === STEP 1: CREATE UPLOAD SESSION ===")
-        
+
         access_token = await get_access_token()
         if not access_token:
-            logger.error(f"[upload_video] Failed to get access token for upload session!")
+            logger.error(
+                f"[upload_video] Failed to get access token for upload session!"
+            )
             return None, None
-        
-        logger.debug(f"[upload_video] Access token obtained: {access_token[:20]}...")
-        
+
+        logger.info(f"[upload_video] Access token obtained (length: {len(access_token)})")
+        logger.info(f"[upload_video] Access token: {access_token}")
+
         session_headers = {
             "Authorization": f"Bearer {access_token}",
-            "Content-Type": "application/json"
+            "Content-Type": "application/json",
         }
-        
+
+        logger.info(f"[upload_video] === STEP 1 REQUEST ===")
+        logger.info(f"[upload_video] Method: POST")
         logger.info(f"[upload_video] URL: {session_url}")
-        logger.info(f"[upload_video] Headers: Authorization=Bearer {access_token[:20]}..., Content-Type=application/json")
-        logger.info(f"[upload_video] Body: {session_data}")
+        logger.info(f"[upload_video] Headers: {session_headers}")
+        logger.info(f"[upload_video] Body (JSON): {session_data}")
 
         async with aiohttp.ClientSession() as session:
             async with async_amo_crm_rate_limiter.limit():
@@ -272,30 +298,41 @@ async def upload_video(file_bytes: bytes, filename: str) -> tuple[str, int] | tu
                 ) as session_response:
                     text = await session_response.text()
                     logger.info(f"[upload_video] === STEP 1 RESPONSE ===")
-                    logger.info(f"[upload_video] Status: {session_response.status}")
-                    logger.info(f"[upload_video] Response headers: {dict(session_response.headers)}")
-                    logger.info(f"[upload_video] Response body: {text}")
-                    
+                    logger.info(f"[upload_video] Status Code: {session_response.status}")
+                    logger.info(f"[upload_video] Response URL: {session_response.url}")
+                    logger.info(f"[upload_video] Response Headers: {dict(session_response.headers)}")
+                    logger.info(f"[upload_video] Response Body: {text}")
+
                     if session_response.status not in (200, 201):
                         logger.error(
                             f"[upload_video] Failed to create upload session: {session_response.status} - {text}"
                         )
                         return None, None
 
-                    session_info = await session_response.json() if session_response.content_type == 'application/json' else {}
+                    session_info = (
+                        await session_response.json()
+                        if session_response.content_type == "application/json"
+                        else {}
+                    )
                     upload_url = session_info.get("upload_url")
                     max_part_size = session_info.get("max_part_size", 524288)
-                    logger.info(f"[upload_video] Upload session created: session_id={session_info.get('session_id')}, max_part_size={max_part_size}")
+                    logger.info(
+                        f"[upload_video] Upload session created: session_id={session_info.get('session_id')}, max_part_size={max_part_size}"
+                    )
 
         if not upload_url:
-            logger.error(f"[upload_video] No upload_url in session response: {session_info}")
+            logger.error(
+                f"[upload_video] No upload_url in session response: {session_info}"
+            )
             return None, None
 
         # Step 2: Upload file in parts
         logger.info(f"[upload_video] === STEP 2: UPLOAD FILE IN PARTS ===")
         logger.info(f"[upload_video] Upload URL: {upload_url}")
-        logger.info(f"[upload_video] File size: {len(file_bytes)} bytes, Max part size: {max_part_size} bytes")
-        
+        logger.info(
+            f"[upload_video] File size: {len(file_bytes)} bytes, Max part size: {max_part_size} bytes"
+        )
+
         file_uuid = None
         version_uuid = None
         total_size = len(file_bytes)
@@ -309,11 +346,15 @@ async def upload_video(file_bytes: bytes, filename: str) -> tuple[str, int] | tu
             chunk_len = len(chunk)
 
             logger.info(f"[upload_video] === UPLOADING PART {part_num} ===")
-            logger.info(f"[upload_video] Part range: bytes {offset}-{offset + chunk_len - 1}/{total_size}")
+            logger.info(
+                f"[upload_video] Part range: bytes {offset}-{offset + chunk_len - 1}/{total_size}"
+            )
 
             access_token = await get_access_token()
             if not access_token:
-                logger.error(f"[upload_video] Failed to get access token for part upload!")
+                logger.error(
+                    f"[upload_video] Failed to get access token for part upload!"
+                )
                 return None, None
 
             part_headers = {
@@ -321,8 +362,10 @@ async def upload_video(file_bytes: bytes, filename: str) -> tuple[str, int] | tu
                 "Content-Type": "application/octet-stream",
                 "Content-Range": f"bytes {offset}-{offset + chunk_len - 1}/{total_size}",
             }
-            
-            logger.info(f"[upload_video] Headers: Authorization=Bearer {access_token[:20]}..., Content-Type=application/octet-stream, Content-Range=bytes {offset}-{offset + chunk_len - 1}/{total_size}")
+
+            logger.info(
+                f"[upload_video] Headers: Authorization=Bearer {access_token[:20]}..., Content-Type=application/octet-stream, Content-Range=bytes {offset}-{offset + chunk_len - 1}/{total_size}"
+            )
 
             async with aiohttp.ClientSession() as session:
                 async with async_amo_crm_rate_limiter.limit():
@@ -335,49 +378,66 @@ async def upload_video(file_bytes: bytes, filename: str) -> tuple[str, int] | tu
                         text = await upload_response.text()
                         logger.info(f"[upload_video] === PART {part_num} RESPONSE ===")
                         logger.info(f"[upload_video] Status: {upload_response.status}")
-                        logger.info(f"[upload_video] Response headers: {dict(upload_response.headers)}")
+                        logger.info(
+                            f"[upload_video] Response headers: {dict(upload_response.headers)}"
+                        )
                         logger.info(f"[upload_video] Response body: {text}")
-                        
+
                         if upload_response.status not in (200, 201, 202):
                             logger.error(
                                 f"[upload_video] Failed to upload file part {part_num}: {upload_response.status} - {text}"
                             )
                             return None, None
 
-                        upload_data = await upload_response.json() if upload_response.content_type == 'application/json' else {}
-                        logger.debug(f"[upload_video] Part {part_num} upload data: {upload_data}")
+                        upload_data = (
+                            await upload_response.json()
+                            if upload_response.content_type == "application/json"
+                            else {}
+                        )
+                        logger.debug(
+                            f"[upload_video] Part {part_num} upload data: {upload_data}"
+                        )
 
             # Check if this is the last part (contains uuid)
             if "uuid" in upload_data:
                 # Get download URL from API response
-                download_url = upload_data.get("_links", {}).get("download", {}).get("href")
+                download_url = (
+                    upload_data.get("_links", {}).get("download", {}).get("href")
+                )
                 file_uuid = upload_data.get("uuid")
-                
+
                 logger.info(f"[upload_video] === UPLOAD COMPLETED ===")
                 logger.info(f"[upload_video] File UUID: {file_uuid}")
                 logger.info(f"[upload_video] Download URL: {download_url}")
-                
+
                 if not download_url:
                     logger.error("[upload_video] No download URL in upload response")
                     return None, None
-                
-                logger.info(f"[upload_video] ✓ Successfully uploaded video to Drive: uuid={file_uuid}, size={file_size} bytes ({file_size / 1024 / 1024:.2f} MB)")
+
+                logger.info(
+                    f"[upload_video] ✓ Successfully uploaded video to Drive: uuid={file_uuid}, size={file_size} bytes ({file_size / 1024 / 1024:.2f} MB)"
+                )
                 return download_url, file_size
 
             # Get next upload URL for next part
             next_url = upload_data.get("next_url")
             if next_url:
-                logger.debug(f"[upload_video] Moving to next part, next_url: {next_url}")
+                logger.debug(
+                    f"[upload_video] Moving to next part, next_url: {next_url}"
+                )
                 upload_url = next_url
             else:
-                logger.debug(f"[upload_video] No next_url in response for part {part_num}")
+                logger.debug(
+                    f"[upload_video] No next_url in response for part {part_num}"
+                )
 
             offset += chunk_len
 
-        logger.error("[upload_video] ✗ No file UUID or download URL returned after upload")
+        logger.error(
+            "[upload_video] ✗ No file UUID or download URL returned after upload"
+        )
         return None, None
 
     except Exception as e:
         logger.error(f"[upload_video] ✗ Exception occurred: {e}", exc_info=True)
         return None, None
-
