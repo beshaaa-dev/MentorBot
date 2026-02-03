@@ -58,7 +58,7 @@ TASK_STATUS_CHANGE_NOT_ALLOWED = (
 
 # Visit card flow messages
 VISIT_CARD_TASK = "*У вас есть новое задание 🧡*\n\n{text}\n\n"
-REQUEST_VISIT_CARD_VIDEO = "Пожалуйста, отправьте видео или кружок."
+REQUEST_VISIT_CARD_VIDEO = "Пожалуйста, отправьте видео-кружок."
 INVALID_MEDIA_TYPE = (
     "Принимаются только видео или кружок. Пожалуйста, попробуйте снова."
 )
