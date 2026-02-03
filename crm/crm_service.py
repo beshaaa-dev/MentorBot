@@ -249,12 +249,13 @@ async def upload_video(
 
                     account_data = (
                         await account_response.json()
-                        if account_response.content_type == "application/json"
+                        if account_response.content_type and "json" in account_response.content_type
                         else {}
                     )
                     drive_url = account_data.get(
                         "drive_url", "https://drive-b.amocrm.ru"
                     )
+
                     logger.info(f"[upload_video] Got drive_url: {drive_url}")
 
         # Step 1: Create upload session
