@@ -4,6 +4,7 @@ from dotenv import load_dotenv
 # Load environment variables FIRST before any other imports that depend on config
 load_dotenv(override=True)
 
+from telegram import Update
 from telegram.ext import Application, JobQueue
 from logger import setup_logger
 from handlers import handlers
@@ -39,8 +40,7 @@ def main() -> None:
 
     # Persistence для сохранения состояния между перезапусками
     persistence = ThreadSafePicklePersistence(
-        filepath="bot_persistence.pickle",
-        update_interval=60
+        filepath="bot_persistence.pickle", update_interval=60
     )
 
     # Регистрируем обработчики (админские, общие, платежные, и т.д.)
@@ -55,9 +55,25 @@ def main() -> None:
     for handler in handlers:
         application.add_handler(handler)
 
+    # Restore scheduled jobs after startup
+    from services.broadcast_scheduler import restore_scheduled_jobs
+    from services.broadcast_reminders import restore_reminder_jobs
+
+    application.job_queue.run_once(
+        restore_scheduled_jobs,
+        when=10,  # Run 10 seconds after startup to ensure everything is initialized
+        name="restore_jobs_on_startup",
+    )
+    
+    application.job_queue.run_once(
+        restore_reminder_jobs,
+        when=12,  # Run 12 seconds after startup, after scheduled jobs are restored
+        name="restore_reminders_on_startup",
+    )
+
     # Запускаем бота
     logger.info("Bot is starting...")
-    application.run_polling()
+    application.run_polling(allowed_updates=Update.ALL_TYPES)
 
 
 if __name__ == "__main__":

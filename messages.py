@@ -75,3 +75,39 @@ CHANGE_TASK_1_BUTTON = "Изменить задание 1"
 CHANGE_TASK_2_BUTTON = "Изменить задание 2"
 CHANGE_TASK_3_BUTTON = "Изменить задание 3"
 CONFIRM_ALL_BUTTON = "Всё верно, отправить"
+
+# Broadcast system messages
+ADMIN_MENU_TITLE = (
+    "📋 *Меню администратора*\n\n"
+    "Вот что вы можете сделать:\n\n"
+    "• *Отправить рассылку* — создать новую рассылку (сообщение или опрос) в выбранные чаты\n"
+    "• *Запланированные рассылки* — просмотреть, изменить или отменить запланированные рассылки\n"
+    "• *Выгрузить отчет* — получить файл со всеми данными опросов\n\n"
+    "Рассылки отправляются участникам чатов через личные сообщения."
+)
+SEND_BROADCAST_BUTTON = "Отправить рассылку"
+SCHEDULED_BROADCASTS_BUTTON = "Запланированные рассылки"
+EXPORT_DATA_BUTTON = "Выгрузить отчет"
+
+# Survey creation flow messages
+SELECT_CHATS_MESSAGE = "Выберите чаты для отправки опроса (можно выбрать несколько):"
+NO_CHATS_AVAILABLE = "У вас нет доступа ни к одному чату."
+SELECT_BROADCAST_TYPE_MESSAGE = "Выберите тип рассылки:"
+MESSAGE_TYPE_BUTTON = "Сообщение"
+SURVEY_TYPE_BUTTON = "Опрос"
+ENTER_MESSAGE_CONTENT_MESSAGE = "Введите текст сообщения для рассылки:"
+MESSAGE_CONTENT_EMPTY_ERROR = "Сообщение не может быть пустым. Пожалуйста, введите текст."
+MESSAGE_CONTENT_TOO_LONG_ERROR = "Сообщение слишком длинное (максимум 4096 символов). Пожалуйста, сократите текст."
+SELECT_TIMING_MESSAGE = "Выберите тип отправки:"
+SEND_NOW_BUTTON = "Отправить сейчас"
+SCHEDULED_SEND_BUTTON = "Отложенная отправка"
+ENTER_DATETIME_MESSAGE = (
+    "Введите дату и время отправки в формате DD.MM.YYYY HH:MM (московское время):\n"
+    "Например: 01.01.2026 10:00"
+)
+INVALID_DATETIME_FORMAT = (
+    "Неверный формат даты. Используйте формат DD.MM.YYYY HH:MM\n"
+    "Например: 01.01.2026 10:00"
+)
+PAST_DATETIME_ERROR = "Дата должна быть в будущем. Пожалуйста, введите будущую дату."
+SURVEY_CANCELLED = "Создание опроса отменено."

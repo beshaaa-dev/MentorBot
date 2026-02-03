@@ -71,7 +71,7 @@ async def unknown_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(UNKNOWN_MESSAGE)
 
 
-start_command_handler = CommandHandler("start", start)
-support_command_handler = CommandHandler("support", support)
+start_command_handler = CommandHandler("start", start, filters=filters.ChatType.PRIVATE)
+support_command_handler = CommandHandler("support", support, filters=filters.ChatType.PRIVATE)
 video_conversation_handler = create_student_conversation_handler(start_command_handler)
-unknown_message_handler = MessageHandler(filters.ALL, unknown_message)
+unknown_message_handler = MessageHandler(filters.ChatType.PRIVATE & filters.ALL, unknown_message)

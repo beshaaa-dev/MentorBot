@@ -47,8 +47,8 @@ class ThreadSafeTokenManager:
             token = self._token_manager._storage.get_access_token()
             if token and not self._token_manager._is_expire(token):
                 return token
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning(f"Failed to check token (fast path): {e}")
         
         # Токен истёк или отсутствует - нужна блокировка
         async with self._lock:
@@ -59,8 +59,8 @@ class ThreadSafeTokenManager:
                 if token and not self._token_manager._is_expire(token):
                     logger.debug("Token was refreshed by another coroutine")
                     return token
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning(f"Failed to check token (locked path): {e}")
             
             # Обновляем токен (только одна корутина делает это)
             logger.info("Refreshing access token...")
