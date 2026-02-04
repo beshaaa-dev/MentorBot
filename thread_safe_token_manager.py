@@ -41,6 +41,27 @@ class ThreadSafeTokenManager:
         self._lock = asyncio.Lock()
         self._initialized = True
     
+    def _force_refresh_token(self) -> str:
+        """
+        Принудительно обновляет access token через refresh token.
+        
+        Returns:
+            Новый access token
+            
+        Raises:
+            Exception: Если обновление не удалось
+        """
+        logger.info("Force refreshing access token...")
+        
+        # Получаем новые токены (access_token, refresh_token)
+        access_token, refresh_token = self._token_manager._get_new_tokens()
+        
+        # Сохраняем новые токены
+        self._token_manager._storage.save_tokens(access_token, refresh_token)
+        
+        logger.info("Access token force refreshed successfully")
+        return access_token
+    
     async def get_access_token(self) -> str:
         # Быстрая проверка без блокировки
         try:
@@ -67,6 +88,18 @@ class ThreadSafeTokenManager:
             token = self._token_manager.get_access_token()
             logger.info("Access token refreshed successfully")
             return token
+    
+    async def force_refresh_access_token(self) -> str:
+        """Принудительно обновляет access token, даже если текущий токен ещё не истёк."""
+        async with self._lock:
+            try:
+                return self._force_refresh_token()
+            except Exception as e:
+                logger.error(f"Force refresh failed: {e}, falling back to standard refresh")
+                # Если принудительное обновление не удалось, используем стандартный метод
+                token = self._token_manager.get_access_token()
+                logger.info("Access token refreshed successfully (fallback)")
+                return token
     
     def init(self, code: str, skip_error: bool = False):
         return self._token_manager.init(code=code, skip_error=skip_error)

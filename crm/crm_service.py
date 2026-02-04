@@ -186,6 +186,16 @@ async def get_access_token() -> str:
         return await token_manager.get_access_token()
 
 
+async def force_refresh_access_token() -> str:
+    """Принудительно обновляет access token, даже если текущий токен ещё не истёк."""
+    try:
+        token_manager = ThreadSafeTokenManager.get_instance()
+        return await token_manager.force_refresh_access_token()
+    except (EnvironmentError, ValueError) as token_error:
+        logger.error(f"Force token refresh failed: {token_error}")
+        return await get_access_token()
+
+
 async def upload_video(
     file_bytes: bytes, filename: str
 ) -> tuple[str, int] | tuple[None, None]:
@@ -269,7 +279,8 @@ async def upload_video(
 
         logger.info(f"[upload_video] === STEP 1: CREATE UPLOAD SESSION ===")
 
-        access_token = await get_access_token()
+        # TODO: - Убрать костыль, когда AMOCRM исправить баг
+        access_token = await force_refresh_access_token()
         if not access_token:
             logger.error(
                 f"[upload_video] Failed to get access token for upload session!"
