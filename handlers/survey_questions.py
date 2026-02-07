@@ -1,3 +1,4 @@
+import asyncio
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     ContextTypes,
@@ -8,93 +9,98 @@ from telegram.ext import (
 )
 from logger import setup_logger
 from database.broadcast_service import (
-    get_broadcast_by_id,
     get_response_by_id,
     save_answer,
     mark_response_started,
     mark_response_completed,
 )
-from messages import ERROR_MESSAGE
+from messages import ERROR_MESSAGE, SURVEY_INTRODUCTION
 from keyboards import get_support_keyboard
 
 logger = setup_logger(__name__)
 
+# Rating thresholds for follow-up questions
+RATING_LOW_MAX = 5
+RATING_MID_MIN = 6
+RATING_MID_MAX = 7
+RATING_HIGH_MIN = 8
+
 SURVEY_QUESTIONS = [
     {
         "key": "q1",
-        "text": "Оцени насколько наставник был вовлечен на встрече?",
+        "text": "Оцените насколько наставник был вовлечен на встрече?\n\nГде: 1 - наставник был слабо вовлечён, 10 - наставник был максимально вовлечён, хочется сохранить этот формат.",
         "type": "scale",
         "allow_skip": False,
     },
     {
         "key": "q1_followup_low",
-        "text": "Расскажи, чего не хватило",
+        "text": "Ого, какая низкая оценка, расскажите, пожалуйста в 2-3 тезисах (текстом), чего не хватило на встрече?",
         "type": "text",
         "allow_skip": False,
     },
     {
         "key": "q1_followup_mid",
-        "text": "Чего не хватило до 10 баллов?",
+        "text": "Расскажите, чего не хватило на встрече, чтобы было 10 баллов?",
         "type": "text",
         "allow_skip": False,
     },
     {
         "key": "q1_followup_high",
-        "text": "Что больше всего понравилось",
+        "text": "Спасибо за высокую оценку, поделитесь, по желанию, что больше всего понравилось (текстом)?",
         "type": "text",
-        "allow_skip": False,
+        "allow_skip": True,
     },
     {
         "key": "q2",
-        "text": "Оцени на сколько было комфортно на встрече (место, организация, атмосфера)",
+        "text": "Оцените, на сколько было комфортно на встрече (место, организация, атмосфера).\n\nГде: 10 - всё отлично, 1 - на встрече было не комфортно, важно указать, что именно не понравилось.",
         "type": "scale",
         "allow_skip": False,
     },
     {
         "key": "q2_followup_low",
-        "text": "Что не понравилось?",
+        "text": "Расскажите, что было некомфортно текстом в 1-2 тезиса или предложения.",
         "type": "text",
         "allow_skip": False,
     },
     {
         "key": "q2_followup_mid",
-        "text": "Что хотелось бы улучшить?",
+        "text": "Чего не хватило до 10 баллов комфорта, напишите текстом, пожалуйста.",
         "type": "text",
         "allow_skip": False,
     },
     {
         "key": "q2_followup_high",
-        "text": "Что понравилось",
+        "text": "Спасибо, за высокую оценку! По желанию, расскажите, что было хорошо - текстом 1-2 тезиса.",
         "type": "text",
-        "allow_skip": False,
+        "allow_skip": True,
     },
     {
         "key": "q3",
-        "text": "Оцени, содержание встречи (темы, обсуждения, знания и т. д.)",
+        "text": "Оцените, насколько было полезным и интересным содержание встречи (темы, обсуждения, знания и т. д.)\n\nГде 10 - очень интересно, 1 - бесполезно/неинтересно.",
         "type": "scale",
         "allow_skip": False,
     },
     {
         "key": "q3_followup_low",
-        "text": "Что не понравилось, чего не хватило или что было лишним?",
+        "text": "Что не понравилось, чего не хватило или что было лишним? Ответьте, текстом в сообщении, пожалуйста.",
         "type": "text",
         "allow_skip": False,
     },
     {
         "key": "q3_followup_mid",
-        "text": "Чего не хватило?",
+        "text": "Чего не хватило для 10 баллов?",
         "type": "text",
         "allow_skip": False,
     },
     {
         "key": "q3_followup_high",
-        "text": "Что понравилось?",
+        "text": "Спасибо за высокую оценку. Поделитесь, по желанию, что больше всего понравилось (текстом)?",
         "type": "text",
-        "allow_skip": False,
+        "allow_skip": True,
     },
     {
         "key": "q4",
-        "text": "Здесь можно ещё что-то добавить, если хочется",
+        "text": "Хотите ещё что-то добавить? Здесь можно оставить пожелания, выразить благодарность или поделиться еще чем-то важным.",
         "type": "text",
         "allow_skip": True,
     },
@@ -149,7 +155,12 @@ def create_question_keyboard(question: dict) -> InlineKeyboardMarkup | None:
             )
 
     elif question_type == "text":
-        # No keyboard - wait for text input
+        # For text questions, add skip button if allowed
+        if question.get("allow_skip", False):
+            keyboard.append(
+                [InlineKeyboardButton("Пропустить", callback_data=f"skip_{question['key']}")]
+            )
+            return InlineKeyboardMarkup(keyboard)
         return None
 
     if keyboard:
@@ -223,6 +234,18 @@ async def handle_answer(
 
     # Handle skip
     if callback_data.startswith("skip_"):
+        # If skipping a follow-up question, jump to next main question
+        if "_followup_" in question["key"]:
+            base_key = question["key"].split("_")[0]
+            next_main_question_num = int(base_key[1]) + 1
+            next_main_key = f"q{next_main_question_num}"
+            
+            for idx, q in enumerate(SURVEY_QUESTIONS):
+                if q["key"] == next_main_key:
+                    context.user_data["current_question"] = idx
+                    return await show_next_question(update, context)
+        
+        # For non-follow-up questions, just move to next
         context.user_data["current_question"] = question_index + 1
         return await show_next_question(update, context)
 
@@ -237,11 +260,11 @@ async def handle_answer(
             
             # Determine which follow-up question to show based on rating
             if question["key"] in ["q1", "q2", "q3"]:
-                if 1 <= rating <= 5:
+                if 1 <= rating <= RATING_LOW_MAX:
                     followup_suffix = "_followup_low"
-                elif 6 <= rating <= 7:
+                elif RATING_MID_MIN <= rating <= RATING_MID_MAX:
                     followup_suffix = "_followup_mid"
-                else:  # 8-10
+                else:  # RATING_HIGH_MIN-10
                     followup_suffix = "_followup_high"
                 
                 # Find the index of the appropriate follow-up question
@@ -311,12 +334,17 @@ async def complete_survey(
 
     mark_response_completed(response_id)
 
-    completion_message = "Спасибо! Опрос завершен."
+    completion_message = "Спасибо за Ваши ответы!"
+    
+    # Create submit button
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton("✅ Отправить ответы", callback_data=f"submit_survey_{response_id}")]
+    ])
 
     if update.callback_query:
-        await update.callback_query.edit_message_text(completion_message)
+        await update.callback_query.edit_message_text(completion_message, reply_markup=keyboard)
     else:
-        await update.message.reply_text(completion_message)
+        await update.message.reply_text(completion_message, reply_markup=keyboard)
 
     context.user_data.clear()
     return ConversationHandler.END
@@ -341,6 +369,18 @@ async def handle_start_survey_callback(
         return ConversationHandler.END
 
 
+async def handle_submit_survey(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> None:
+    """Handle survey submission confirmation."""
+    query = update.callback_query
+    if not query:
+        return
+
+    await query.answer("Ваши ответы отправлены!")
+    await query.edit_message_text("✅ Спасибо! Ваши ответы успешно отправлены.")
+
+
 # Conversation handler for survey questions
 survey_questions_handler = ConversationHandler(
     name="survey_questions",
@@ -361,4 +401,10 @@ survey_questions_handler = ConversationHandler(
     fallbacks=[
         MessageHandler(filters.COMMAND, lambda u, c: ConversationHandler.END),
     ],
+)
+
+# Handler for submit survey button (outside conversation)
+submit_survey_handler = CallbackQueryHandler(
+    handle_submit_survey,
+    pattern="^submit_survey_\\d+$",
 )

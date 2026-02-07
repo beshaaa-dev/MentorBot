@@ -20,7 +20,7 @@ from handlers.broadcast_admin import (
     admin_menu_callback_handler,
 )
 from handlers.broadcast_creation import survey_creation_handler
-from handlers.survey_questions import survey_questions_handler
+from handlers.survey_questions import survey_questions_handler, submit_survey_handler
 from handlers.chat_events import (
     chat_message_handler,
     chat_member_handler,
@@ -36,6 +36,7 @@ handlers = [
     admin_command_handler,
     survey_creation_handler,  # Must be before admin_menu_callback_handler to catch admin_send_broadcast callback
     survey_questions_handler,
+    submit_survey_handler,  # Handle survey submission confirmation
     admin_menu_callback_handler,  # Broad pattern, must be after specific handlers
     # Mentor handlers
     mentor_to_menu_handler,

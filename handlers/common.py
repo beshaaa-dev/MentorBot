@@ -11,7 +11,7 @@ from repositories.user_repository import create_student_if_needed, get_crm_user
 from database.models import UserRole
 from messages import (
     FINDING_USER,
-    USER_NOT_FOUND,
+    WELCOME,
     SUPPORT_MESSAGE,
     UNKNOWN_MESSAGE,
 )
@@ -50,7 +50,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
                 return await handle_student(user, update, context)
 
             await update.message.reply_text(
-                USER_NOT_FOUND, reply_markup=ReplyKeyboardRemove()
+                WELCOME, reply_markup=ReplyKeyboardRemove()
             )
             return ConversationHandler.END
     except Exception as e:

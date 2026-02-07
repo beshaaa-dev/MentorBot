@@ -15,6 +15,7 @@ from database.chat_service import (
 )
 from database.models import BroadcastStatus, BroadcastType
 from telegram.constants import ChatMemberStatus
+from messages import SURVEY_INTRODUCTION
 
 logger = setup_logger(__name__)
 
@@ -96,10 +97,7 @@ async def send_broadcast_to_chats(
 
                         # Send DM with survey start button
                         from telegram import InlineKeyboardButton, InlineKeyboardMarkup
-                        message_text = (
-                            "Привет! У вас есть новый опрос.\n\n"
-                            "Нажмите кнопку ниже, чтобы начать."
-                        )
+                        
                         keyboard = InlineKeyboardMarkup([
                             [InlineKeyboardButton(
                                 "Начать опрос",
@@ -110,7 +108,7 @@ async def send_broadcast_to_chats(
                         try:
                             await context.bot.send_message(
                                 chat_id=member.user_tg_id,
-                                text=message_text,
+                                text=SURVEY_INTRODUCTION,
                                 reply_markup=keyboard,
                             )
                             stats["sent"] += 1
