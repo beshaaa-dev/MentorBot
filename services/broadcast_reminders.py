@@ -140,18 +140,18 @@ async def notify_curator(context, broadcast_id: int) -> None:
 
         # Build notification message
         notification = (
-            f"📊 *Статистика по опросу #{broadcast_id}*\n\n"
+            f"📊 Статистика по опросу #{broadcast_id}\n\n"
             f"⏰ Отправлен: {format_moscow(broadcast.sent_at)}\n\n"
-            f"❌ *Не завершили опрос*: {len(incomplete_responses)} чел.\n\n"
+            f"❌ Не завершили опрос: {len(incomplete_responses)} чел.\n\n"
         )
 
         # Add user list (truncate if too long)
         if len(incomplete_list) <= 20:
-            notification += "*Список:*\n"
+            notification += "Список:\n"
             for user_info in incomplete_list:
                 notification += f"• {user_info}\n"
         else:
-            notification += f"*Первые 20 из {len(incomplete_list)}:*\n"
+            notification += f"Первые 20 из {len(incomplete_list)}:\n"
             for user_info in incomplete_list[:20]:
                 notification += f"• {user_info}\n"
             notification += f"\n... и еще {len(incomplete_list) - 20} чел."
@@ -159,7 +159,6 @@ async def notify_curator(context, broadcast_id: int) -> None:
         await context.bot.send_message(
             chat_id=curator_tg_id,
             text=notification,
-            parse_mode="Markdown",
         )
 
         logger.info(
