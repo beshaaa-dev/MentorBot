@@ -6,6 +6,7 @@ from telegram.ext import (
     CallbackQueryHandler,
 )
 from logger import setup_logger
+from messages import TEST_TASK_TEXT
 from repositories.test_repository import (
     save_test_results,
     send_test_results_to_crm,
@@ -150,26 +151,7 @@ async def start_test(
     except Exception as e:
         logger.error(f"Failed to update lead status: {e}")
 
-    text = """
-Супер, что ты здесь! 🧡
-
-Задание — пройти тест. 
-
-⏳ Дедлайн: 24 часа
-Тест занимает не более 10–15 минут.
-
-Очень важно:
-— не нужно казаться лучше или правильнее
-— здесь нет хороших и плохих ответов
-
-Тест — это не отдельный этап, а дополнение к анкете.
-Он помогает нам лучше тебя понять.
-
-Тест открылся в следующем сообщении👇🏻
-Готов(а)? Тогда начинаем ✨
-"""
-
-    await update.message.reply_text(text, parse_mode="Markdown")
+    await update.message.reply_text(TEST_TASK_TEXT, parse_mode="Markdown")
 
     return await ask_next_question(update, context)
 

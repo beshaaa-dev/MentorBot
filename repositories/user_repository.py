@@ -23,6 +23,7 @@ from datetime import datetime
 from timezone_utils import now_moscow
 from crm.crm_service import Contact
 from repositories.pdf_generator import create_anketa_pdf
+from messages import VISIT_CARD_TEXT
 import re
 
 logger = setup_logger(__name__)
@@ -168,33 +169,8 @@ def _build_task_details(lead: Lead | None) -> TaskDetails | None:
 def _build_visit_card_details(lead: Lead | None) -> VisitCardDetails | None:
     if not lead:
         return None
-
-    visit_card_text = """🎥 Задание — видеовизитка
-
-Отправь «видеокружок в формате ТГ»
-
-В видео необходимо ответить на вопрос:
-
-«Короткий случай из жизни, который лучше всего тебя характеризует.»
-
-Важно: 
-— только видеокружок, который создается в самом Telegram
-— можно записать в другом чате и переслать сюда финальную версию
-— монтаж и эффекты не нужны
-— нам важны только ты и твой живой ответ
-— отправить задание в бот, где получил это задание 
--> @Pokolenez_task_bot
-
-Требования: 
-— видно лицо
-— хороший, разборчивый звук
-
-⏳ Дедлайн: 48 часов
-
-Когда будешь готов(а) — просто пришли видеокружок в этот бот 🧡
-"""
     
-    return VisitCardDetails(text=visit_card_text, lead_id=lead.id)
+    return VisitCardDetails(text=VISIT_CARD_TEXT, lead_id=lead.id)
 
 
 def _build_pdf_filename(student_full_name: str) -> str:
