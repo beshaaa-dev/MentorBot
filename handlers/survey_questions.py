@@ -1,5 +1,6 @@
 import asyncio
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.constants import ParseMode
 from telegram.ext import (
     ContextTypes,
     ConversationHandler,
@@ -100,7 +101,7 @@ SURVEY_QUESTIONS = [
     },
     {
         "key": "q4",
-        "text": "Хотите ещё что-то добавить? Здесь можно оставить пожелания, выразить благодарность или поделиться еще чем-то важным.",
+        "text": "*Хотите ещё что-то добавить? Здесь можно оставить пожелания, выразить благодарность или поделиться еще чем-то важным.*\nНапишите сообщением боту.",
         "type": "text",
         "allow_skip": True,
     },
@@ -203,10 +204,10 @@ async def show_next_question(
 
     if update.callback_query:
         await update.callback_query.edit_message_text(
-            question_text, reply_markup=keyboard
+            question_text, reply_markup=keyboard, parse_mode=ParseMode.MARKDOWN
         )
     else:
-        await update.message.reply_text(question_text, reply_markup=keyboard)
+        await update.message.reply_text(question_text, reply_markup=keyboard, parse_mode=ParseMode.MARKDOWN)
 
     return ANSWERING_QUESTION
 
@@ -342,9 +343,9 @@ async def complete_survey(
     ])
 
     if update.callback_query:
-        await update.callback_query.edit_message_text(completion_message, reply_markup=keyboard)
+        await update.callback_query.edit_message_text(completion_message, reply_markup=keyboard, parse_mode=ParseMode.MARKDOWN)
     else:
-        await update.message.reply_text(completion_message, reply_markup=keyboard)
+        await update.message.reply_text(completion_message, reply_markup=keyboard, parse_mode=ParseMode.MARKDOWN)
 
     context.user_data.clear()
     return ConversationHandler.END
