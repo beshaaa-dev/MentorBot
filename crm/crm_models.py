@@ -20,43 +20,31 @@ class Lead(_Lead):
     third_task = custom_field.TextCustomField("Задание 3 от наставника")
     mentor_tg_nickname = custom_field.TextCustomField("тг наставника")
     task_deadline = custom_field.TextCustomField("Дедлайн задания")
-    city = custom_field.TextCustomField("В каком городе вы живете?")
-    source = custom_field.TextCustomField("Откуда вы узнали о Поколении?")
-    why_this_mentor = custom_field.TextCustomField(
-        "Почему вы хотите в группу именно к этому наставнику?"
+    city = custom_field.TextCustomField("Город проживания")
+    current_study = custom_field.TextCustomField("Где ты сейчас учишься?")
+    most_important_now = custom_field.TextCustomField(
+        "Что для тебя сейчас важнее всего из этого?"
     )
-    life_goals = custom_field.TextCustomField(
-        "Какие жизненные цели вы хотите достичь с помощью наставничества?"
+    direction_2_3_years = custom_field.TextCustomField(
+        "Если смотреть на ближайшие 2–3 года, в каком направлении ты хочешь двигаться?"
     )
-    what_ready_to_do_for_team = custom_field.TextCustomField(
-        "Что вы готовы сделать для команды, даже если это выходит за пределы вашей зоны комфорта?"
+    multiple_tasks_behavior = custom_field.TextCustomField(
+        "Когда у тебя одновременно несколько задач и дедлайнов, что обычно происходит?"
     )
-    three_life_principles = custom_field.TextCustomField(
-        "Назовите три своих жизненных принципа."
+    activities_besides_study = custom_field.TextCustomField(
+        "Чем ты занимаешься помимо учёбы регулярно?"
     )
-    question_for_mentor = custom_field.TextCustomField(
-        "Какой один вопрос вы бы задали своему будущему наставнику?"
+    top_achievements = custom_field.TextCustomField(
+        "Назови до 3–5 достижений / результатов, которыми ты действительно гордишься"
     )
-    top_5_achievements = custom_field.TextCustomField(
-        "Назовите топ-5 своих достижений, которыми вы гордитесь на сегодняшний день."
-    )
-    olympiad_competition_volunteer_experience = custom_field.TextCustomField(
-        "Если у вас есть опыт участия в олимпиадах, конкурсах, волонтерстве или других проектах — расскажите, в каких именно."
-    )
-    portfolio_link = custom_field.TextCustomField(
-        "Если у вас есть портфолио, кейсы или другие материалы, которые показывают ваши достижения и опыт, — поделитесь ссылкой. (Например: сайт, соцсети, видео, презентации или документы.) Это необязательный вопрос, но, если есть, можете отправить — это повысит шансы."
+    failure_situation = custom_field.TextCustomField(
+        "Опиши ситуацию, где у тебя не получилось, хотя ты старался(лась)"
     )
     strong_qualities = custom_field.TextCustomField(
-        "Какие свои качества вы считаете сильными?"
+        "Какие свои качества ты считаешь сильными — и как они могут быть полезны другим участникам группы?"
     )
     qualities_to_change = custom_field.TextCustomField(
-        "Какие качества вы хотели бы изменить в себе?"
-    )
-    qualities_to_realize_in_project = custom_field.TextCustomField(
-        "Какие свои качества, сильные стороны, таланты или способности вы хотите реализовать в проекте?"
-    )
-    what_you_do_well = custom_field.TextCustomField(
-        "Что у вас получается хорошо и чем вы могли бы быть полезны другим?"
+        "Какие качества или привычки ты хотел(а) бы изменить в себе?"
     )
 
 
