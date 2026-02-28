@@ -15,12 +15,14 @@ class Contact(_Contact):
 
 
 class Lead(_Lead):
+    fio = custom_field.TextCustomField("ФИО")
+    age = custom_field.TextCustomField("Возраст")
+    city = custom_field.TextCustomField("Город проживания")
     first_task = custom_field.TextCustomField("Задание от наставника")
     second_task = custom_field.TextCustomField("Задание 2 от наставника")
     third_task = custom_field.TextCustomField("Задание 3 от наставника")
     mentor_tg_nickname = custom_field.TextCustomField("тг наставника")
     task_deadline = custom_field.TextCustomField("Дедлайн задания")
-    city = custom_field.TextCustomField("Город проживания")
     current_study = custom_field.TextCustomField("Где ты сейчас учишься?")
     most_important_now = custom_field.TextCustomField(
         "Что для тебя сейчас важнее всего из этого?"

@@ -14,11 +14,11 @@ logger = setup_logger(__name__)
 
 
 def _escape_text(value: str, preserve_newlines: bool = False) -> str:
-    """Escape HTML special characters in text.
+    """Экранирование HTML специальных символов в тексте.
     
     Args:
-        value: Text to escape
-        preserve_newlines: If True, convert newlines to <br/> tags for PDF rendering
+        value: Текст для экранирования
+        preserve_newlines: Если True, преобразовать переносы строк в <br/> теги для рендеринга в PDF
     """
     escaped = str(value).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
     if preserve_newlines:
@@ -28,7 +28,7 @@ def _escape_text(value: str, preserve_newlines: bool = False) -> str:
 
 
 def _register_cyrillic_font():
-    """Register a font that supports Cyrillic characters."""
+    """Регистрация шрифта поддерживающего кириллические символы."""
     system = platform.system()
     font_paths = []
 
@@ -75,14 +75,14 @@ def _register_cyrillic_font():
 
 def create_anketa_pdf(lead: Lead | None, student_full_name: str | None = None) -> bytes | None:
     """
-    Create PDF anketa from lead data.
+    Создать PDF анкету из данных лида.
 
     Args:
-        lead: Lead object containing anketa data, or None for empty PDF
-        student_full_name: Full name of the student to place inside the PDF
+        lead: Lead объект с данными анкеты, или None для пустого PDF
+        student_full_name: Полное имя студента для размещения в PDF
 
     Returns:
-        PDF file as bytes, or None if all fields are empty
+        PDF файл в виде байтов, или None если все поля пустые
     """
     buffer = BytesIO()
 
@@ -142,6 +142,8 @@ def create_anketa_pdf(lead: Lead | None, student_full_name: str | None = None) -
 
     # Define custom fields with their question labels
     fields = [
+        ("fio", "ФИО"),
+        ("age", "Возраст"),
         ("city", "Город проживания"),
         ("current_study", "Где ты сейчас учишься?"),
         ("most_important_now", "Что для тебя сейчас важнее всего из этого?"),
@@ -202,3 +204,5 @@ def create_anketa_pdf(lead: Lead | None, student_full_name: str | None = None) -
     doc.build(story)
     buffer.seek(0)
     return buffer.getvalue()
+
+__all__ = ["create_anketa_pdf"]
