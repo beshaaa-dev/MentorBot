@@ -73,13 +73,12 @@ def _register_cyrillic_font():
     return regular_font or "Helvetica", bold_font or "Helvetica-Bold"
 
 
-def create_anketa_pdf(lead: Lead | None, student_full_name: str | None = None) -> bytes | None:
+def create_anketa_pdf(lead: Lead | None) -> bytes | None:
     """
     Создать PDF анкету из данных лида.
 
     Args:
         lead: Lead объект с данными анкеты, или None для пустого PDF
-        student_full_name: Полное имя студента для размещения в PDF
 
     Returns:
         PDF файл в виде байтов, или None если все поля пустые
@@ -90,7 +89,7 @@ def create_anketa_pdf(lead: Lead | None, student_full_name: str | None = None) -
     doc = SimpleDocTemplate(buffer, pagesize=letter, title="Анкета")
 
     # If no data provided, return empty PDF
-    if not lead and not student_full_name:
+    if not lead:
         doc.build([])
         buffer.seek(0)
         return buffer.getvalue()
@@ -134,11 +133,6 @@ def create_anketa_pdf(lead: Lead | None, student_full_name: str | None = None) -
     # Title
     story.append(Paragraph("Анкета", title_style))
     story.append(Spacer(1, 0.2 * inch))
-
-    if student_full_name:
-        story.append(Paragraph("Имя студента", question_style))
-        story.append(Paragraph(_escape_text(student_full_name), answer_style))
-        story.append(Spacer(1, 0.15 * inch))
 
     # Define custom fields with their question labels
     fields = [
