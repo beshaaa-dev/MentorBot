@@ -30,7 +30,7 @@ def handle_kicked_member(tg_id: int, username: str | None = None) -> None:
     try:
         contact = _find_contact_by_telegram_id(tg_id)
         if contact is None:
-            contact = _create_contact_for_kicked_member(tg_id, username)
+            contact = _create_contact(tg_id, username)
 
         lead = find_lead(contact)
         if lead is None:
@@ -86,7 +86,9 @@ def _find_contact_by_telegram_id(tg_id: int | str) -> Contact | None:
 
 
 def find_lead(contact: Contact) -> Lead | None:
-    if not contact.leads:
+    # Amo returns _ListData(data=None) when there are no leads; it is truthy but __iter__ crashes.
+    lead_refs = (contact._data.get("_embedded") or {}).get("leads")
+    if not lead_refs:
         return None
     pid = str(CRM_EDUCATION_PIPELINE)
     for lead in contact.leads:
@@ -98,7 +100,7 @@ def find_lead(contact: Contact) -> Lead | None:
     return None
 
 
-def _create_contact_for_kicked_member(tg_id: int, username: str | None) -> Contact:
+def _create_contact(tg_id: int, username: str | None) -> Contact:
     name = _contact_display_name_for_kick(username, tg_id)
     with amo_crm_rate_limiter.limit():
         contact = Contact(name=name, telegram_id=str(tg_id))
