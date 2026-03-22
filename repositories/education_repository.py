@@ -134,8 +134,11 @@ def _create_lead(contact: Contact, *, with_error_metadata: bool) -> Lead:
         )
 
     with amo_crm_rate_limiter.limit():
-        lead = Lead(pipeline=pipeline, status=status, contacts=[contact])
+        lead = Lead(pipeline=pipeline, status=status)
         lead.save()
+    # contacts= in __init__ is not supported (_EmbeddedLinkListField.on_set raises TypeError)
+    with amo_crm_rate_limiter.limit():
+        lead.contacts.append(contact, main=True)
 
     if with_error_metadata:
         _append_entity_tag(lead, TAG_KICK_LEAD_ERROR)
