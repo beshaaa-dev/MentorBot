@@ -1,5 +1,8 @@
+import asyncio
+
 from telegram import Update
 from telegram.ext import ContextTypes, MessageHandler, ChatMemberHandler, filters
+from repositories.education_repository import handle_kicked_member
 from logger import setup_logger
 from database.chat_service import (
     get_or_create_chat,
@@ -70,12 +73,18 @@ async def handle_user_message_in_chat(
             )
         except Exception as e:
             error_msg = str(e)
-            if "bot was kicked" in error_msg.lower() or "forbidden" in error_msg.lower():
+            if (
+                "bot was kicked" in error_msg.lower()
+                or "forbidden" in error_msg.lower()
+            ):
                 from database.chat_service import deactivate_chat
+
                 deactivate_chat(chat.id)
                 logger.info(f"Bot was kicked from chat {chat.id}, marked as inactive")
                 return
-            logger.warning(f"Could not check admin status for user {user.id} in chat {chat.id}: {e}")
+            logger.warning(
+                f"Could not check admin status for user {user.id} in chat {chat.id}: {e}"
+            )
 
         # Register/update chat member
         get_or_create_chat_member(
@@ -117,15 +126,31 @@ async def handle_chat_member_update(
         # Ensure chat exists
         chat_title = chat.title if hasattr(chat, "title") else None
         get_or_create_chat(chat_id=chat.id, chat_title=chat_title)
-        
+
         # Handle user left or kicked/banned
         if new_status in (ChatMemberStatus.LEFT, ChatMemberStatus.BANNED):
             deactivate_chat_member(chat_id=chat.id, user_tg_id=user.id)
-            status_text = "left" if new_status == ChatMemberStatus.LEFT else "kicked/banned from"
+            status_text = (
+                "left" if new_status == ChatMemberStatus.LEFT else "kicked/banned from"
+            )
             logger.info(f"User {user.id} {status_text} chat {chat.id}")
+            if new_status == ChatMemberStatus.LEFT:
+                was_not_admin = old_status not in (
+                    ChatMemberStatus.ADMINISTRATOR,
+                    ChatMemberStatus.OWNER,
+                )
+                if was_not_admin:
+                    loop = asyncio.get_running_loop()
+                    await loop.run_in_executor(
+                        None, handle_kicked_member, user.id, user.username
+                    )
 
         # Handle user joined
-        elif new_status in (ChatMemberStatus.MEMBER, ChatMemberStatus.ADMINISTRATOR, ChatMemberStatus.OWNER):
+        elif new_status in (
+            ChatMemberStatus.MEMBER,
+            ChatMemberStatus.ADMINISTRATOR,
+            ChatMemberStatus.OWNER,
+        ):
             is_admin = new_status in (
                 ChatMemberStatus.ADMINISTRATOR,
                 ChatMemberStatus.OWNER,
@@ -175,6 +200,7 @@ chat_member_handler = ChatMemberHandler(
 
 # Handler for bot being added (service message)
 bot_added_handler = MessageHandler(
-    (filters.ChatType.GROUP | filters.ChatType.SUPERGROUP) & filters.StatusUpdate.NEW_CHAT_MEMBERS,
+    (filters.ChatType.GROUP | filters.ChatType.SUPERGROUP)
+    & filters.StatusUpdate.NEW_CHAT_MEMBERS,
     handle_bot_added_to_chat,
 )

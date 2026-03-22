@@ -143,16 +143,14 @@ def get_crm_lead(id: int) -> Lead | None:
     return None
 
 
-def update_lead_status_by_lead(lead: Lead, status_id: int | str) -> Lead:
-    """Update lead status directly using a Lead object."""
-    pipeline_id = str(config.CRM_PIPELINE)
+def update_lead_status_in_pipeline(
+    lead: Lead, pipeline_id: int | str, status_id: int | str
+) -> Lead:
+    """Resolve status within a pipeline and assign it to the lead."""
+    pid = str(pipeline_id)
 
     with amo_crm_rate_limiter.limit():
-        pipelines = Pipeline.objects.filter(query=pipeline_id)
-    pipeline = next((p for p in pipelines if str(p.id) == pipeline_id), None)
-
-    if not pipeline:
-        raise ValueError(f"Pipeline with id={pipeline_id} not found")
+        pipeline = Pipeline.objects.get(object_id=pipeline_id)
 
     status = next((s for s in pipeline.statuses if str(s.id) == str(status_id)), None)
     if status is None:
@@ -164,6 +162,11 @@ def update_lead_status_by_lead(lead: Lead, status_id: int | str) -> Lead:
         lead.status = status
         lead.save()
     return lead
+
+
+def update_lead_status_by_lead(lead: Lead, status_id: int | str) -> Lead:
+    """Update lead status directly using a Lead object (main CRM pipeline)."""
+    return update_lead_status_in_pipeline(lead, config.CRM_PIPELINE, status_id)
 
 
 def send_note(lead_id: int, note: str):
@@ -259,7 +262,8 @@ async def upload_video(
 
                     account_data = (
                         await account_response.json()
-                        if account_response.content_type and "json" in account_response.content_type
+                        if account_response.content_type
+                        and "json" in account_response.content_type
                         else {}
                     )
                     drive_url = account_data.get(
@@ -287,7 +291,9 @@ async def upload_video(
             )
             return None, None
 
-        logger.info(f"[upload_video] Access token obtained (length: {len(access_token)})")
+        logger.info(
+            f"[upload_video] Access token obtained (length: {len(access_token)})"
+        )
         logger.info(f"[upload_video] Access token: {access_token}")
 
         session_headers = {
@@ -310,9 +316,13 @@ async def upload_video(
                 ) as session_response:
                     text = await session_response.text()
                     logger.info(f"[upload_video] === STEP 1 RESPONSE ===")
-                    logger.info(f"[upload_video] Status Code: {session_response.status}")
+                    logger.info(
+                        f"[upload_video] Status Code: {session_response.status}"
+                    )
                     logger.info(f"[upload_video] Response URL: {session_response.url}")
-                    logger.info(f"[upload_video] Response Headers: {dict(session_response.headers)}")
+                    logger.info(
+                        f"[upload_video] Response Headers: {dict(session_response.headers)}"
+                    )
                     logger.info(f"[upload_video] Response Body: {text}")
 
                     if session_response.status not in (200, 201):
