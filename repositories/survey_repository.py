@@ -4,6 +4,7 @@ Survey pipeline (AmoCRM): update lead status during survey flow.
 
 from datetime import date as date_type
 from datetime import datetime
+from datetime import timezone
 
 from amocrm.v2 import Pipeline
 from amocrm.v2.entity.note import COMMON_TYPE
@@ -123,18 +124,27 @@ def _get_contact_and_lead(tg_id: int, username: str | None) -> tuple[Contact, Le
 
 def _normalize_survey_date(
     survey_date: datetime | date_type | str | int | float,
-) -> datetime:
+) -> str:
+    def _to_amo_iso(dt: datetime) -> str:
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.isoformat(timespec="seconds")
+
     if isinstance(survey_date, datetime):
-        return survey_date
+        return _to_amo_iso(survey_date)
     if isinstance(survey_date, date_type):
-        return datetime(survey_date.year, survey_date.month, survey_date.day)
+        dt = datetime(survey_date.year, survey_date.month, survey_date.day)
+        return _to_amo_iso(dt)
     if isinstance(survey_date, (int, float)):
-        return datetime.fromtimestamp(survey_date)
+        dt = datetime.fromtimestamp(survey_date, tz=timezone.utc)
+        return _to_amo_iso(dt)
     if isinstance(survey_date, str):
         try:
-            return datetime.fromisoformat(survey_date)
+            dt = datetime.fromisoformat(survey_date)
+            return _to_amo_iso(dt)
         except ValueError:
-            return datetime.strptime(survey_date, "%Y-%m-%d")
+            dt = datetime.strptime(survey_date, "%Y-%m-%d")
+            return _to_amo_iso(dt)
     raise ValueError("Unsupported survey_date type")
 
 
