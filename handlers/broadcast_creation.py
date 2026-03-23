@@ -483,9 +483,7 @@ async def show_confirmation(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             confirmation_text, reply_markup=reply_markup
         )
     else:
-        await update.message.reply_text(
-            confirmation_text, reply_markup=reply_markup
-        )
+        await update.message.reply_text(confirmation_text, reply_markup=reply_markup)
 
     return CONFIRM
 
@@ -499,7 +497,6 @@ async def handle_confirmation(
         return CONFIRM
 
     await query.answer()
-
 
     if query.data == "cancel":
         await query.edit_message_text(SURVEY_CANCELLED)
@@ -574,16 +571,6 @@ async def handle_confirmation(
             survey_date = scheduled_time if scheduled_time else datetime.utcnow()
 
             def _update_all_members_for_selected_chats() -> None:
-                total_updated = 0
-                total_failed = 0
-
-                logger.info(
-                    "CRM survey lead update started: broadcast_id=%s survey_date=%s chats=%s",
-                    broadcast.id,
-                    survey_date,
-                    selected_chat_ids,
-                )
-
                 for telegram_chat_id in selected_chat_ids:
                     chat = get_chat_by_telegram_id(telegram_chat_id)
                     if not chat:
@@ -591,15 +578,6 @@ async def handle_confirmation(
 
                     chat_name = chat.chat_title or f"chat_{chat.chat_id}"
                     members = get_active_chat_members(chat.chat_id, exclude_admins=True)
-                    updated = 0
-                    failed = 0
-
-                    logger.info(
-                        "CRM survey lead update: chat telegram_chat_id=%s chat_name=%s members=%s",
-                        telegram_chat_id,
-                        chat_name,
-                        len(members),
-                    )
 
                     for member in members:
                         try:
@@ -609,30 +587,12 @@ async def handle_confirmation(
                                 member.user_tg_id,
                                 member.username,
                             )
-                            updated += 1
                         except Exception as e:
-                            failed += 1
                             logger.warning(
                                 "CRM survey lead update failed for tg_id=%s: %s",
                                 member.user_tg_id,
                                 e,
                             )
-
-                    total_updated += updated
-                    total_failed += failed
-                    logger.info(
-                        "CRM survey lead update: chat done chat_name=%s updated=%s failed=%s",
-                        chat_name,
-                        updated,
-                        failed,
-                    )
-
-                logger.info(
-                    "CRM survey lead update finished: broadcast_id=%s updated=%s failed=%s",
-                    broadcast.id,
-                    total_updated,
-                    total_failed,
-                )
 
             loop = asyncio.get_running_loop()
             await loop.run_in_executor(None, _update_all_members_for_selected_chats)

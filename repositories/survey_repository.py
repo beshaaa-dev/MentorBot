@@ -202,7 +202,17 @@ def _create_lead(contact: Contact, *, with_error_metadata: bool) -> Lead:
     with amo_crm_rate_limiter.limit():
         pipeline = Pipeline.objects.get(object_id=pipeline_id)
 
-    status = next(iter(pipeline.statuses), None)
+    # Pick a status that we know belongs to this pipeline to satisfy AmoCRM validation.
+    status = next(
+        (
+            s
+            for s in pipeline.statuses
+            if str(s.id) == str(SURVEY_LEAD_STATUS_STARTED_ID)
+        ),
+        None,
+    )
+    if status is None:
+        status = next(iter(pipeline.statuses), None)
     if status is None:
         raise ValueError(f"No statuses found in pipeline {pid}")
 
