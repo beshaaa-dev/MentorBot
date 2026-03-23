@@ -37,3 +37,6 @@ CRM_CHAT_BOT_NAME = os.getenv("CRM_CHAT_BOT_NAME")
 
 # Education pipeline (kicked/banned member flow)
 CRM_EDUCATION_PIPELINE = 10726418
+
+# Survey pipeline
+CRM_SURVEY_PIPELINE = 10726658

@@ -48,6 +48,13 @@ class Lead(_Lead):
     qualities_to_change = custom_field.TextCustomField(
         "Какие качества или привычки ты хотел(а) бы изменить в себе?"
     )
+    # Поля для проекта с опросами
+    survey_date = custom_field.DateCustomField("Дата опроса", field_id=559061)
+    chat_name = custom_field.TextCustomField("Название чата", field_id=559059)
+    survey_q1 = custom_field.TextCustomField("1 вопрос", field_id=559093)
+    survey_q2 = custom_field.TextCustomField("2 вопрос", field_id=559095)
+    survey_q3 = custom_field.TextCustomField("3 вопрос", field_id=559097)
+    survey_q4 = custom_field.TextCustomField("4 вопрос", field_id=559099)
 
 
 __all__ = ["Contact", "Lead"]

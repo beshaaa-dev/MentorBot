@@ -41,9 +41,7 @@ async def refresh_admin_status_for_chat(chat_id: int, context) -> None:
         logger.warning(f"Error refreshing admin status for chat {chat_id}: {e}")
 
 
-async def send_broadcast_to_chats(
-    broadcast_id: int, context
-) -> dict[str, int]:
+async def send_broadcast_to_chats(broadcast_id: int, context) -> dict[str, int]:
     """Send broadcast to all members of target chats."""
     broadcast = get_broadcast_by_id(broadcast_id)
     if not broadcast:
@@ -58,7 +56,7 @@ async def send_broadcast_to_chats(
 
     for broadcast_chat in broadcast_chats:
         chat_db_id = broadcast_chat.chat_id  # This is the database chat.id
-        
+
         chat = get_chat_by_db_id(chat_db_id)
         if not chat:
             logger.warning(f"Chat {chat_db_id} not found")
@@ -93,17 +91,23 @@ async def send_broadcast_to_chats(
 
                     else:  # BroadcastType.SURVEY
                         # Create survey response record first
-                        response = create_survey_response(broadcast_id, chat_db_id, member.user_tg_id)
+                        response = create_survey_response(
+                            broadcast_id, chat_db_id, member.user_tg_id
+                        )
 
                         # Send DM with survey start button
                         from telegram import InlineKeyboardButton, InlineKeyboardMarkup
-                        
-                        keyboard = InlineKeyboardMarkup([
-                            [InlineKeyboardButton(
-                                "Начать опрос",
-                                callback_data=f"start_survey_{response.id}"
-                            )]
-                        ])
+
+                        keyboard = InlineKeyboardMarkup(
+                            [
+                                [
+                                    InlineKeyboardButton(
+                                        "Начать опрос",
+                                        callback_data=f"start_survey_{response.id}",
+                                    )
+                                ]
+                            ]
+                        )
 
                         try:
                             await context.bot.send_message(
@@ -126,18 +130,23 @@ async def send_broadcast_to_chats(
                     stats["failed"] += 1
 
         except Exception as e:
-            logger.error(
-                f"Error sending broadcast to chat {telegram_chat_id}: {e}"
-            )
+            logger.error(f"Error sending broadcast to chat {telegram_chat_id}: {e}")
             stats["failed"] += 1
 
     # Update status to SENT
     broadcast = update_broadcast_status(broadcast_id, BroadcastStatus.SENT)
 
     # Schedule reminders (only for surveys, not for simple messages)
-    if broadcast and broadcast.sent_at and broadcast.broadcast_type == BroadcastType.SURVEY:
+    if (
+        broadcast
+        and broadcast.sent_at
+        and broadcast.broadcast_type == BroadcastType.SURVEY
+    ):
         from services.broadcast_reminders import schedule_reminders
-        schedule_reminders(broadcast_id, broadcast.sent_at, context.application.job_queue)
+
+        schedule_reminders(
+            broadcast_id, broadcast.sent_at, context.application.job_queue
+        )
 
     logger.info(
         f"Broadcast {broadcast_id} sent: {stats['sent']} successful, {stats['failed']} failed"

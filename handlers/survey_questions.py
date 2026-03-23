@@ -11,12 +11,17 @@ from telegram.ext import (
 from logger import setup_logger
 from database.broadcast_service import (
     get_response_by_id,
+    get_response_answers,
     save_answer,
     mark_response_started,
     mark_response_completed,
 )
 from messages import ERROR_MESSAGE, SURVEY_INTRODUCTION
 from keyboards import get_support_keyboard
+from repositories.survey_repository import (
+    update_survey_lead_on_submit,
+    update_survey_lead_status_on_start,
+)
 
 logger = setup_logger(__name__)
 
@@ -180,6 +185,25 @@ async def start_survey(
 
     # Mark as started
     mark_response_started(response_id)
+
+    # Update CRM lead status when the user starts the survey.
+    try:
+        tg_id = response.user_tg_id
+        tg_nickname = update.effective_user.username if update.effective_user else None
+
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(
+            None,
+            update_survey_lead_status_on_start,
+            tg_id,
+            tg_nickname,
+        )
+    except Exception as e:
+        logger.warning(
+            "CRM survey lead status update failed on start for tg_id=%s: %s",
+            response.user_tg_id,
+            e,
+        )
 
     context.user_data["response_id"] = response_id
     context.user_data["current_question"] = 0
@@ -379,7 +403,69 @@ async def handle_submit_survey(
         return
 
     await query.answer("Ваши ответы отправлены!")
-    await query.edit_message_text("✅ Спасибо! Ваши ответы успешно отправлены.")
+    try:
+        response_id = int(query.data.split("_")[-1])
+        response = get_response_by_id(response_id)
+        if response:
+            answers = get_response_answers(response_id)
+            answer_dict = {a.question_key: a for a in answers}
+
+            def _pack_scale_and_followup(
+                scale_key: str, followup_keys: list[str]
+            ) -> str | None:
+                scale_answer = answer_dict.get(scale_key)
+                scale_rating = (
+                    scale_answer.answer_value if scale_answer else None
+                )
+
+                followup_text = None
+                for k in followup_keys:
+                    a = answer_dict.get(k)
+                    if a and a.answer_text:
+                        followup_text = a.answer_text
+                        break
+
+                parts: list[str] = []
+                if scale_rating is not None:
+                    parts.append(f"Оценка: {scale_rating}")
+                if followup_text:
+                    parts.append(f"Ответ: {followup_text}")
+                return "\n".join(parts) if parts else None
+
+            q1_text = _pack_scale_and_followup(
+                "q1", ["q1_followup_low", "q1_followup_mid", "q1_followup_high"]
+            )
+            q2_text = _pack_scale_and_followup(
+                "q2", ["q2_followup_low", "q2_followup_mid", "q2_followup_high"]
+            )
+            q3_text = _pack_scale_and_followup(
+                "q3", ["q3_followup_low", "q3_followup_mid", "q3_followup_high"]
+            )
+
+            q4_answer = answer_dict.get("q4")
+            q4_text = q4_answer.answer_text if q4_answer else None
+
+            tg_nickname = (
+                update.effective_user.username if update.effective_user else None
+            )
+
+            loop = asyncio.get_running_loop()
+            await loop.run_in_executor(
+                None,
+                update_survey_lead_on_submit,
+                response.user_tg_id,
+                tg_nickname,
+                q1_text,
+                q2_text,
+                q3_text,
+                q4_text,
+            )
+    except Exception as e:
+        logger.warning("CRM survey update failed on submit: %s", e, exc_info=True)
+
+    await query.edit_message_text(
+        "✅ Спасибо! Ваши ответы успешно отправлены."
+    )
 
 
 # Conversation handler for survey questions
