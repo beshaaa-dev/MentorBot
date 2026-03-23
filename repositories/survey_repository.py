@@ -41,6 +41,7 @@ def update_survey_lead_by_conducting(
     lead.survey_date = _normalize_survey_date(survey_date)
     lead.chat_name = chat_name
     _append_entity_tag(lead, chat_name)
+    _sanitize_lead_for_save(lead)
 
     lead = update_lead_status_in_pipeline(
         lead, CRM_SURVEY_PIPELINE, SURVEY_LEAD_STATUS_ID
@@ -55,6 +56,7 @@ def update_survey_lead_status_on_start(
     the survey. Does not modify survey custom fields.
     """
     contact, lead = _get_contact_and_lead(tg_id, tg_nickname)
+    _sanitize_lead_for_save(lead)
     lead = update_lead_status_in_pipeline(
         lead, CRM_SURVEY_PIPELINE, SURVEY_LEAD_STATUS_STARTED_ID
     )
@@ -84,6 +86,7 @@ def update_survey_lead_on_submit(
     if q4_text:
         lead.survey_q4 = q4_text
 
+    _sanitize_lead_for_save(lead)
     update_lead_status_in_pipeline(
         lead, CRM_SURVEY_PIPELINE, SURVEY_LEAD_STATUS_SUBMITTED_ID
     )
@@ -146,6 +149,18 @@ def _normalize_survey_date(
             dt = datetime.strptime(survey_date, "%Y-%m-%d")
             return _to_amo_iso(dt)
     raise ValueError("Unsupported survey_date type")
+
+
+def _sanitize_lead_for_save(lead: Lead) -> None:
+    """
+    Strip read-only/transient fields that AmoCRM rejects on update payload.
+    """
+    for field in (lead._data.get("custom_fields_values") or []):
+        field.pop("is_masked", None)
+
+    embedded = lead._data.get("_embedded") or {}
+    for tag in (embedded.get("tags") or []):
+        tag.pop("color", None)
 
 
 def _contact_display_name(username: str | None, tg_id: int) -> str:
