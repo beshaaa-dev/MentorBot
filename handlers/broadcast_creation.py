@@ -433,6 +433,9 @@ async def handle_datetime_input(
 
 async def show_confirmation(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Show confirmation message."""
+
+    logger.info("TEST")
+
     selected_chat_ids = context.user_data.get("selected_chats", [])
     available_chats = context.user_data.get("available_chats", {})
     send_immediately = context.user_data.get("send_immediately", True)
@@ -495,6 +498,8 @@ async def handle_confirmation(
         return CONFIRM
 
     await query.answer()
+
+    logger.info("confirmation")
 
     if query.data == "cancel":
         await query.edit_message_text(SURVEY_CANCELLED)
