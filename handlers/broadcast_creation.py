@@ -590,7 +590,7 @@ async def handle_confirmation(
                         continue
 
                     chat_name = chat.chat_title or f"chat_{chat.chat_id}"
-                    members = get_active_chat_members(chat.id, exclude_admins=True)
+                    members = get_active_chat_members(chat.chat_id, exclude_admins=True)
                     updated = 0
                     failed = 0
 
