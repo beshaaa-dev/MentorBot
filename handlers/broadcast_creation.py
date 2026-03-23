@@ -433,9 +433,6 @@ async def handle_datetime_input(
 
 async def show_confirmation(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Show confirmation message."""
-
-    logger.info("TEST")
-
     selected_chat_ids = context.user_data.get("selected_chats", [])
     available_chats = context.user_data.get("available_chats", {})
     send_immediately = context.user_data.get("send_immediately", True)
@@ -457,15 +454,19 @@ async def show_confirmation(update: Update, context: ContextTypes.DEFAULT_TYPE) 
 
     # Build broadcast type text
     if broadcast_type == BroadcastType.MESSAGE:
-        broadcast_type_text = f"📨 *Тип*: Сообщение\n📝 *Текст*: {message_content[:100]}{'...' if len(message_content) > 100 else ''}\n\n"
+        broadcast_type_text = (
+            "📨 Тип: Сообщение\n"
+            f"📝 Текст: {message_content[:100]}"
+            f"{'...' if len(message_content) > 100 else ''}\n\n"
+        )
     else:
-        broadcast_type_text = "📋 *Тип*: Опрос\n\n"
+        broadcast_type_text = "📋 Тип: Опрос\n\n"
 
     confirmation_text = (
         "Подтвердите отправку рассылки:\n\n"
         f"{broadcast_type_text}"
-        f"⏰ *Время отправки*: {send_time}\n"
-        f"💬 *Чаты*:\n{chats_list}"
+        f"⏰ Время отправки: {send_time}\n"
+        f"💬 Чаты:\n{chats_list}"
     )
 
     # Create inline keyboard with confirm/cancel buttons
@@ -479,11 +480,11 @@ async def show_confirmation(update: Update, context: ContextTypes.DEFAULT_TYPE) 
 
     if update.callback_query:
         await update.callback_query.edit_message_text(
-            confirmation_text, parse_mode="Markdown", reply_markup=reply_markup
+            confirmation_text, reply_markup=reply_markup
         )
     else:
         await update.message.reply_text(
-            confirmation_text, parse_mode="Markdown", reply_markup=reply_markup
+            confirmation_text, reply_markup=reply_markup
         )
 
     return CONFIRM
@@ -499,7 +500,6 @@ async def handle_confirmation(
 
     await query.answer()
 
-    logger.info("confirmation")
 
     if query.data == "cancel":
         await query.edit_message_text(SURVEY_CANCELLED)
