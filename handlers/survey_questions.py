@@ -410,40 +410,38 @@ async def handle_submit_survey(
             answers = get_response_answers(response_id)
             answer_dict = {a.question_key: a for a in answers}
 
-            def _pack_scale_and_followup(
-                scale_key: str, followup_keys: list[str]
-            ) -> str | None:
+            def _extract_scale_text(scale_key: str) -> str | None:
                 scale_answer = answer_dict.get(scale_key)
                 scale_rating = (
                     scale_answer.answer_value if scale_answer else None
                 )
+                return str(scale_rating) if scale_rating is not None else None
 
-                followup_text = None
+            def _extract_followup_text(
+                followup_keys: list[str],
+            ) -> str | None:
                 for k in followup_keys:
                     a = answer_dict.get(k)
                     if a and a.answer_text:
-                        followup_text = a.answer_text
-                        break
+                        return a.answer_text
+                return None
 
-                parts: list[str] = []
-                if scale_rating is not None:
-                    parts.append(f"Оценка: {scale_rating}")
-                if followup_text:
-                    parts.append(f"Ответ: {followup_text}")
-                return "\n".join(parts) if parts else None
-
-            q1_text = _pack_scale_and_followup(
-                "q1", ["q1_followup_low", "q1_followup_mid", "q1_followup_high"]
+            q1_text = _extract_scale_text("q1")
+            q1_addition_text = _extract_followup_text(
+                ["q1_followup_low", "q1_followup_mid", "q1_followup_high"]
             )
-            q2_text = _pack_scale_and_followup(
-                "q2", ["q2_followup_low", "q2_followup_mid", "q2_followup_high"]
+            q2_text = _extract_scale_text("q2")
+            q2_addition_text = _extract_followup_text(
+                ["q2_followup_low", "q2_followup_mid", "q2_followup_high"]
             )
-            q3_text = _pack_scale_and_followup(
-                "q3", ["q3_followup_low", "q3_followup_mid", "q3_followup_high"]
+            q3_text = _extract_scale_text("q3")
+            q3_addition_text = _extract_followup_text(
+                ["q3_followup_low", "q3_followup_mid", "q3_followup_high"]
             )
 
             q4_answer = answer_dict.get("q4")
             q4_text = q4_answer.answer_text if q4_answer else None
+            q4_addition_text = None
 
             tg_nickname = (
                 update.effective_user.username if update.effective_user else None
@@ -459,6 +457,10 @@ async def handle_submit_survey(
                 q2_text,
                 q3_text,
                 q4_text,
+                q1_addition_text,
+                q2_addition_text,
+                q3_addition_text,
+                q4_addition_text,
             )
     except Exception as e:
         logger.warning("CRM survey update failed on submit: %s", e, exc_info=True)

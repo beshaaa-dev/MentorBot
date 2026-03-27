@@ -55,6 +55,18 @@ class Lead(_Lead):
     survey_q2 = custom_field.TextCustomField("2 вопрос", field_id=559095)
     survey_q3 = custom_field.TextCustomField("3 вопрос", field_id=559097)
     survey_q4 = custom_field.TextCustomField("4 вопрос", field_id=559099)
+    survey_q1_addition = custom_field.TextCustomField(
+        "Дополнение к 1 вопросу", field_id=559427
+    )
+    survey_q2_addition = custom_field.TextCustomField(
+        "Дополнение ко 2 вопросу", field_id=559429
+    )
+    survey_q3_addition = custom_field.TextCustomField(
+        "Дополнение к 3 вопросу", field_id=559431
+    )
+    survey_q4_addition = custom_field.TextCustomField(
+        "Дополнение к 4 вопросу", field_id=559433
+    )
 
 
 __all__ = ["Contact", "Lead"]

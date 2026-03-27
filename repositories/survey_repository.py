@@ -69,11 +69,16 @@ def update_survey_lead_on_submit(
     q2_text: str | None,
     q3_text: str | None,
     q4_text: str | None,
+    q1_addition_text: str | None,
+    q2_addition_text: str | None,
+    q3_addition_text: str | None,
+    q4_addition_text: str | None,
 ) -> None:
     """
     Update CRM lead after survey submission:
     - status=84499066
     - write answers into lead custom fields survey_q1..survey_q4
+    - write additions into lead custom fields survey_q1_addition..survey_q4_addition
     """
     contact, lead = _get_contact_and_lead(tg_id, tg_nickname)
 
@@ -85,6 +90,14 @@ def update_survey_lead_on_submit(
         lead.survey_q3 = q3_text
     if q4_text:
         lead.survey_q4 = q4_text
+    if q1_addition_text:
+        lead.survey_q1_addition = q1_addition_text
+    if q2_addition_text:
+        lead.survey_q2_addition = q2_addition_text
+    if q3_addition_text:
+        lead.survey_q3_addition = q3_addition_text
+    if q4_addition_text:
+        lead.survey_q4_addition = q4_addition_text
 
     _sanitize_lead_for_save(lead)
     update_lead_status_in_pipeline(
