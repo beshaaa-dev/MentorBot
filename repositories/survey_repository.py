@@ -191,6 +191,16 @@ def _normalize_survey_date(
     raise ValueError("Unsupported survey_date type")
 
 
+def _normalize_survey_id(value: object) -> int | None:
+    if value is None:
+        return None
+    try:
+        # Amo numeric custom fields may be returned as float (e.g. 63.0).
+        return int(float(str(value).strip()))
+    except (TypeError, ValueError):
+        return None
+
+
 def _sanitize_lead_for_save(lead: Lead) -> None:
     """
     Strip read-only/transient fields that AmoCRM rejects on update payload.
@@ -234,19 +244,16 @@ def find_survey_lead(contact: Contact, survey_id: int) -> Lead | None:
     if not lead_refs:
         return None
     pid = str(CRM_SURVEY_PIPELINE)
-    survey_id_str = str(survey_id).strip()
+    normalized_survey_id = _normalize_survey_id(survey_id)
+    if normalized_survey_id is None:
+        return None
     for lead in contact.leads:
         if not lead.pipeline or str(lead.pipeline.id) != pid:
             continue
         sid = str(lead.status.id) if lead.status else None
         if sid not in EXCLUDED_LEAD_STATUSES:
-            logger.info(f"lead: {lead}")
-            logger.info(f"lead.survey_id: {lead.survey_id}")
-            lead_survey_id = lead.survey_id
-            if (
-                lead_survey_id is not None
-                and str(lead_survey_id).strip() == survey_id_str
-            ):
+            lead_survey_id = _normalize_survey_id(getattr(lead, "survey_id", None))
+            if lead_survey_id is not None and lead_survey_id == normalized_survey_id:
                 return lead
     return None
 
