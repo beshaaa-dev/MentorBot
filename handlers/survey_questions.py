@@ -197,6 +197,7 @@ async def start_survey(
             update_survey_lead_status_on_start,
             tg_id,
             tg_nickname,
+            response.broadcast_id,
         )
     except Exception as e:
         logger.warning(
@@ -453,6 +454,7 @@ async def handle_submit_survey(
                 update_survey_lead_on_submit,
                 response.user_tg_id,
                 tg_nickname,
+                response.broadcast_id,
                 q1_text,
                 q2_text,
                 q3_text,

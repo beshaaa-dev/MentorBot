@@ -32,11 +32,17 @@ def update_survey_lead_by_conducting(
     chat_name: str,
     tg_id: int,
     tg_nickname: str | None,
+    survey_id: int,
 ) -> None:
     """
     Update CRM lead after survey: status + survey fields + lead tag.
     """
-    contact, lead = _get_contact_and_lead(tg_id, tg_nickname)
+    contact, lead = _get_contact_and_lead_for_survey(
+        tg_id=tg_id,
+        username=tg_nickname,
+        survey_id=survey_id,
+        missing_lead_with_error_metadata=False,
+    )
 
     lead.survey_date = _normalize_survey_date(survey_date)
     lead.chat_name = chat_name
@@ -49,13 +55,18 @@ def update_survey_lead_by_conducting(
 
 
 def update_survey_lead_status_on_start(
-    tg_id: int, tg_nickname: str | None
+    tg_id: int, tg_nickname: str | None, survey_id: int
 ) -> None:
     """
     Update existing (or create-and-link) lead status when the user starts
     the survey. Does not modify survey custom fields.
     """
-    contact, lead = _get_contact_and_lead(tg_id, tg_nickname)
+    contact, lead = _get_contact_and_lead_for_survey(
+        tg_id=tg_id,
+        username=tg_nickname,
+        survey_id=survey_id,
+        missing_lead_with_error_metadata=True,
+    )
     _sanitize_lead_for_save(lead)
     lead = update_lead_status_in_pipeline(
         lead, CRM_SURVEY_PIPELINE, SURVEY_LEAD_STATUS_STARTED_ID
@@ -65,6 +76,7 @@ def update_survey_lead_status_on_start(
 def update_survey_lead_on_submit(
     tg_id: int,
     tg_nickname: str | None,
+    survey_id: int,
     q1_text: str | None,
     q2_text: str | None,
     q3_text: str | None,
@@ -80,7 +92,12 @@ def update_survey_lead_on_submit(
     - write answers into lead custom fields survey_q1..survey_q4
     - write additions into lead custom fields survey_q1_addition..survey_q4_addition
     """
-    contact, lead = _get_contact_and_lead(tg_id, tg_nickname)
+    contact, lead = _get_contact_and_lead_for_survey(
+        tg_id=tg_id,
+        username=tg_nickname,
+        survey_id=survey_id,
+        missing_lead_with_error_metadata=True,
+    )
 
     if q1_text:
         lead.survey_q1 = q1_text
@@ -105,33 +122,46 @@ def update_survey_lead_on_submit(
     )
 
 
-def _get_contact_and_lead(tg_id: int, username: str | None) -> tuple[Contact, Lead]:
+def _get_contact_and_lead_for_survey(
+    tg_id: int,
+    username: str | None,
+    survey_id: int,
+    missing_lead_with_error_metadata: bool,
+) -> tuple[Contact, Lead]:
     """
-    Find contact by Telegram id (strict telegram_id match), then first lead in
-    survey pipeline whose status is not 142/143.
+    Find contact by Telegram id (strict telegram_id match), then find lead in
+    survey pipeline whose status is not 142/143 and whose survey_id equals the
+    current survey id.
 
-    If contact missing — create with error tag/note. If lead missing — create with
-    error tag/note and a default (first) pipeline status.
+    If contact missing — create with error tag/note. If lead missing — create a
+    new lead in the survey pipeline with provided survey_id and configurable
+    error metadata.
     """
     try:
         contact = _find_contact_by_telegram_id(tg_id)
         if contact is None:
             contact = _create_contact(tg_id, username)
 
-        lead = find_survey_lead(contact)
+        lead = find_survey_lead(contact, survey_id)
         if lead is None:
-            lead = _create_lead(contact, with_error_metadata=True)
+            lead = _create_lead(
+                contact,
+                survey_id=survey_id,
+                with_error_metadata=missing_lead_with_error_metadata,
+            )
             logger.info(
-                "Survey tg_id=%s: created lead in pipeline %s",
+                "Survey tg_id=%s survey_id=%s: created lead in pipeline %s",
                 tg_id,
+                survey_id,
                 CRM_SURVEY_PIPELINE,
             )
 
         return contact, lead
     except Exception as e:
         logger.error(
-            "_get_contact_and_lead failed for tg_id=%s: %s",
+            "_get_contact_and_lead_for_survey failed for tg_id=%s survey_id=%s: %s",
             tg_id,
+            survey_id,
             e,
             exc_info=True,
         )
@@ -201,18 +231,21 @@ def _find_contact_by_telegram_id(tg_id: int | str) -> Contact | None:
     return None
 
 
-def find_survey_lead(contact: Contact) -> Lead | None:
+def find_survey_lead(contact: Contact, survey_id: int) -> Lead | None:
     # Amo returns _ListData(data=None) when there are no leads; it is truthy but __iter__ crashes.
     lead_refs = (contact._data.get("_embedded") or {}).get("leads")
     if not lead_refs:
         return None
     pid = str(CRM_SURVEY_PIPELINE)
+    survey_id_str = str(survey_id).strip()
     for lead in contact.leads:
         if not lead.pipeline or str(lead.pipeline.id) != pid:
             continue
         sid = str(lead.status.id) if lead.status else None
         if sid not in EXCLUDED_LEAD_STATUSES:
-            return lead
+            lead_survey_id = getattr(lead, "survey_id", None)
+            if lead_survey_id is not None and str(lead_survey_id).strip() == survey_id_str:
+                return lead
     return None
 
 
@@ -234,7 +267,9 @@ def _create_contact(tg_id: int, username: str | None) -> Contact:
     return contact
 
 
-def _create_lead(contact: Contact, *, with_error_metadata: bool) -> Lead:
+def _create_lead(
+    contact: Contact, *, survey_id: int, with_error_metadata: bool
+) -> Lead:
     pipeline_id = CRM_SURVEY_PIPELINE
     pid = str(pipeline_id)
     with amo_crm_rate_limiter.limit():
@@ -256,6 +291,7 @@ def _create_lead(contact: Contact, *, with_error_metadata: bool) -> Lead:
 
     with amo_crm_rate_limiter.limit():
         lead = Lead(pipeline=pipeline, status=status)
+        lead.survey_id = survey_id
         lead.save()
     with amo_crm_rate_limiter.limit():
         lead.contacts.append(contact, main=True)

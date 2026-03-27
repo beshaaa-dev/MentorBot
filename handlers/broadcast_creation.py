@@ -586,6 +586,7 @@ async def handle_confirmation(
                                 chat_name,
                                 member.user_tg_id,
                                 member.username,
+                                broadcast.id,
                             )
                         except Exception as e:
                             logger.warning(
