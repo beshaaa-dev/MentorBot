@@ -84,13 +84,12 @@ def update_survey_lead_on_submit(
     q1_addition_text: str | None,
     q2_addition_text: str | None,
     q3_addition_text: str | None,
-    q4_addition_text: str | None,
 ) -> None:
     """
     Update CRM lead after survey submission:
     - status=84499066
     - write answers into lead custom fields survey_q1..survey_q4
-    - write additions into lead custom fields survey_q1_addition..survey_q4_addition
+    - write additions into lead custom fields survey_q1_addition..survey_q3_addition
     """
     contact, lead = _get_contact_and_lead_for_survey(
         tg_id=tg_id,
@@ -113,8 +112,6 @@ def update_survey_lead_on_submit(
         lead.survey_q2_addition = q2_addition_text
     if q3_addition_text:
         lead.survey_q3_addition = q3_addition_text
-    if q4_addition_text:
-        lead.survey_q4_addition = q4_addition_text
 
     _sanitize_lead_for_save(lead)
     update_lead_status_in_pipeline(
@@ -198,11 +195,11 @@ def _sanitize_lead_for_save(lead: Lead) -> None:
     """
     Strip read-only/transient fields that AmoCRM rejects on update payload.
     """
-    for field in (lead._data.get("custom_fields_values") or []):
+    for field in lead._data.get("custom_fields_values") or []:
         field.pop("is_masked", None)
 
     embedded = lead._data.get("_embedded") or {}
-    for tag in (embedded.get("tags") or []):
+    for tag in embedded.get("tags") or []:
         tag.pop("color", None)
 
 
@@ -243,8 +240,13 @@ def find_survey_lead(contact: Contact, survey_id: int) -> Lead | None:
             continue
         sid = str(lead.status.id) if lead.status else None
         if sid not in EXCLUDED_LEAD_STATUSES:
-            lead_survey_id = getattr(lead, "survey_id", None)
-            if lead_survey_id is not None and str(lead_survey_id).strip() == survey_id_str:
+            logger.info(f"lead: {lead}")
+            logger.info(f"lead.survey_id: {lead.survey_id}")
+            lead_survey_id = lead.survey_id
+            if (
+                lead_survey_id is not None
+                and str(lead_survey_id).strip() == survey_id_str
+            ):
                 return lead
     return None
 

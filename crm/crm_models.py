@@ -64,9 +64,6 @@ class Lead(_Lead):
     survey_q3_addition = custom_field.TextCustomField(
         "Дополнение к 3 вопросу", field_id=559431
     )
-    survey_q4_addition = custom_field.TextCustomField(
-        "Дополнение к 4 вопросу", field_id=559433
-    )
     survey_id = custom_field.NumericCustomField("survey_id", field_id=559435)
 
 

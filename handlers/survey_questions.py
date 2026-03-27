@@ -442,7 +442,6 @@ async def handle_submit_survey(
 
             q4_answer = answer_dict.get("q4")
             q4_text = q4_answer.answer_text if q4_answer else None
-            q4_addition_text = None
 
             tg_nickname = (
                 update.effective_user.username if update.effective_user else None
@@ -462,7 +461,6 @@ async def handle_submit_survey(
                 q1_addition_text,
                 q2_addition_text,
                 q3_addition_text,
-                q4_addition_text,
             )
     except Exception as e:
         logger.warning("CRM survey update failed on submit: %s", e, exc_info=True)
