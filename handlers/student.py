@@ -139,7 +139,7 @@ async def send_task_message(
     )
     message = TASK.format(text=task.first_task) + deadline_block
     await update.message.reply_text(
-        message, parse_mode="Markdown", reply_markup=ReplyKeyboardRemove()
+        message, reply_markup=ReplyKeyboardRemove()
     )
     await update.message.reply_text(
         REQUEST_TASK_ANSWER, reply_markup=ReplyKeyboardRemove()
@@ -270,7 +270,6 @@ async def confirm_first_task(update: Update, context: ContextTypes.DEFAULT_TYPE)
             message = TASK.format(text=task_text) + deadline_block
             await update.message.reply_text(
                 message,
-                parse_mode="Markdown",
                 reply_markup=ReplyKeyboardRemove(),
             )
             await update.message.reply_text(
@@ -320,7 +319,6 @@ async def confirm_second_task(
             message = TASK.format(text=task_text) + deadline_block
             await update.message.reply_text(
                 message,
-                parse_mode="Markdown",
                 reply_markup=ReplyKeyboardRemove(),
             )
             await update.message.reply_text(
