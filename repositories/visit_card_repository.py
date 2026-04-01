@@ -32,8 +32,6 @@ async def process_visit_card_video(
     Raises:
         VisitCardProcessingError: При ошибке обработки визитки
     """
-    logger.info(f"[process_visit_card_video] tg_id={telegram_user_id}, size={len(file_bytes) / 1024 / 1024:.2f} MB")
-
     user = find_by_tg_id(telegram_user_id)
     if not user or not user.crm_id:
         logger.warning(f"[process_visit_card_video] User not found or no crm_id for tg_id={telegram_user_id}")
@@ -76,4 +74,7 @@ async def process_visit_card_video(
         logger.error(f"[process_visit_card_video] Failed to send video to chat: contact={user.crm_id}, lead={lead_id}")
         raise VisitCardProcessingError("Ошибка отправки видео в чат AMoCRM")
 
-    logger.info(f"[process_visit_card_video] Done: contact={user.crm_id}, lead={lead_id}, url={video_url}")
+    logger.info(
+        f"[process_visit_card_video] OK contact={user.crm_id} lead={lead_id} "
+        f"size_mb={len(file_bytes) / 1024 / 1024:.2f}"
+    )

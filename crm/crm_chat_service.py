@@ -46,36 +46,22 @@ async def send_video_to_chat(
         True if successful, False otherwise
     """
     start_time = time.time()
-    logger.info(f"[send_video_to_chat] === STARTING VIDEO SEND ===")
-    logger.info(f"[send_video_to_chat] Starting video send: contact_id={contact_id}, lead_id={lead_id}, filename={filename}")
-    logger.info(f"[send_video_to_chat] Parameters: video_url={video_url}, file_size={file_size} bytes ({file_size / 1024 / 1024:.2f} MB)")
-    
-    # Get or create scope_id (auto-connects channel if needed)
-    logger.debug(f"[send_video_to_chat] Getting scope_id...")
     scope_id = await _get_or_create_scope_id()
-    
+
     if not scope_id:
         logger.error("[send_video_to_chat] Failed to get scope_id")
         return False
-    
-    logger.info(f"[send_video_to_chat] Got scope_id: {scope_id}")
-    
+
     channel_secret = config.CRM_CHAT_CHANNEL_SECRET
-    
+
     if not channel_secret:
         logger.error("[send_video_to_chat] Missing channel_secret in config")
         return False
-    
-    logger.debug(f"[send_video_to_chat] Channel secret present: {len(channel_secret)} chars")
-        
+
     try:
         # Step 1: Create chat
-        step1_start = time.time()
-        logger.info(f"[send_video_to_chat] Step 1: Creating chat for contact {contact_id}")
-        
         conversation_id = f"tgbot-{contact_id}"
         user_id = f"tgbot-user-{contact_id}"
-        logger.debug(f"[send_video_to_chat] conversation_id={conversation_id}, user_id={user_id}")
         
         chat_body = {
             "conversation_id": conversation_id,
@@ -94,9 +80,7 @@ async def send_video_to_chat(
         content_md5 = hashlib.md5(chat_request_body.encode()).hexdigest()
         signature_string = "\n".join([method.upper(), content_md5, "application/json", date, path])
         signature = hmac.new(channel_secret.encode(), signature_string.encode(), hashlib.sha1).hexdigest()
-        
-        logger.debug(f"[send_video_to_chat] Chat creation signature: method={method}, path={path}, content_md5={content_md5}")
-        
+
         headers = {
             "Date": date,
             "Content-Type": "application/json",
@@ -105,23 +89,16 @@ async def send_video_to_chat(
         }
         
         url = f"https://amojo.amocrm.ru{path}"
-        
-        logger.info(f"[send_video_to_chat] === CHAT CREATION REQUEST ===")
-        logger.info(f"[send_video_to_chat] URL: {url}")
-        logger.info(f"[send_video_to_chat] Headers: {headers}")
-        logger.info(f"[send_video_to_chat] Body: {chat_request_body}")
-        
+
         async with aiohttp.ClientSession() as session:
             async with async_amo_crm_rate_limiter.limit():
                 async with session.post(url, headers=headers, data=chat_request_body, timeout=aiohttp.ClientTimeout(total=30)) as response:
                     text = await response.text()
-                    logger.info(f"[send_video_to_chat] === CHAT CREATION RESPONSE ===")
-                    logger.info(f"[send_video_to_chat] Status: {response.status}")
-                    logger.info(f"[send_video_to_chat] Response headers: {dict(response.headers)}")
-                    logger.info(f"[send_video_to_chat] Response body: {text}")
-                    
+
                     if response.status not in (200, 201):
-                        logger.error(f"[send_video_to_chat] Failed to create chat: {response.status}")
+                        logger.error(
+                            f"[send_video_to_chat] Failed to create chat: {response.status} {text}"
+                        )
                         return False
                     
                     result = json.loads(text)
@@ -130,64 +107,38 @@ async def send_video_to_chat(
         if not chat_id:
             logger.error(f"[send_video_to_chat] No chat ID in response: {result}")
             return False
-        
-        step1_time = time.time() - step1_start
-        logger.info(f"[send_video_to_chat] Chat created successfully: {chat_id} (took {step1_time:.2f}s)")
-        
+
         # Step 2: Attach chat to contact
-        step2_start = time.time()
-        logger.info(f"[send_video_to_chat] Step 2: Attaching chat {chat_id} to contact {contact_id}")
-        
         from crm.crm_service import get_access_token
-        logger.debug(f"[send_video_to_chat] Requesting access token...")
         access_token = await get_access_token()
-        
+
         if not access_token:
             logger.error(f"[send_video_to_chat] Failed to get access token!")
             return False
-        
-        logger.debug(f"[send_video_to_chat] Access token obtained: {access_token[:20]}...")
-        
+
         attach_url = f"https://{config.CRM_SUBDOMAIN}.amocrm.ru/api/v4/contacts/chats"
         attach_headers = {
             "Authorization": f"Bearer {access_token}",
             "Content-Type": "application/json",
         }
         attach_body = [{"contact_id": contact_id, "chat_id": chat_id}]
-        
-        logger.info(f"[send_video_to_chat] === CHAT ATTACH REQUEST ===")
-        logger.info(f"[send_video_to_chat] URL: {attach_url}")
-        logger.info(f"[send_video_to_chat] Headers: Authorization=Bearer {access_token[:20]}..., Content-Type=application/json")
-        logger.info(f"[send_video_to_chat] Body: {json.dumps(attach_body)}")
-        
+
         async with aiohttp.ClientSession() as session:
             async with async_amo_crm_rate_limiter.limit():
                 async with session.post(attach_url, headers=attach_headers, json=attach_body, timeout=aiohttp.ClientTimeout(total=30)) as attach_response:
                     text = await attach_response.text()
-                    logger.info(f"[send_video_to_chat] === CHAT ATTACH RESPONSE ===")
-                    logger.info(f"[send_video_to_chat] Status: {attach_response.status}")
-                    logger.info(f"[send_video_to_chat] Response headers: {dict(attach_response.headers)}")
-                    logger.info(f"[send_video_to_chat] Response body: {text}")
-                    
+
                     if attach_response.status not in (200, 201):
-                        logger.warning(f"[send_video_to_chat] Failed to attach chat: {attach_response.status}")
-                        # Continue anyway
-                    else:
-                        step2_time = time.time() - step2_start
-                        logger.info(f"[send_video_to_chat] Chat attached successfully to contact {contact_id} (took {step2_time:.2f}s)")
-        
+                        logger.warning(
+                            f"[send_video_to_chat] Failed to attach chat: {attach_response.status} {text}"
+                        )
+
         # Step 3: Send video message
-        step3_start = time.time()
-        logger.info(f"[send_video_to_chat] Step 3: Sending video message to chat {chat_id}")
-        
         timestamp = int(time.time())
         msec_timestamp = int(time.time() * 1000)
         msgid = f"tgbot-video-{msec_timestamp}"
         sender_id = f"tgbot-contact-{timestamp}"
-        
-        logger.debug(f"[send_video_to_chat] Timestamps: timestamp={timestamp}, msec_timestamp={msec_timestamp}")
-        logger.debug(f"[send_video_to_chat] Message ID: {msgid}, Sender ID: {sender_id}")
-        
+
         sender = {
             "id": sender_id,
             "name": contact_name,
@@ -210,17 +161,7 @@ async def send_video_to_chat(
         
         if lead_id:
             payload["source"] = {"external_id": str(lead_id)}
-            logger.debug(f"[send_video_to_chat] Added lead_id to payload source: {lead_id}")
-        
-        logger.debug(f"[send_video_to_chat] Payload structure:")
-        logger.debug(f"[send_video_to_chat]   - conversation_ref_id: {chat_id}")
-        logger.debug(f"[send_video_to_chat]   - sender: {sender}")
-        logger.debug(f"[send_video_to_chat]   - message.type: video")
-        logger.debug(f"[send_video_to_chat]   - message.media: {video_url}")
-        logger.debug(f"[send_video_to_chat]   - message.file_name: {filename}")
-        logger.debug(f"[send_video_to_chat]   - message.file_size: {file_size} bytes ({file_size / 1024 / 1024:.2f} MB)")
-        logger.debug(f"[send_video_to_chat]   - source.external_id: {lead_id if lead_id else 'None'}")
-        
+
         video_body = {
             "event_type": "new_message",
             "payload": payload
@@ -235,9 +176,7 @@ async def send_video_to_chat(
         content_md5 = hashlib.md5(video_request_body.encode()).hexdigest()
         signature_string = "\n".join([method.upper(), content_md5, "application/json", date, path])
         signature = hmac.new(channel_secret.encode(), signature_string.encode(), hashlib.sha1).hexdigest()
-        
-        logger.debug(f"[send_video_to_chat] Video message signature: method={method}, path={path}, content_md5={content_md5}")
-        
+
         headers = {
             "Date": date,
             "Content-Type": "application/json",
@@ -246,38 +185,18 @@ async def send_video_to_chat(
         }
         
         url = f"https://amojo.amocrm.ru{path}"
-        
-        logger.info(f"[send_video_to_chat] === VIDEO MESSAGE REQUEST ===")
-        logger.info(f"[send_video_to_chat] URL: {url}")
-        logger.info(f"[send_video_to_chat] Headers: {headers}")
-        logger.info(f"[send_video_to_chat] Body: {video_request_body}")
-        
+
         async with aiohttp.ClientSession() as session:
             async with async_amo_crm_rate_limiter.limit():
                 async with session.post(url, headers=headers, data=video_request_body, timeout=aiohttp.ClientTimeout(total=30)) as response:
                     text = await response.text()
-                    logger.info(f"[send_video_to_chat] === VIDEO MESSAGE RESPONSE ===")
-                    logger.info(f"[send_video_to_chat] Status: {response.status}")
-                    logger.info(f"[send_video_to_chat] Response headers: {dict(response.headers)}")
-                    logger.info(f"[send_video_to_chat] Response body: {text}")
-                    
+
                     if response.status in (200, 201):
-                        step3_time = time.time() - step3_start
-                        total_time = time.time() - start_time
-                        
-                        logger.info(f"[send_video_to_chat] ✓ Video sent successfully!")
-                        logger.info(f"[send_video_to_chat] ✓ Contact: {contact_id} ({contact_name})")
-                        logger.info(f"[send_video_to_chat] ✓ Lead: {lead_id}")
-                        logger.info(f"[send_video_to_chat] ✓ Chat: {chat_id}")
-                        logger.info(f"[send_video_to_chat] ✓ Video: {video_url}")
-                        logger.info(f"[send_video_to_chat] ✓ File: {filename} ({file_size / 1024 / 1024:.2f} MB)")
-                        logger.info(f"[send_video_to_chat] ✓ Timing: step3={step3_time:.2f}s, total={total_time:.2f}s")
-                        logger.info(f"[send_video_to_chat] === VIDEO SEND COMPLETED ===")
                         return True
-                    else:
-                        logger.error(f"[send_video_to_chat] ✗ Failed to send video: HTTP {response.status}")
-                        logger.error(f"[send_video_to_chat] ✗ Response: {text}")
-                        return False
+                    logger.error(
+                        f"[send_video_to_chat] Failed to send video: HTTP {response.status} {text}"
+                    )
+                    return False
             
     except Exception as e:
         total_time = time.time() - start_time
