@@ -64,8 +64,12 @@ class Lead(_Lead):
     hw_answer_4 = custom_field.TextCustomField("hw_answer_4", field_id=560195)
     hw_answer_5 = custom_field.TextCustomField("hw_answer_5", field_id=560197)
     hw_db_record_id = custom_field.TextCustomField("hw_db_record_id", field_id=560199)
-    hw_completion_date = custom_field.DateCustomField("hw_completion_date", field_id=560203)
-    hw_deadline_missed = custom_field.TextCustomField("hw_deadline_missed", field_id=560205)
+    hw_completion_date = custom_field.DateCustomField(
+        "hw_completion_date", field_id=560203
+    )
+    hw_deadline_missed = custom_field.TextCustomField(
+        "hw_deadline_missed", field_id=560205
+    )
     hw_reedit_reason = custom_field.TextCustomField("hw_reedit_reason", field_id=560207)
     # Поля для проекта с опросами
     survey_date = custom_field.DateCustomField("Дата опроса", field_id=559061)

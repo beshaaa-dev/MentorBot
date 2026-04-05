@@ -26,7 +26,6 @@ from timezone_utils import now_moscow
 logger = setup_logger(__name__)
 
 
-
 def save_homework_from_webhook(lead_id: str) -> tuple[Homework, int]:
     """
     Fetch the CRM lead, resolve student + mentor, and persist a Homework record.
@@ -158,7 +157,13 @@ async def submit_student_answers(
 
     answer_rows: list[dict] = []
     note_parts: list[str] = []
-    text_field_map = {1: "hw_answer_1", 2: "hw_answer_2", 3: "hw_answer_3", 4: "hw_answer_4", 5: "hw_answer_5"}
+    text_field_map = {
+        1: "hw_answer_1",
+        2: "hw_answer_2",
+        3: "hw_answer_3",
+        4: "hw_answer_4",
+        5: "hw_answer_5",
+    }
 
     for q_num in sorted(answers.keys()):
         data = answers[q_num]
@@ -176,12 +181,16 @@ async def submit_student_answers(
         elif media_type == "video":
             download_url = await _upload_answer_media(bot, file_id, q_num)
             content = file_id or ""
-            note_parts.append(f"Вопрос {q_num} (видео): {download_url or 'не удалось загрузить'}")
+            note_parts.append(
+                f"Вопрос {q_num} (видео): {download_url or 'не удалось загрузить'}"
+            )
         else:
             content = file_id or ""
             note_parts.append(f"Вопрос {q_num} (медиафайл): передан в Telegram")
 
-        answer_rows.append({"question_number": q_num, "answer_content": content, "is_text": is_text})
+        answer_rows.append(
+            {"question_number": q_num, "answer_content": content, "is_text": is_text}
+        )
 
     now = now_moscow()
     completion_ts = int(now.timestamp())
@@ -199,13 +208,16 @@ async def submit_student_answers(
         with amo_crm_rate_limiter.limit():
             lead.save()
         from amocrm.v2.entity.note import COMMON_TYPE
+
         note_text = "Ответы на домашнее задание:\n\n" + "\n\n".join(note_parts)
         with amo_crm_rate_limiter.limit():
             lead.notes.objects.create(text=note_text, note_type=COMMON_TYPE)
 
     await loop.run_in_executor(None, _save_lead_and_note)
     await loop.run_in_executor(None, _upsert_homework_answers, hw_id, answer_rows)
-    await loop.run_in_executor(None, _update_homework_status, hw_id, HomeworkStatus.SUBMITTED)
+    await loop.run_in_executor(
+        None, _update_homework_status, hw_id, HomeworkStatus.SUBMITTED
+    )
     await loop.run_in_executor(
         None,
         update_lead_status_in_pipeline,

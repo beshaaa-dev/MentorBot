@@ -1,6 +1,7 @@
 import requests
 from amocrm.v2 import Pipeline, tokens
 from amocrm.v2.entity.note import COMMON_TYPE
+from amocrm.v2.interaction import _session as _amo_session
 from .crm_models import Contact, Lead
 import config
 from config import (
@@ -20,8 +21,19 @@ import aiohttp
 logger = setup_logger(__name__)
 
 
+def _amo_response_hook(response, *args, **kwargs):
+    logger.debug(
+        "AMoCRM %s %s → %d\nResponse: %s",
+        response.request.method,
+        response.request.url,
+        response.status_code,
+        response.text[:3000],
+    )
+
+
 def init_amo_crm_integration():
     """Initialize AmoCRM token manager and handle token setup."""
+    _amo_session.hooks["response"].append(_amo_response_hook)
     tokens.default_token_manager(
         client_id=config.CRM_CLIENT_ID,
         client_secret=config.CRM_CLIENT_SECRET,
