@@ -2,12 +2,26 @@
 name: amocrm-api
 description: >-
   Uses the Python amocrm-api (amocrm.v2 / Krukov) SDK correctly with pipelines,
-  leads, contacts, links, tags, and notes. Use when integrating AmoCRM/Kommo,
-  fixing CRM sync bugs, or editing repositories/crm_service that call Contact,
-  Lead, or Pipeline.
+  leads, contacts, links, tags, and notes. Respects AmoCRM 7 RPS. Use when
+  integrating AmoCRM/Kommo, fixing CRM sync bugs, or editing
+  repositories/crm_service that call Contact, Lead, or Pipeline.
 ---
 
 # amocrm-api (Python `amocrm.v2`)
+
+## Official API reference
+
+Treat **[AmoCRM CRM Platform API Reference](https://www.amocrm.ru/developers/content/crm_platform/api-reference)** as the source of truth for REST paths, payloads, and behavior (v4: `/api/v4/...`). When unsure about fields, methods, or limits, align with that documentation.
+
+Kommo accounts generally follow the same v4 API shape for core entities.
+
+## Rate limiting: 7 RPS
+
+AmoCRM allows **at most 7 requests per second** per integration. **Every** call that hits their CRM API must be throttled accordingly.
+
+- **This repo:** wrap SDK / direct HTTP calls with `amo_crm_rate_limiter.limit()` from [`rate_limiter.py`](rate_limiter.py) (`RateLimiter(max_requests=7, time_window=1.0)` sliding window).
+- **New code:** acquire before each request; do not batch-unlimited parallel calls without a shared limiter.
+- Bursts: the limiter blocks until a slot is free; keep sequential CRM work predictable.
 
 Package: **`amocrm-api`** on PyPI → `from amocrm.v2 import Pipeline, tokens` and entity models.
 
@@ -78,8 +92,3 @@ SDK uses **synchronous** `requests`. In async handlers (e.g. python-telegram-bot
 ## This repo
 
 - Global CRM helpers: [`crm/crm_service.py`](crm/crm_service.py) (`update_lead_status_in_pipeline`, tokens, etc.).
-- Rate limiting: wrap API calls with `amo_crm_rate_limiter.limit()` from [`rate_limiter.py`](rate_limiter.py).
-
-## Official API
-
-REST reference: AmoCRM developers docs for **v4** (`/api/v4/leads`, `/contacts`, linking, pipelines). Kommo uses the same API shape for most endpoints.
