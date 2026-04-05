@@ -52,25 +52,25 @@ class Lead(_Lead):
         "Какие качества или привычки ты хотел(а) бы изменить в себе?"
     )
     # Homework fields (pipeline 10726418)
-    hw_question_1 = custom_field.TextCustomField("hw_question_1", field_id=560085)
-    hw_question_2 = custom_field.TextCustomField("hw_question_2", field_id=560087)
-    hw_question_3 = custom_field.TextCustomField("hw_question_3", field_id=560089)
-    hw_question_4 = custom_field.TextCustomField("hw_question_4", field_id=560091)
-    hw_question_5 = custom_field.TextCustomField("hw_question_5", field_id=560093)
-    hw_deadline = custom_field.DateCustomField("hw_deadline", field_id=560201)
-    hw_answer_1 = custom_field.TextCustomField("hw_answer_1", field_id=560189)
-    hw_answer_2 = custom_field.TextCustomField("hw_answer_2", field_id=560191)
-    hw_answer_3 = custom_field.TextCustomField("hw_answer_3", field_id=560193)
-    hw_answer_4 = custom_field.TextCustomField("hw_answer_4", field_id=560195)
-    hw_answer_5 = custom_field.TextCustomField("hw_answer_5", field_id=560197)
-    hw_db_record_id = custom_field.TextCustomField("hw_db_record_id", field_id=560199)
+    hw_question_1 = custom_field.TextCustomField("Д/З №1", field_id=560085)
+    hw_question_2 = custom_field.TextCustomField("Д/З №2", field_id=560087)
+    hw_question_3 = custom_field.TextCustomField("Д/З №3", field_id=560089)
+    hw_question_4 = custom_field.TextCustomField("Д/З №4", field_id=560091)
+    hw_question_5 = custom_field.TextCustomField("Д/З №5", field_id=560093)
+    hw_deadline = custom_field.DateCustomField("Дедлайн", field_id=560201)
+    hw_answer_1 = custom_field.TextCustomField("Ответ на Д/З №1", field_id=560189)
+    hw_answer_2 = custom_field.TextCustomField("Ответ на Д/З №2", field_id=560191)
+    hw_answer_3 = custom_field.TextCustomField("Ответ на Д/З №3", field_id=560193)
+    hw_answer_4 = custom_field.TextCustomField("Ответ на Д/З №4", field_id=560195)
+    hw_answer_5 = custom_field.TextCustomField("Ответ на Д/З №5", field_id=560197)
+    hw_db_record_id = custom_field.TextCustomField("homework_id", field_id=560199)
     hw_completion_date = custom_field.DateCustomField(
-        "hw_completion_date", field_id=560203
+        "Время сдачи Д/З", field_id=560203
     )
-    hw_deadline_missed = custom_field.TextCustomField(
-        "hw_deadline_missed", field_id=560205
+    hw_deadline_missed = custom_field.TextCustomField("Просрочено", field_id=560205)
+    hw_reedit_reason = custom_field.TextCustomField(
+        "Причина возврата на переработку", field_id=560207
     )
-    hw_reedit_reason = custom_field.TextCustomField("hw_reedit_reason", field_id=560207)
     # Поля для проекта с опросами
     survey_date = custom_field.DateCustomField("Дата опроса", field_id=559061)
     chat_name = custom_field.TextCustomField("Название чата", field_id=559059)
