@@ -5,19 +5,13 @@ import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 from dotenv import load_dotenv
+
+load_dotenv(dotenv_path=Path(__file__).resolve().parent / ".env", override=True)
+
 from fastapi import FastAPI, Header, HTTPException, Request
 from fastapi.responses import JSONResponse
 from config import CRM_HOMEWORK_PIPELINE, CRM_HW_ASSIGNED_STATUS
 from logger import setup_logger
-
-
-def _load_env() -> None:
-    """Load .env next to this file (project root), regardless of absolute path."""
-    env_path = Path(__file__).resolve().parent / ".env"
-    load_dotenv(dotenv_path=env_path, override=True)
-
-
-_load_env()
 
 logger = setup_logger(__name__)
 
