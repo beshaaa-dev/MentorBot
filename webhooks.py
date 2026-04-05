@@ -2,6 +2,7 @@ import asyncio
 import hmac
 import hashlib
 import os
+from contextlib import asynccontextmanager
 from pathlib import Path
 from dotenv import load_dotenv
 from fastapi import FastAPI, Header, HTTPException, Request
@@ -20,7 +21,17 @@ _load_env()
 
 logger = setup_logger(__name__)
 
-app = FastAPI(title="amoCRM Webhook")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    from crm.crm_service import init_amo_crm_integration
+
+    loop = asyncio.get_event_loop()
+    await loop.run_in_executor(None, init_amo_crm_integration)
+    yield
+
+
+app = FastAPI(title="amoCRM Webhook", lifespan=lifespan)
 
 WEBHOOK_SECRET = os.getenv("AMO_CHAT_WEBHOOK_SECRET")
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
