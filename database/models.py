@@ -5,6 +5,62 @@ from sqlalchemy.orm import relationship
 from database.db_helper import Base
 
 
+class HomeworkStatus(str, Enum):
+    PENDING = "pending"
+    IN_PROGRESS = "in_progress"
+    SUBMITTED = "submitted"
+    PENDING_MENTOR = "pending_mentor"
+    POSTPONED = "postponed"
+    APPROVED = "approved"
+    REEDIT = "reedit"
+
+
+class Homework(Base):
+    __tablename__ = "homeworks"
+
+    id = Column(Integer, primary_key=True, nullable=False)
+    student_id = Column(Integer, nullable=False)
+    mentor_id = Column(Integer, nullable=True)
+    lead_id = Column(String, nullable=False, unique=True)
+    status = Column(SQLEnum(HomeworkStatus), nullable=False, default=HomeworkStatus.PENDING)
+    first_hw = Column(String, nullable=False)
+    second_hw = Column(String, nullable=True)
+    third_hw = Column(String, nullable=True)
+    fourth_hw = Column(String, nullable=True)
+    fifth_hw = Column(String, nullable=True)
+    deadline = Column(DateTime, nullable=True)
+    feedback = Column(String, nullable=True)
+    rating = Column(Integer, nullable=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    answers = relationship("HomeworkAnswer", back_populates="homework", cascade="all, delete-orphan")
+
+
+class HomeworkAnswer(Base):
+    __tablename__ = "homework_answers"
+
+    id = Column(Integer, primary_key=True, nullable=False)
+    homework_id = Column(Integer, ForeignKey("homeworks.id"), nullable=False)
+    question_number = Column(Integer, nullable=False)
+    answer_content = Column(String, nullable=False)
+    is_text = Column(Boolean, nullable=False, default=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+    homework = relationship("Homework", back_populates="answers")
+
+    __table_args__ = (UniqueConstraint("homework_id", "question_number"),)
+
+
+class MentorHomeworkInvite(Base):
+    __tablename__ = "mentor_homework_invites"
+
+    id = Column(Integer, primary_key=True, nullable=False)
+    mentor_id = Column(Integer, nullable=False, unique=True)
+    message_id = Column(Integer, nullable=False)
+    chat_id = Column(Integer, nullable=False)
+
+
 class UserRole(str, Enum):
     MENTOR = "mentor"
     STUDENT = "student"

@@ -23,6 +23,8 @@ from messages import (
     CHANGE_TASK_2_BUTTON,
     CHANGE_TASK_3_BUTTON,
     CONFIRM_ALL_BUTTON,
+    HW_CONFIRM_ALL_BUTTON,
+    HW_REVIEW_CHANGE_BUTTON,
 )
 
 
@@ -143,4 +145,32 @@ def get_task_review_keyboard(has_task_2: bool, has_task_3: bool) -> ReplyKeyboar
 
     rows = [row]
     rows.append([KeyboardButton(CONFIRM_ALL_BUTTON)])
+    return ReplyKeyboardMarkup(rows, resize_keyboard=True, one_time_keyboard=True)
+
+
+def get_start_homework_keyboard(hw_id: int) -> InlineKeyboardMarkup:
+    keyboard = [
+        [InlineKeyboardButton("Приступить", callback_data=f"start_homework_{hw_id}")]
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+
+def get_hw_answer_confirmation_keyboard(hw_id: int, q_num: int) -> InlineKeyboardMarkup:
+    keyboard = [
+        [
+            InlineKeyboardButton("Да", callback_data=f"hw_confirm_{hw_id}_{q_num}"),
+            InlineKeyboardButton(
+                "Нет, попробовать ещё раз", callback_data=f"hw_retry_{hw_id}_{q_num}"
+            ),
+        ]
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+
+def get_hw_review_keyboard(question_count: int) -> ReplyKeyboardMarkup:
+    row: list[KeyboardButton] = [
+        KeyboardButton(HW_REVIEW_CHANGE_BUTTON.format(n=n))
+        for n in range(1, question_count + 1)
+    ]
+    rows = [row, [KeyboardButton(HW_CONFIRM_ALL_BUTTON)]]
     return ReplyKeyboardMarkup(rows, resize_keyboard=True, one_time_keyboard=True)

@@ -169,7 +169,7 @@ def _build_task_details(lead: Lead | None) -> TaskDetails | None:
 def _build_visit_card_details(lead: Lead | None) -> VisitCardDetails | None:
     if not lead:
         return None
-    
+
     return VisitCardDetails(text=VISIT_CARD_TEXT, lead_id=lead.id)
 
 

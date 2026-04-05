@@ -3,6 +3,7 @@ from handlers.common import (
     support_command_handler,
     unknown_message_handler,
 )
+from handlers.homework_student import hw_student_conversation_handler
 from handlers.mentor import (
     mentor_back_button_handler,
     mentor_check_task_handler,
@@ -38,6 +39,8 @@ handlers = [
     survey_questions_handler,
     submit_survey_handler,  # Handle survey submission confirmation
     admin_menu_callback_handler,  # Broad pattern, must be after specific handlers
+    # Homework handlers
+    hw_student_conversation_handler,
     # Mentor handlers
     mentor_to_menu_handler,
     mentor_postponed_nav_handler,

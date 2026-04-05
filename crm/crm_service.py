@@ -9,6 +9,7 @@ from config import (
     CRM_TEST_STATUS,
     CRM_TEST_IS_IN_PROGRESS_STATUS,
     CRM_PIPELINE,
+    CRM_HOMEWORK_PIPELINE,
 )
 from logger import setup_logger
 from rate_limiter import amo_crm_rate_limiter
@@ -175,6 +176,29 @@ def send_note(lead_id: int, note: str):
         with amo_crm_rate_limiter.limit():
             lead.notes.objects.create(text=note, note_type=COMMON_TYPE)
             lead.save()
+
+
+def get_crm_contact_by_id(crm_id: int | str) -> Contact | None:
+    """Fetch a Contact by CRM id without requiring a valid lead in the main pipeline."""
+    with amo_crm_rate_limiter.limit():
+        contacts = Contact.objects.filter(query=crm_id)
+    for c in contacts:
+        if str(c.id) == str(crm_id):
+            return c
+    return None
+
+
+def get_homework_lead(contact: Contact, status_id: str) -> Lead | None:
+    """Return the lead in pipeline 10726418 with the given status, or None."""
+    contact_refs = (contact._data.get("_embedded") or {}).get("leads")
+    if not contact_refs:
+        return None
+    for lead in contact.leads:
+        if not lead.pipeline or str(lead.pipeline.id) != str(CRM_HOMEWORK_PIPELINE):
+            continue
+        if lead.status and str(lead.status.id) == status_id:
+            return lead
+    return None
 
 
 async def get_access_token() -> str:

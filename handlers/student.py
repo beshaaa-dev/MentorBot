@@ -17,6 +17,8 @@ from repositories.user_repository import (
     VisitCardDetails,
     TestDetails,
 )
+from database.homework_service import get_pending_homework_by_student_id
+from database.models import Homework
 from repositories.task_repository import (
     create_task,
     mark_task_as_failed,
@@ -24,7 +26,7 @@ from repositories.task_repository import (
 )
 from database.user_service import get_by_id
 from database.models import User, UserRole
-from keyboards import get_confirmation_keyboard, get_task_review_keyboard
+from keyboards import get_confirmation_keyboard, get_task_review_keyboard, get_start_homework_keyboard
 from messages import (
     GREETING_WITH_NAME_TEMPLATE,
     STUDENT_NO_TASK,
@@ -50,6 +52,7 @@ from messages import (
     CHANGE_TASK_2_BUTTON,
     CHANGE_TASK_3_BUTTON,
     CONFIRM_ALL_BUTTON,
+    HW_NEW_ASSIGNMENT,
 )
 from keyboards import get_check_task_keyboard
 from handlers.utils import (
@@ -103,6 +106,11 @@ async def handle_student(
     if task:
         return await send_task_message(task, update, context)
 
+    # Проверяем есть ли домашнее задание
+    homework = get_pending_homework_by_student_id(user.id)
+    if homework:
+        return await send_homework_start_message(homework, update, context)
+
     # Задание не найдено
     return await send_task_message(None, update, context)
 
@@ -145,6 +153,16 @@ async def send_task_message(
         REQUEST_TASK_ANSWER, reply_markup=ReplyKeyboardRemove()
     )
     return WAITING_FOR_FIRST_TASK_ANSWER
+
+
+async def send_homework_start_message(
+    homework: Homework, update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> int:
+    await update.message.reply_text(
+        HW_NEW_ASSIGNMENT,
+        reply_markup=get_start_homework_keyboard(homework.id),
+    )
+    return ConversationHandler.END
 
 
 def extract_file_id(update: Update) -> str | None:

@@ -126,6 +126,18 @@ CHANGE_TASK_2_BUTTON = "Изменить задание 2"
 CHANGE_TASK_3_BUTTON = "Изменить задание 3"
 CONFIRM_ALL_BUTTON = "Всё верно, отправить"
 
+# Homework flow messages
+HW_NEW_ASSIGNMENT = "У вас новое домашнее задание 🧡"
+HW_QUESTION_PROMPT = "Вопрос {n} из {total}:\n\n{question}"
+HW_ANSWER_CONFIRM_PROMPT = "Отправить этот ответ?"
+HW_REVIEW_HEADER = "Ваши ответы на домашнее задание:\n\n{answers}"
+HW_REVIEW_CHANGE_PROMPT = "Хотите что-то изменить?"
+HW_REVIEW_CHANGE_BUTTON = "Изменить вопрос {n}"
+HW_CONFIRM_ALL_BUTTON = "Всё верно, отправить"
+HW_SUBMITTED = "Ваше домашнее задание отправлено! Ожидайте обратной связи 🧡"
+HW_NOT_FOUND = "Задание не найдено. Введите /start для продолжения."
+HW_MEDIA_LABEL = "[медиафайл]"
+
 # Broadcast system messages
 ADMIN_MENU_TITLE = (
     "📋 *Меню администратора*\n\n"
