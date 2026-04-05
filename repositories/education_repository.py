@@ -103,7 +103,9 @@ def find_lead(contact: Contact) -> Lead | None:
 def _create_contact(tg_id: int, username: str | None) -> Contact:
     name = _contact_display_name_for_kick(username, tg_id)
     with amo_crm_rate_limiter.limit():
-        contact = Contact(name=name, telegram_id=str(tg_id))
+        contact = Contact(
+            name=name, telegram_id=str(tg_id), telegram_nickname=username
+        )
         contact.save()
 
     _append_entity_tag(contact, TAG_KICK_CONTACT_ERROR)

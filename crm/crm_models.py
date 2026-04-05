@@ -3,6 +3,9 @@ from amocrm.v2 import Contact as _Contact, Lead as _Lead, custom_field
 
 class Contact(_Contact):
     telegram_id = custom_field.TextCustomField("TelegramId_WZ")
+    telegram_nickname = custom_field.TextCustomField(
+        "TelegramUsername_WZ", field_id=536049
+    )
     honesty = custom_field.NumericCustomField("Честность")
     motivation = custom_field.NumericCustomField("Мотивация")
     responsibility = custom_field.NumericCustomField("Ответственность")
