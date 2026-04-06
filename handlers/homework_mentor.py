@@ -126,29 +126,55 @@ async def handle_check_homework_callback(
     update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> None:
     query = update.callback_query
+    tg_id = query.from_user.id if query.from_user else None
+    chat_id = query.message.chat_id if query.message else None
+    logger.info(
+        f"check_homework callback: tg_id={tg_id} chat_id={chat_id} data={query.data!r}"
+    )
+
     await query.answer()
+    logger.debug("check_homework: callback query answered")
 
     mentor = _get_verified_mentor(query.from_user.id)
     if not mentor:
+        logger.warning(
+            f"check_homework: not a mentor or user not found tg_id={tg_id}"
+        )
         await query.message.reply_text(ERROR_MESSAGE)
         return
 
+    logger.info(f"check_homework: loading pending homework mentor_id={mentor.id}")
     loop = asyncio.get_running_loop()
     homework = await loop.run_in_executor(
         None, get_earliest_pending_mentor_homework, mentor.id
     )
+    hw_id = homework.id if homework else None
+    logger.info(
+        f"check_homework: earliest pending mentor_id={mentor.id} homework_id={hw_id}"
+    )
 
     try:
         await query.message.delete()
-    except Exception:
-        pass
+        logger.debug(f"check_homework: deleted message chat_id={chat_id}")
+    except Exception as e:
+        logger.warning(
+            f"check_homework: could not delete message chat_id={chat_id}: {e}",
+            exc_info=True,
+        )
 
     if not homework:
+        logger.info(
+            f"check_homework: no pending homework mentor_id={mentor.id}, sending menu"
+        )
         await query.message.reply_text(
             HW_NO_PENDING_MENTOR, reply_markup=get_mentor_menu_keyboard()
         )
         return
 
+    logger.info(
+        f"check_homework: sending homework_id={homework.id} to mentor_id={mentor.id} "
+        f"chat_id={query.message.chat_id}"
+    )
     await _send_homework_to_mentor(query.message.chat_id, homework, context)
 
 
