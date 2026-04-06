@@ -93,13 +93,31 @@ async def _ask_question(
 ) -> None:
     questions = _get_questions(context)
     total = len(questions)
-    hw_id = _hw_id(context)
     text = HW_QUESTION_PROMPT.format(n=n, total=total, question=questions[n - 1])
-    msg = await update.effective_chat.send_message(
-        text,
-        reply_markup=get_hw_answer_confirmation_keyboard(hw_id, n),
-    )
+    msg = await update.effective_chat.send_message(text)
     context.user_data["hw_question_msg_id"] = msg.message_id
+
+
+async def _edit_to_question(
+    n: int, context: ContextTypes.DEFAULT_TYPE, update: Update
+) -> None:
+    """Edit the current hw_question_msg to show question n with no keyboard. Falls back to send."""
+    questions = _get_questions(context)
+    total = len(questions)
+    text = HW_QUESTION_PROMPT.format(n=n, total=total, question=questions[n - 1])
+    msg_id = context.user_data.get("hw_question_msg_id")
+    if msg_id:
+        try:
+            await context.bot.edit_message_text(
+                chat_id=update.effective_chat.id,
+                message_id=msg_id,
+                text=text,
+                reply_markup=None,
+            )
+            return
+        except Exception:
+            pass
+    await _ask_question(n, context, update)
 
 
 def _store_answer(q_num: int, message: Message, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -199,6 +217,11 @@ async def handle_start_homework(update: Update, context: ContextTypes.DEFAULT_TY
 
     await loop.run_in_executor(None, update_homework_status, hw_id, HomeworkStatus.IN_PROGRESS)
 
+    try:
+        await query.message.delete()
+    except Exception:
+        pass
+
     await _ask_question(1, context, update)
     return ANSWERING_HW_1
 
@@ -258,7 +281,7 @@ def _make_confirm_handler(q_num: int):
             await _show_review(update, context)
             return REVIEWING
         next_q = q_num + 1
-        await _ask_question(next_q, context, update)
+        await _edit_to_question(next_q, context, update)
         return _ANSWER_STATE[q_num]  # 0-indexed next q
     handler.__name__ = f"handle_confirm_hw_{q_num}"
     return handler
@@ -268,7 +291,7 @@ def _make_retry_handler(q_num: int):
     async def handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         query = update.callback_query
         await query.answer()
-        await _ask_question(q_num, context, update)
+        await _edit_to_question(q_num, context, update)
         return _ANSWER_STATE[q_num - 1]
     handler.__name__ = f"handle_retry_hw_{q_num}"
     return handler
