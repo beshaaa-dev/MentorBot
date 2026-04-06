@@ -416,9 +416,9 @@ async def upload_video(
 
 async def upload_file(
     file_bytes: bytes, filename: str, content_type: str = "application/octet-stream"
-) -> tuple[str, int] | tuple[None, None]:
+) -> tuple[str, str, int] | tuple[None, None, None]:
     """
-    Upload any file to AMoCRM Drive and return the file UUID.
+    Upload any file to AMoCRM Drive and return the file UUID and version UUID.
 
     Args:
         file_bytes: File content as bytes
@@ -426,13 +426,13 @@ async def upload_file(
         content_type: MIME type of the file (e.g. "audio/ogg", "image/jpeg")
 
     Returns:
-        Tuple of (file_uuid, file_size) if successful, (None, None) otherwise
+        Tuple of (file_uuid, version_uuid, file_size) if successful, (None, None, None) otherwise
     """
     try:
         access_token = await get_access_token()
         if not access_token:
             logger.error("[upload_file] Failed to get access token!")
-            return None, None
+            return None, None, None
 
         headers = {
             "Authorization": f"Bearer {access_token}",
@@ -452,7 +452,7 @@ async def upload_file(
                         logger.error(
                             f"[upload_file] Failed to get drive_url: {account_response.status}"
                         )
-                        return None, None
+                        return None, None, None
 
                     account_data = (
                         await account_response.json()
@@ -479,7 +479,7 @@ async def upload_file(
             logger.error(
                 "[upload_file] Failed to get access token for upload session!"
             )
-            return None, None
+            return None, None, None
 
         session_headers = {
             "Authorization": f"Bearer {access_token}",
@@ -499,7 +499,7 @@ async def upload_file(
                         logger.error(
                             f"[upload_file] Failed to create upload session: {session_response.status} - {text}"
                         )
-                        return None, None
+                        return None, None, None
 
                     session_info = (
                         await session_response.json()
@@ -513,7 +513,7 @@ async def upload_file(
             logger.error(
                 f"[upload_file] No upload_url in session response: {session_info}"
             )
-            return None, None
+            return None, None, None
 
         # Step 2: Upload file in parts
         total_size = len(file_bytes)
@@ -553,7 +553,7 @@ async def upload_file(
                             logger.error(
                                 f"[upload_file] Failed to upload file part {part_num}: {upload_response.status} - {text}"
                             )
-                            return None, None
+                            return None, None, None
 
                         upload_data = (
                             await upload_response.json()
@@ -563,10 +563,11 @@ async def upload_file(
 
             if "uuid" in upload_data:
                 file_uuid = upload_data.get("uuid")
-                if not file_uuid:
-                    logger.error("[upload_file] No uuid in upload response")
-                    return None, None
-                return file_uuid, file_size
+                version_uuid = upload_data.get("version_uuid")
+                if not file_uuid or not version_uuid:
+                    logger.error("[upload_file] Missing uuid or version_uuid in upload response")
+                    return None, None, None
+                return file_uuid, version_uuid, file_size
 
             next_url = upload_data.get("next_url")
             if next_url:
@@ -577,14 +578,16 @@ async def upload_file(
         logger.error(
             "[upload_file] ✗ No file UUID returned after upload"
         )
-        return None, None
+        return None, None, None
 
     except Exception as e:
         logger.error(f"[upload_file] ✗ Exception occurred: {e}", exc_info=True)
-        return None, None
+        return None, None, None
 
 
-async def create_attachment_note(lead_id: int, file_uuid: str, filename: str) -> bool:
+async def create_attachment_note(
+    lead_id: int, file_uuid: str, version_uuid: str, filename: str
+) -> bool:
     """
     Create an attachment note on a lead using an already-uploaded Drive file.
 
@@ -593,6 +596,7 @@ async def create_attachment_note(lead_id: int, file_uuid: str, filename: str) ->
     Args:
         lead_id: CRM lead ID
         file_uuid: UUID returned by the Drive upload session
+        version_uuid: Version UUID returned by the Drive upload session
         filename: Display name shown in the note
 
     Returns:
@@ -614,6 +618,7 @@ async def create_attachment_note(lead_id: int, file_uuid: str, filename: str) ->
                 "note_type": "attachment",
                 "params": {
                     "file_uuid": file_uuid,
+                    "version_uuid": version_uuid,
                     "file_name": filename,
                 },
             }

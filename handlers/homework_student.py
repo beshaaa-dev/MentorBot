@@ -343,7 +343,7 @@ async def handle_review_confirm(update: Update, context: ContextTypes.DEFAULT_TY
     hw_id = _hw_id(context)
     answers: dict = context.user_data.get("hw_answers", {})
 
-    await update.message.reply_text("Отправляем ваши ответы…", reply_markup=ReplyKeyboardRemove())
+    pending_msg = await update.message.reply_text("Отправляем ваши ответы…", reply_markup=ReplyKeyboardRemove())
 
     try:
         from repositories.homework_repository import submit_student_answers
@@ -355,7 +355,7 @@ async def handle_review_confirm(update: Update, context: ContextTypes.DEFAULT_TY
         return ConversationHandler.END
 
     context.user_data.clear()
-    await update.message.reply_text(HW_SUBMITTED, reply_markup=ReplyKeyboardRemove())
+    await pending_msg.edit_text(HW_SUBMITTED)
     return ConversationHandler.END
 
 

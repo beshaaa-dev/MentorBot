@@ -219,7 +219,7 @@ async def submit_student_answers(
                 }
             )
         elif media_type == "audio":
-            file_uuid, file_size, filename = await _upload_answer_audio(
+            file_uuid, version_uuid, file_size, filename = await _upload_answer_audio(
                 bot, file_id, q_num, send_type
             )
             content = file_id or ""
@@ -228,11 +228,12 @@ async def submit_student_answers(
                     "q_num": q_num,
                     "type": "audio",
                     "uuid": file_uuid,
+                    "version_uuid": version_uuid,
                     "filename": filename,
                 }
             )
         elif media_type == "image":
-            file_uuid, file_size, filename = await _upload_answer_image(
+            file_uuid, version_uuid, file_size, filename = await _upload_answer_image(
                 bot, file_id, q_num
             )
             content = file_id or ""
@@ -241,6 +242,7 @@ async def submit_student_answers(
                     "q_num": q_num,
                     "type": "image",
                     "uuid": file_uuid,
+                    "version_uuid": version_uuid,
                     "filename": filename,
                 }
             )
@@ -312,7 +314,7 @@ async def submit_student_answers(
             file_uuid = info["uuid"]
             if file_uuid:
                 await create_attachment_note(
-                    int(homework.lead_id), file_uuid, info["filename"]
+                    int(homework.lead_id), file_uuid, info["version_uuid"], info["filename"]
                 )
             else:
                 await loop.run_in_executor(
@@ -324,7 +326,7 @@ async def submit_student_answers(
             file_uuid = info["uuid"]
             if file_uuid:
                 await create_attachment_note(
-                    int(homework.lead_id), file_uuid, info["filename"]
+                    int(homework.lead_id), file_uuid, info["version_uuid"], info["filename"]
                 )
             else:
                 await loop.run_in_executor(
@@ -383,37 +385,37 @@ async def _upload_answer_audio(
     file_id: str | None,
     q_num: int,
     send_type: str | None,
-) -> tuple[str | None, int, str]:
-    """Returns (file_uuid, file_size, filename). file_uuid is None on failure."""
+) -> tuple[str | None, str | None, int, str]:
+    """Returns (file_uuid, version_uuid, file_size, filename). UUIDs are None on failure."""
     ext = "ogg" if send_type == "voice" else "mp3"
     content_type = "audio/ogg" if send_type == "voice" else "audio/mpeg"
     filename = f"hw_{q_num}_{(file_id or 'unknown')[:8]}.{ext}"
     if not file_id:
-        return None, 0, filename
+        return None, None, 0, filename
     try:
         tg_file = await bot.get_file(file_id)
         file_bytes = await tg_file.download_as_bytearray()
-        file_uuid, _ = await upload_file(bytes(file_bytes), filename, content_type)
-        return file_uuid, len(file_bytes), filename
+        file_uuid, version_uuid, _ = await upload_file(bytes(file_bytes), filename, content_type)
+        return file_uuid, version_uuid, len(file_bytes), filename
     except Exception as e:
         logger.error(f"Failed to upload audio for question {q_num}: {e}", exc_info=True)
-        return None, 0, filename
+        return None, None, 0, filename
 
 
 async def _upload_answer_image(
     bot: Bot,
     file_id: str | None,
     q_num: int,
-) -> tuple[str | None, int, str]:
-    """Returns (file_uuid, file_size, filename). file_uuid is None on failure."""
+) -> tuple[str | None, str | None, int, str]:
+    """Returns (file_uuid, version_uuid, file_size, filename). UUIDs are None on failure."""
     filename = f"hw_{q_num}_{(file_id or 'unknown')[:8]}.jpg"
     if not file_id:
-        return None, 0, filename
+        return None, None, 0, filename
     try:
         tg_file = await bot.get_file(file_id)
         file_bytes = await tg_file.download_as_bytearray()
-        file_uuid, _ = await upload_file(bytes(file_bytes), filename, "image/jpeg")
-        return file_uuid, len(file_bytes), filename
+        file_uuid, version_uuid, _ = await upload_file(bytes(file_bytes), filename, "image/jpeg")
+        return file_uuid, version_uuid, len(file_bytes), filename
     except Exception as e:
         logger.error(f"Failed to upload image for question {q_num}: {e}", exc_info=True)
-        return None, 0, filename
+        return None, None, 0, filename
