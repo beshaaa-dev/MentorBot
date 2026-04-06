@@ -1,5 +1,5 @@
 import asyncio
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 
 from amocrm.v2.entity.note import COMMON_TYPE
 from telegram import Bot
@@ -178,6 +178,10 @@ def read_deadline(lead: Lead) -> datetime | None:
     raw = lead.hw_deadline
     if not raw:
         return None
+    if isinstance(raw, datetime):
+        return raw.replace(tzinfo=None)
+    if isinstance(raw, date):
+        return datetime(raw.year, raw.month, raw.day)
     try:
         ts = int(raw)
         return datetime.fromtimestamp(ts, tz=timezone.utc).replace(tzinfo=None)
