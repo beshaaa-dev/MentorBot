@@ -93,7 +93,7 @@ async def _send_homework_to_mentor(
             await _send_answer_content(answer_data, chat_id, context)
 
     # 2. Send review message at the bottom; store its id for later editing
-    review_text = _build_review_text(student_name, homework.feedback, homework.rating)
+    review_text = _build_review_text(student_name, homework.feedback, homework.rating, homework.status)
     review_msg = await context.bot.send_message(
         chat_id,
         review_text,
@@ -132,11 +132,27 @@ def _get_verified_mentor(tg_user_id: int):
     return user
 
 
+_STATUS_LABELS = {
+    HomeworkStatus.PENDING:         "Ожидает выполнения",
+    HomeworkStatus.IN_PROGRESS:     "Выполняется",
+    HomeworkStatus.SUBMITTED:       "Сдано",
+    HomeworkStatus.PENDING_MENTOR:  "Ожидает проверки",
+    HomeworkStatus.POSTPONED:       "Отложено",
+    HomeworkStatus.APPROVED:        "Одобрено",
+    HomeworkStatus.EDIT:            "На доработке",
+}
+
+
 def _build_review_text(
-    student_name: str, feedback: str | None, rating: int | None
+    student_name: str,
+    feedback: str | None,
+    rating: int | None,
+    status: HomeworkStatus | None = None,
 ) -> str:
-    """Строит текст карточки-ревью: имя студента + текущая обратная связь + оценка."""
+    """Строит текст карточки-ревью: имя студента + статус + обратная связь + оценка."""
     text = f"Домашняя работа. {student_name}"
+    if status is not None:
+        text += f"\nСтатус: {_STATUS_LABELS.get(status, status.value)}"
     if feedback:
         text += f"\n\nОбратная связь: {feedback}"
     if rating is not None:
@@ -288,7 +304,9 @@ async def handle_hw_feedback_text(
     if review_msg_id:
         homework = await loop.run_in_executor(None, get_homework_by_id, hw_id)
         review_text = _build_review_text(
-            student_name, feedback_text, homework.rating if homework else None
+            student_name, feedback_text,
+            homework.rating if homework else None,
+            homework.status if homework else None,
         )
         try:
             await context.bot.edit_message_text(
@@ -362,7 +380,8 @@ async def handle_hw_rate_select_callback(
     homework = await loop.run_in_executor(None, get_homework_by_id, hw_id)
     student_name = context.user_data.get("hw_review_student_name", "")
     review_text = _build_review_text(
-        student_name, homework.feedback if homework else None, rating
+        student_name, homework.feedback if homework else None, rating,
+        homework.status if homework else None,
     )
     try:
         await query.edit_message_text(
