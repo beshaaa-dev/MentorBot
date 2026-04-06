@@ -618,21 +618,24 @@ async def create_attachment_note(
             "Authorization": f"Bearer {access_token}",
             "Content-Type": "application/json",
         }
-        attachment_note: dict = {
-            "note_type": "attachment",
-            "params": {
-                "file_uuid": file_uuid,
-                "version_uuid": version_uuid,
-                "file_name": filename,
-            },
-        }
-        body: list[dict] = []
+        display_name = filename
         if text:
-            body.append({
-                "note_type": "common",
-                "params": {"text": text},
-            })
-        body.append(attachment_note)
+            ext = ""
+            dot_idx = filename.rfind(".")
+            if dot_idx != -1:
+                ext = filename[dot_idx:]
+            display_name = f"{text}{ext}"
+
+        body = [
+            {
+                "note_type": "attachment",
+                "params": {
+                    "file_uuid": file_uuid,
+                    "version_uuid": version_uuid,
+                    "file_name": display_name,
+                },
+            }
+        ]
 
         async with aiohttp.ClientSession() as session:
             async with async_amo_crm_rate_limiter.limit():

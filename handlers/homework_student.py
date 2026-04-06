@@ -351,7 +351,7 @@ async def handle_review_confirm(update: Update, context: ContextTypes.DEFAULT_TY
     except Exception as e:
         logger.error(f"Failed to submit homework hw_id={hw_id}: {e}", exc_info=True)
         context.user_data.clear()
-        await update.message.reply_text(ERROR_MESSAGE)
+        await pending_msg.edit_text(ERROR_MESSAGE)
         return ConversationHandler.END
 
     context.user_data.clear()
