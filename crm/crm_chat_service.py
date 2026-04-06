@@ -94,15 +94,15 @@ async def send_video_to_chat(
         async with aiohttp.ClientSession() as session:
             async with async_amo_crm_rate_limiter.limit():
                 async with session.post(url, headers=headers, data=chat_request_body, timeout=aiohttp.ClientTimeout(total=30)) as response:
-                    text = await response.text()
+                    resp_text = await response.text()
 
                     if response.status not in (200, 201):
                         logger.error(
-                            f"[send_video_to_chat] Failed to create chat: {response.status} {text}"
+                            f"[send_video_to_chat] Failed to create chat: {response.status} {resp_text}"
                         )
                         return False
                     
-                    result = json.loads(text)
+                    result = json.loads(resp_text)
                     chat_id = result.get("id")
         
         if not chat_id:
@@ -127,11 +127,11 @@ async def send_video_to_chat(
         async with aiohttp.ClientSession() as session:
             async with async_amo_crm_rate_limiter.limit():
                 async with session.post(attach_url, headers=attach_headers, json=attach_body, timeout=aiohttp.ClientTimeout(total=30)) as attach_response:
-                    text = await attach_response.text()
+                    resp_text = await attach_response.text()
 
                     if attach_response.status not in (200, 201):
                         logger.warning(
-                            f"[send_video_to_chat] Failed to attach chat: {attach_response.status} {text}"
+                            f"[send_video_to_chat] Failed to attach chat: {attach_response.status} {resp_text}"
                         )
 
         # Step 3: Send video message
@@ -191,12 +191,12 @@ async def send_video_to_chat(
         async with aiohttp.ClientSession() as session:
             async with async_amo_crm_rate_limiter.limit():
                 async with session.post(url, headers=headers, data=video_request_body, timeout=aiohttp.ClientTimeout(total=30)) as response:
-                    text = await response.text()
+                    resp_text = await response.text()
 
                     if response.status in (200, 201):
                         return True
                     logger.error(
-                        f"[send_video_to_chat] Failed to send video: HTTP {response.status} {text}"
+                        f"[send_video_to_chat] Failed to send video: HTTP {response.status} {resp_text}"
                     )
                     return False
             

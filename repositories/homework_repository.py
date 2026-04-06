@@ -323,11 +323,12 @@ async def submit_student_answers(
         elif info["type"] == "audio":
             file_uuid = info["uuid"]
             if file_uuid:
-                await loop.run_in_executor(
-                    None, _create_note, f"Ответ на Д/З № {q_num} (аудио)"
-                )
                 await create_attachment_note(
-                    int(homework.lead_id), file_uuid, info["version_uuid"], info["filename"]
+                    int(homework.lead_id),
+                    file_uuid,
+                    info["version_uuid"],
+                    info["filename"],
+                    text=f"Ответ на Д/З № {q_num} (аудио)",
                 )
             else:
                 await loop.run_in_executor(
@@ -338,11 +339,12 @@ async def submit_student_answers(
         elif info["type"] == "image":
             file_uuid = info["uuid"]
             if file_uuid:
-                await loop.run_in_executor(
-                    None, _create_note, f"Ответ на Д/З № {q_num} (фото)"
-                )
                 await create_attachment_note(
-                    int(homework.lead_id), file_uuid, info["version_uuid"], info["filename"]
+                    int(homework.lead_id),
+                    file_uuid,
+                    info["version_uuid"],
+                    info["filename"],
+                    text=f"Ответ на Д/З № {q_num} (фото)",
                 )
             else:
                 await loop.run_in_executor(

@@ -586,7 +586,11 @@ async def upload_file(
 
 
 async def create_attachment_note(
-    lead_id: int, file_uuid: str, version_uuid: str, filename: str
+    lead_id: int,
+    file_uuid: str,
+    version_uuid: str,
+    filename: str,
+    text: str | None = None,
 ) -> bool:
     """
     Create an attachment note on a lead using an already-uploaded Drive file.
@@ -598,6 +602,7 @@ async def create_attachment_note(
         file_uuid: UUID returned by the Drive upload session
         version_uuid: Version UUID returned by the Drive upload session
         filename: Display name shown in the note
+        text: Optional note text shown above the attachment
 
     Returns:
         True if successful, False otherwise
@@ -613,16 +618,17 @@ async def create_attachment_note(
             "Authorization": f"Bearer {access_token}",
             "Content-Type": "application/json",
         }
-        body = [
-            {
-                "note_type": "attachment",
-                "params": {
-                    "file_uuid": file_uuid,
-                    "version_uuid": version_uuid,
-                    "file_name": filename,
-                },
-            }
-        ]
+        note: dict = {
+            "note_type": "attachment",
+            "params": {
+                "file_uuid": file_uuid,
+                "version_uuid": version_uuid,
+                "file_name": filename,
+            },
+        }
+        if text:
+            note["text"] = text
+        body = [note]
 
         async with aiohttp.ClientSession() as session:
             async with async_amo_crm_rate_limiter.limit():
