@@ -52,16 +52,10 @@ async def _send_homework_to_mentor(
     homework,
     context: ContextTypes.DEFAULT_TYPE,
 ) -> None:
-    """Отправляет ментору заголовок ДЗ, затем вопросы и ответы студента, и клавиатуру решения."""
+    """Отправляет ментору вопросы и ответы студента, затем карточку-ревью с кнопками."""
     loop = asyncio.get_running_loop()
     student = await loop.run_in_executor(None, get_by_id, homework.student_id)
     student_name = f"{student.first_name or ''} {student.last_name or ''}".strip()
-
-    await context.bot.send_message(
-        chat_id,
-        f"Домашняя работа. {student_name}",
-        reply_markup=get_hw_mentor_decision_keyboard(homework.id),
-    )
 
     questions = [
         q
@@ -76,6 +70,7 @@ async def _send_homework_to_mentor(
     ]
     answers_by_num = {a.question_number: a for a in (homework.answers or [])}
 
+    # 1. Send all Q&A pairs first
     for i, question in enumerate(questions, start=1):
         await context.bot.send_message(
             chat_id,
@@ -92,6 +87,17 @@ async def _send_homework_to_mentor(
                 ),
             }
             await _send_answer_content(answer_data, chat_id, context)
+
+    # 2. Send review message at the bottom; store its id for later editing
+    review_text = _build_review_text(student_name, homework.feedback, homework.rating)
+    review_msg = await context.bot.send_message(
+        chat_id,
+        review_text,
+        reply_markup=get_hw_mentor_decision_keyboard(homework.id),
+    )
+    context.user_data["hw_review_msg_id"] = review_msg.message_id
+    context.user_data["hw_review_student_name"] = student_name
+    context.user_data["hw_review_hw_id"] = homework.id
 
 
 async def _show_next_or_menu(
@@ -120,6 +126,16 @@ def _get_verified_mentor(tg_user_id: int):
     if not user or user.role != UserRole.MENTOR:
         return None
     return user
+
+
+def _build_review_text(student_name: str, feedback: str | None, rating: int | None) -> str:
+    """Строит текст карточки-ревью: имя студента + текущая обратная связь + оценка."""
+    text = f"Домашняя работа. {student_name}"
+    if feedback:
+        text += f"\n\nОбратная связь: {feedback}"
+    if rating is not None:
+        text += f"\nОценка: {rating}/5"
+    return text
 
 
 # ── Callback: Проверить ───────────────────────────────────────────────────────
@@ -260,6 +276,25 @@ async def handle_hw_feedback_text(
     logger.info(f"Feedback saved for homework {hw_id} by mentor {mentor.id}")
 
     await update.message.reply_text(HW_FEEDBACK_SAVED)
+
+    # Edit the review message to reflect the saved feedback
+    review_msg_id = context.user_data.get("hw_review_msg_id")
+    student_name = context.user_data.get("hw_review_student_name", "")
+    if review_msg_id:
+        homework = await loop.run_in_executor(None, get_homework_by_id, hw_id)
+        review_text = _build_review_text(
+            student_name, feedback_text, homework.rating if homework else None
+        )
+        try:
+            await context.bot.edit_message_text(
+                chat_id=update.effective_chat.id,
+                message_id=review_msg_id,
+                text=review_text,
+                reply_markup=get_hw_mentor_decision_keyboard(hw_id),
+            )
+        except Exception as e:
+            logger.warning(f"Could not edit review message after feedback: {e}")
+
     return ConversationHandler.END
 
 
@@ -278,16 +313,20 @@ async def handle_hw_rate_callback(
         await query.message.reply_text(ERROR_MESSAGE)
         return
 
+    # Edit the review message in-place to show the rating keyboard.
+    # If editing fails (e.g. message too old), send a new one and track its id
+    # so handle_hw_rate_select_callback can still edit it back.
     try:
         await query.edit_message_text(
             text=HW_RATE_PROMPT,
             reply_markup=get_hw_rating_keyboard(hw_id),
         )
     except Exception as e:
-        logger.warning(f"Could not edit message for rating: {e}")
-        await query.message.reply_text(
+        logger.warning(f"Could not edit review message for rating: {e}")
+        new_msg = await query.message.reply_text(
             HW_RATE_PROMPT, reply_markup=get_hw_rating_keyboard(hw_id)
         )
+        context.user_data["hw_review_msg_id"] = new_msg.message_id
 
 
 async def handle_hw_rate_select_callback(
@@ -313,10 +352,23 @@ async def handle_hw_rate_select_callback(
     await loop.run_in_executor(None, update_homework_rating, hw_id, rating)
     logger.info(f"Rating {rating} saved for homework {hw_id} by mentor {mentor.id}")
 
+    # Reload homework to get the latest feedback alongside the new rating,
+    # then restore the review message with updated content and decision keyboard.
+    homework = await loop.run_in_executor(None, get_homework_by_id, hw_id)
+    student_name = context.user_data.get("hw_review_student_name", "")
+    review_text = _build_review_text(
+        student_name, homework.feedback if homework else None, rating
+    )
     try:
-        await query.edit_message_text(text=f"{HW_RATE_SAVED} Оценка: {rating}/5")
-    except Exception:
-        await query.message.reply_text(f"{HW_RATE_SAVED} Оценка: {rating}/5")
+        await query.edit_message_text(
+            text=review_text,
+            reply_markup=get_hw_mentor_decision_keyboard(hw_id),
+        )
+    except Exception as e:
+        logger.warning(f"Could not restore review message after rating: {e}")
+        await query.message.reply_text(
+            review_text, reply_markup=get_hw_mentor_decision_keyboard(hw_id)
+        )
 
 
 # ── Callback: Доработать ──────────────────────────────────────────────────────
