@@ -33,7 +33,7 @@ def _amo_response_hook(response, *args, **kwargs):
 
 def init_amo_crm_integration():
     """Initialize AmoCRM token manager and handle token setup."""
-    _amo_session.hooks["response"].append(_amo_response_hook)
+    # _amo_session.hooks["response"].append(_amo_response_hook)
     tokens.default_token_manager(
         client_id=config.CRM_CLIENT_ID,
         client_secret=config.CRM_CLIENT_SECRET,

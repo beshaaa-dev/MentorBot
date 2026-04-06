@@ -5,6 +5,7 @@ from timezone_utils import now_moscow
 from sqlalchemy.orm import joinedload
 from datetime import datetime
 
+
 logger = setup_logger(__name__)
 
 
@@ -98,7 +99,8 @@ def update_homework(
             homework.fourth_hw = fourth_hw
             homework.fifth_hw = fifth_hw
             homework.deadline = deadline
-            homework.mentor_id = mentor_id
+            if mentor_id is not None:
+                homework.mentor_id = mentor_id
             if status is not None:
                 homework.status = status
             homework.updated_at = now_moscow()
@@ -156,7 +158,7 @@ def upsert_homework_answers(
     Create or replace HomeworkAnswer rows for the given homework.
 
     Each dict in `answers` must have:
-        question_number (int), answer_content (str), is_text (bool)
+        question_number (int), answer_content (str), media_type (str)
     """
     with get_db() as db:
         try:
@@ -172,7 +174,7 @@ def upsert_homework_answers(
                     homework_id=hw_id,
                     question_number=a["question_number"],
                     answer_content=a["answer_content"],
-                    is_text=a["is_text"],
+                    media_type=a["media_type"],
                 )
                 db.add(row)
                 rows.append(row)

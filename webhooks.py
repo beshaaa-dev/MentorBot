@@ -148,43 +148,15 @@ async def homework_edit(request: Request):
     logger.info("homework_edit: processing lead_id=%s", lead_id)
 
     try:
-        from crm.crm_service import get_crm_lead
-        from database.homework_service import get_homework_by_lead_id, update_homework_status
-        from database.models import HomeworkStatus
+        from repositories.homework_repository import process_homework_edit
 
         loop = asyncio.get_running_loop()
-
-        lead = await loop.run_in_executor(None, get_crm_lead, lead_id)
-        if not lead:
-            logger.warning("homework_edit: CRM lead %s not found", lead_id)
-            return JSONResponse({"status": "error"}, status_code=404)
-
-        edit_reason = getattr(lead, "hw_edit_reason", None) or ""
-
-        student_tg_id: int | None = None
-        contact_refs = (lead._data.get("_embedded") or {}).get("contacts")
-        if contact_refs:
-            for contact in lead.contacts:
-                raw_tg_id = contact.telegram_id
-                if raw_tg_id:
-                    try:
-                        student_tg_id = int(str(raw_tg_id).strip())
-                    except ValueError:
-                        continue
-                    break
-
-        if not student_tg_id:
-            logger.warning("homework_edit: no student tg_id for lead_id=%s", lead_id)
-            return JSONResponse({"status": "ok"})
-
-        homework = await loop.run_in_executor(None, get_homework_by_lead_id, lead_id)
-        if not homework:
-            logger.warning("homework_edit: no homework record for lead_id=%s", lead_id)
-            return JSONResponse({"status": "error"}, status_code=404)
-
-        await loop.run_in_executor(
-            None, update_homework_status, homework.id, HomeworkStatus.EDIT
+        homework, student_tg_id, edit_reason = await loop.run_in_executor(
+            None, process_homework_edit, lead_id
         )
+    except ValueError as e:
+        logger.warning("homework_edit: %s", e)
+        return JSONResponse({"status": "error", "detail": str(e)}, status_code=404)
     except Exception as e:
         logger.error("homework_edit: failed to process: %s", e, exc_info=True)
         return JSONResponse({"status": "error"}, status_code=500)

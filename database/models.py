@@ -44,7 +44,7 @@ class HomeworkAnswer(Base):
     homework_id = Column(Integer, ForeignKey("homeworks.id"), nullable=False)
     question_number = Column(Integer, nullable=False)
     answer_content = Column(String, nullable=False)
-    is_text = Column(Boolean, nullable=False, default=True)
+    media_type = Column(String, nullable=False, default="text")
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
 
     homework = relationship("Homework", back_populates="answers")

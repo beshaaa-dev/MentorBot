@@ -30,6 +30,45 @@ from timezone_utils import now_moscow
 logger = setup_logger(__name__)
 
 
+def process_homework_edit(lead_id: str) -> tuple[Homework, int, str]:
+    """
+    Получает лид из CRM, обновляет вопросы/дедлайн и статус → EDIT.
+
+    Returns:
+        (homework, student_tg_id, edit_reason)
+
+    Raises:
+        ValueError: если лид, студент или домашнее задание не найдены.
+    """
+    lead = get_crm_lead(lead_id)
+    if not lead:
+        raise ValueError(f"CRM lead {lead_id} not found")
+
+    student_tg_id, _ = _extract_student_and_mentor(lead)
+
+    edit_reason = getattr(lead, "hw_edit_reason", None) or "не указана"
+
+    homework = _get_homework_by_lead_id(lead_id)
+    if not homework:
+        raise ValueError(f"No homework record for lead_id={lead_id}")
+
+    questions = read_questions(lead)
+    deadline = read_deadline(lead)
+
+    homework = _update_homework(
+        hw_id=homework.id,
+        first_hw=questions[0] if questions else homework.first_hw,
+        status=HomeworkStatus.EDIT,
+        second_hw=questions[1] if len(questions) > 1 else None,
+        third_hw=questions[2] if len(questions) > 2 else None,
+        fourth_hw=questions[3] if len(questions) > 3 else None,
+        fifth_hw=questions[4] if len(questions) > 4 else None,
+        deadline=deadline,
+    )
+    logger.info(f"Updated homework id={homework.id} for edit, lead_id={lead_id}")
+    return homework, student_tg_id, edit_reason
+
+
 def save_homework_from_webhook(lead_id: str) -> tuple[Homework, int]:
     """
     Fetch the CRM lead, resolve student + mentor, and persist a Homework record.
@@ -62,11 +101,11 @@ def save_homework_from_webhook(lead_id: str) -> tuple[Homework, int]:
         else:
             logger.warning(f"Mentor @{nickname} not found in DB for lead {lead_id}")
 
-    questions = _read_questions(lead)
+    questions = read_questions(lead)
     if not questions:
         raise ValueError(f"No questions found on lead {lead_id}")
 
-    deadline = _read_deadline(lead)
+    deadline = read_deadline(lead)
 
     existing = _get_homework_by_lead_id(lead_id)
     if existing:
@@ -121,7 +160,7 @@ def _extract_student_and_mentor(lead: Lead) -> tuple[int, str | None]:
     raise ValueError(f"No contact with telegram_id found on lead {lead.id}")
 
 
-def _read_questions(lead: Lead) -> list[str]:
+def read_questions(lead: Lead) -> list[str]:
     return [
         q
         for q in [
@@ -135,7 +174,7 @@ def _read_questions(lead: Lead) -> list[str]:
     ]
 
 
-def _read_deadline(lead: Lead) -> datetime | None:
+def read_deadline(lead: Lead) -> datetime | None:
     raw = lead.hw_deadline
     if not raw:
         return None
@@ -155,9 +194,9 @@ async def submit_student_answers(
     Upload video answers, write all CRM fields in one save, persist HomeworkAnswer rows,
     update homework status → SUBMITTED, update lead status → 84497010.
 
-    `answers` format: {question_number: {"is_text": bool, "text": str|None, "file_id": str|None, "media_type": str, "send_type": str|None}}
-    media_type: "text" | "video" | "audio" | "image" | "other".
-    "video" goes to Drive + chat; "audio" and "image" go to Drive + lead Files tab; "other" gets a generic note.
+    `answers` format: {question_number: {"text": str|None, "file_id": str|None, "media_type": str}}
+    media_type: "text" | "video" | "video_note" | "audio" | "voice" | "photo" | "document".
+    "video"/"video_note" → Drive + chat; "audio"/"voice" → Drive + lead Files; "photo" → Drive + lead Files; "document" → generic note.
     """
     loop = asyncio.get_running_loop()
 
@@ -197,23 +236,21 @@ async def submit_student_answers(
             setattr(lead, field_name, "")
         else:
             data = answers.get(q_num, {})
-            if data.get("is_text") and data.get("text"):
+            if data.get("media_type") == "text" and data.get("text"):
                 setattr(lead, field_name, data["text"])
             else:
                 setattr(lead, field_name, "Ответ в примечании")
 
     for q_num in sorted(answers.keys()):
         data = answers[q_num]
-        is_text: bool = data.get("is_text", True)
         text: str | None = data.get("text")
         file_id: str | None = data.get("file_id")
         media_type: str = data.get("media_type", "text")
-        send_type: str | None = data.get("send_type")
 
-        if is_text and text:
+        if media_type == "text" and text:
             content = text
             answer_info.append({"q_num": q_num, "type": "text", "text": text})
-        elif media_type == "video":
+        elif media_type in ("video", "video_note"):
             download_url, file_size, filename = await _upload_answer_media(
                 bot, file_id, q_num
             )
@@ -227,9 +264,9 @@ async def submit_student_answers(
                     "file_size": file_size,
                 }
             )
-        elif media_type == "audio":
+        elif media_type in ("audio", "voice"):
             file_uuid, version_uuid, file_size, filename, download_url = await _upload_answer_audio(
-                bot, file_id, q_num, send_type
+                bot, file_id, q_num, media_type
             )
             content = file_id or ""
             answer_info.append(
@@ -243,7 +280,7 @@ async def submit_student_answers(
                     "download_url": download_url,
                 }
             )
-        elif media_type == "image":
+        elif media_type == "photo":
             file_uuid, version_uuid, file_size, filename, download_url = await _upload_answer_image(
                 bot, file_id, q_num
             )
@@ -264,7 +301,7 @@ async def submit_student_answers(
             answer_info.append({"q_num": q_num, "type": "other"})
 
         answer_rows.append(
-            {"question_number": q_num, "answer_content": content, "is_text": is_text}
+            {"question_number": q_num, "answer_content": content, "media_type": media_type}
         )
 
     now = now_moscow()
@@ -421,11 +458,11 @@ async def _upload_answer_audio(
     bot: Bot,
     file_id: str | None,
     q_num: int,
-    send_type: str | None,
+    media_type: str | None,
 ) -> tuple[str | None, str | None, int, str, str | None]:
     """Returns (file_uuid, version_uuid, file_size, filename, download_url). UUIDs are None on failure."""
-    ext = "ogg" if send_type == "voice" else "mp3"
-    content_type = "audio/ogg" if send_type == "voice" else "audio/mpeg"
+    ext = "ogg" if media_type == "voice" else "mp3"
+    content_type = "audio/ogg" if media_type == "voice" else "audio/mpeg"
     filename = f"hw_{q_num}_{(file_id or 'unknown')[:8]}.{ext}"
     if not file_id:
         return None, None, 0, filename, None

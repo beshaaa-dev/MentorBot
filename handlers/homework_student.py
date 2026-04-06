@@ -120,41 +120,32 @@ async def _transition_to_question(
 
 def _store_answer(q_num: int, message: Message, context: ContextTypes.DEFAULT_TYPE) -> None:
     answers: dict = context.user_data.setdefault("hw_answers", {})
-    is_text = bool(message.text)
     file_id: str | None = None
-    media_type: str = "text"   # coarse type for CRM: "text" | "video" | "audio" | "image" | "other"
-    send_type: str | None = None  # granular type for Telegram resend
-    if not is_text:
-        if message.video:
-            file_id = message.video.file_id
-            media_type = "video"
-            send_type = "video"
-        elif message.video_note:
-            file_id = message.video_note.file_id
-            media_type = "video"
-            send_type = "video_note"
-        elif message.audio:
-            file_id = message.audio.file_id
-            media_type = "audio"
-            send_type = "audio"
-        elif message.voice:
-            file_id = message.voice.file_id
-            media_type = "audio"
-            send_type = "voice"
-        elif message.document:
-            file_id = message.document.file_id
-            media_type = "other"
-            send_type = "document"
-        elif message.photo:
-            file_id = message.photo[-1].file_id
-            media_type = "image"
-            send_type = "photo"
+    media_type: str = "text"
+    if message.text:
+        pass
+    elif message.video:
+        file_id = message.video.file_id
+        media_type = "video"
+    elif message.video_note:
+        file_id = message.video_note.file_id
+        media_type = "video_note"
+    elif message.audio:
+        file_id = message.audio.file_id
+        media_type = "audio"
+    elif message.voice:
+        file_id = message.voice.file_id
+        media_type = "voice"
+    elif message.document:
+        file_id = message.document.file_id
+        media_type = "document"
+    elif message.photo:
+        file_id = message.photo[-1].file_id
+        media_type = "photo"
     answers[q_num] = {
-        "is_text": is_text,
-        "text": message.text if is_text else None,
+        "text": message.text if media_type == "text" else None,
         "file_id": file_id,
         "media_type": media_type,
-        "send_type": send_type,
     }
 
 
@@ -170,19 +161,16 @@ def _next_question_state(current_q: int, context: ContextTypes.DEFAULT_TYPE) -> 
 async def _send_answer_content(
     answer_data: dict, chat_id: int, context: ContextTypes.DEFAULT_TYPE
 ) -> None:
-    if answer_data.get("is_text"):
+    media_type = answer_data.get("media_type", "text")
+    if media_type == "text":
         text = answer_data.get("text") or ""
         if text:
             await context.bot.send_message(chat_id, text)
         return
     file_id = answer_data.get("file_id")
-    send_type = answer_data.get("send_type")
     if not file_id:
         return
-    if not send_type:
-        await context.bot.send_message(chat_id, HW_MEDIA_LABEL)
-        return
-    match send_type:
+    match media_type:
         case "video":
             await context.bot.send_video(chat_id, file_id)
         case "video_note":
@@ -195,6 +183,8 @@ async def _send_answer_content(
             await context.bot.send_document(chat_id, file_id)
         case "photo":
             await context.bot.send_photo(chat_id, file_id)
+        case _:
+            await context.bot.send_message(chat_id, HW_MEDIA_LABEL)
 
 
 async def _show_review(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -232,7 +222,7 @@ async def handle_edit_homework(update: Update, context: ContextTypes.DEFAULT_TYP
 
     loop = asyncio.get_running_loop()
     homework = await loop.run_in_executor(None, get_homework_by_id, hw_id)
-    if not homework:
+    if not homework or homework.status != HomeworkStatus.EDIT:
         await query.message.reply_text(HW_NOT_FOUND)
         return ConversationHandler.END
 
@@ -253,21 +243,17 @@ async def handle_edit_homework(update: Update, context: ContextTypes.DEFAULT_TYP
 
     hw_answers: dict = {}
     for ans in (homework.answers or []):
-        if ans.is_text:
+        if ans.media_type == "text":
             hw_answers[ans.question_number] = {
-                "is_text": True,
                 "text": ans.answer_content,
                 "file_id": None,
                 "media_type": "text",
-                "send_type": None,
             }
         else:
             hw_answers[ans.question_number] = {
-                "is_text": False,
                 "text": None,
                 "file_id": ans.answer_content,
-                "media_type": None,
-                "send_type": None,
+                "media_type": ans.media_type,
             }
     context.user_data["hw_answers"] = hw_answers
 
