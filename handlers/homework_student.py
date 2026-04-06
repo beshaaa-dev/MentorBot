@@ -121,7 +121,7 @@ def _store_answer(q_num: int, message: Message, context: ContextTypes.DEFAULT_TY
     answers: dict = context.user_data.setdefault("hw_answers", {})
     is_text = bool(message.text)
     file_id: str | None = None
-    media_type: str = "text"   # coarse type for CRM: "text" | "video" | "audio" | "other"
+    media_type: str = "text"   # coarse type for CRM: "text" | "video" | "audio" | "image" | "other"
     send_type: str | None = None  # granular type for Telegram resend
     if not is_text:
         if message.video:
@@ -146,7 +146,7 @@ def _store_answer(q_num: int, message: Message, context: ContextTypes.DEFAULT_TY
             send_type = "document"
         elif message.photo:
             file_id = message.photo[-1].file_id
-            media_type = "other"
+            media_type = "image"
             send_type = "photo"
     answers[q_num] = {
         "is_text": is_text,

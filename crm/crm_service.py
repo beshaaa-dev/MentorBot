@@ -414,24 +414,24 @@ async def upload_video(
         return None, None
 
 
-async def upload_audio(
-    file_bytes: bytes, filename: str, content_type: str = "audio/ogg"
+async def upload_file(
+    file_bytes: bytes, filename: str, content_type: str = "application/octet-stream"
 ) -> tuple[str, int] | tuple[None, None]:
     """
-    Upload an audio file to AMoCRM Drive and return the download URL.
+    Upload any file to AMoCRM Drive and return the file UUID.
 
     Args:
         file_bytes: File content as bytes
         filename: Name for the uploaded file
-        content_type: MIME type of the audio file (e.g. "audio/ogg", "audio/mpeg")
+        content_type: MIME type of the file (e.g. "audio/ogg", "image/jpeg")
 
     Returns:
-        Tuple of (download_url, file_size) if successful, (None, None) otherwise
+        Tuple of (file_uuid, file_size) if successful, (None, None) otherwise
     """
     try:
         access_token = await get_access_token()
         if not access_token:
-            logger.error("[upload_audio] Failed to get access token!")
+            logger.error("[upload_file] Failed to get access token!")
             return None, None
 
         headers = {
@@ -450,7 +450,7 @@ async def upload_audio(
                 ) as account_response:
                     if account_response.status != 200:
                         logger.error(
-                            f"[upload_audio] Failed to get drive_url: {account_response.status}"
+                            f"[upload_file] Failed to get drive_url: {account_response.status}"
                         )
                         return None, None
 
@@ -477,7 +477,7 @@ async def upload_audio(
         access_token = await force_refresh_access_token()
         if not access_token:
             logger.error(
-                "[upload_audio] Failed to get access token for upload session!"
+                "[upload_file] Failed to get access token for upload session!"
             )
             return None, None
 
@@ -497,7 +497,7 @@ async def upload_audio(
 
                     if session_response.status not in (200, 201):
                         logger.error(
-                            f"[upload_audio] Failed to create upload session: {session_response.status} - {text}"
+                            f"[upload_file] Failed to create upload session: {session_response.status} - {text}"
                         )
                         return None, None
 
@@ -511,7 +511,7 @@ async def upload_audio(
 
         if not upload_url:
             logger.error(
-                f"[upload_audio] No upload_url in session response: {session_info}"
+                f"[upload_file] No upload_url in session response: {session_info}"
             )
             return None, None
 
@@ -529,7 +529,7 @@ async def upload_audio(
             access_token = await get_access_token()
             if not access_token:
                 logger.error(
-                    "[upload_audio] Failed to get access token for part upload!"
+                    "[upload_file] Failed to get access token for part upload!"
                 )
                 return None, None
 
@@ -551,7 +551,7 @@ async def upload_audio(
 
                         if upload_response.status not in (200, 201, 202):
                             logger.error(
-                                f"[upload_audio] Failed to upload file part {part_num}: {upload_response.status} - {text}"
+                                f"[upload_file] Failed to upload file part {part_num}: {upload_response.status} - {text}"
                             )
                             return None, None
 
@@ -562,15 +562,11 @@ async def upload_audio(
                         )
 
             if "uuid" in upload_data:
-                download_url = (
-                    upload_data.get("_links", {}).get("download", {}).get("href")
-                )
-
-                if not download_url:
-                    logger.error("[upload_audio] No download URL in upload response")
+                file_uuid = upload_data.get("uuid")
+                if not file_uuid:
+                    logger.error("[upload_file] No uuid in upload response")
                     return None, None
-
-                return download_url, file_size
+                return file_uuid, file_size
 
             next_url = upload_data.get("next_url")
             if next_url:
@@ -579,10 +575,57 @@ async def upload_audio(
             offset += chunk_len
 
         logger.error(
-            "[upload_audio] ✗ No file UUID or download URL returned after upload"
+            "[upload_file] ✗ No file UUID returned after upload"
         )
         return None, None
 
     except Exception as e:
-        logger.error(f"[upload_audio] ✗ Exception occurred: {e}", exc_info=True)
+        logger.error(f"[upload_file] ✗ Exception occurred: {e}", exc_info=True)
         return None, None
+
+
+async def attach_file_to_lead(lead_id: int, file_uuid: str) -> bool:
+    """
+    Attach an already-uploaded Drive file to a lead via the Files API.
+
+    The file will appear in the lead's Files tab in AmoCRM.
+
+    Args:
+        lead_id: CRM lead ID
+        file_uuid: UUID returned by the Drive upload session
+
+    Returns:
+        True if successful, False otherwise
+    """
+    try:
+        access_token = await get_access_token()
+        if not access_token:
+            logger.error("[attach_file_to_lead] Failed to get access token")
+            return False
+
+        url = f"https://{config.CRM_SUBDOMAIN}.amocrm.ru/api/v4/leads/{lead_id}/files"
+        headers = {
+            "Authorization": f"Bearer {access_token}",
+            "Content-Type": "application/json",
+        }
+        body = [{"file_uuid": file_uuid}]
+
+        async with aiohttp.ClientSession() as session:
+            async with async_amo_crm_rate_limiter.limit():
+                async with session.put(
+                    url,
+                    headers=headers,
+                    json=body,
+                    timeout=aiohttp.ClientTimeout(total=30),
+                ) as response:
+                    if response.status == 202:
+                        return True
+                    text = await response.text()
+                    logger.error(
+                        f"[attach_file_to_lead] Failed: HTTP {response.status} {text}"
+                    )
+                    return False
+
+    except Exception as e:
+        logger.error(f"[attach_file_to_lead] Exception occurred: {e}", exc_info=True)
+        return False

@@ -5,11 +5,12 @@ from amocrm.v2.entity.note import COMMON_TYPE
 from telegram import Bot
 
 from config import CRM_HOMEWORK_PIPELINE, CRM_HW_SUBMITTED_STATUS
-from crm.crm_chat_service import send_audio_to_chat, send_video_to_chat
+from crm.crm_chat_service import send_video_to_chat
 from crm.crm_service import (
+    attach_file_to_lead,
     get_crm_lead,
     update_lead_status_in_pipeline,
-    upload_audio,
+    upload_file,
     upload_video,
 )
 from crm.crm_models import Lead
@@ -146,8 +147,8 @@ async def submit_student_answers(
     update homework status → SUBMITTED, update lead status → 84497010.
 
     `answers` format: {question_number: {"is_text": bool, "text": str|None, "file_id": str|None, "media_type": str, "send_type": str|None}}
-    media_type: "text" | "video" | "audio" | "other".
-    "video" and "audio" are uploaded to CRM Drive and sent to chat; "other" is noted as a file reference.
+    media_type: "text" | "video" | "audio" | "image" | "other".
+    "video" goes to Drive + chat; "audio" and "image" go to Drive + lead Files tab; "other" gets a generic note.
     """
     loop = asyncio.get_running_loop()
 
@@ -218,7 +219,7 @@ async def submit_student_answers(
                 }
             )
         elif media_type == "audio":
-            download_url, file_size, filename = await _upload_answer_audio(
+            file_uuid, file_size, filename = await _upload_answer_audio(
                 bot, file_id, q_num, send_type
             )
             content = file_id or ""
@@ -226,9 +227,19 @@ async def submit_student_answers(
                 {
                     "q_num": q_num,
                     "type": "audio",
-                    "url": download_url,
-                    "filename": filename,
-                    "file_size": file_size,
+                    "uuid": file_uuid,
+                }
+            )
+        elif media_type == "image":
+            file_uuid, file_size, filename = await _upload_answer_image(
+                bot, file_id, q_num
+            )
+            content = file_id or ""
+            answer_info.append(
+                {
+                    "q_num": q_num,
+                    "type": "image",
+                    "uuid": file_uuid,
                 }
             )
         else:
@@ -296,30 +307,30 @@ async def submit_student_answers(
                     f"Ответ на Д/З № {q_num} (видео): {video_url or 'не удалось загрузить'}",
                 )
         elif info["type"] == "audio":
-            audio_url = info["url"]
-            if audio_url and contact_id:
+            file_uuid = info["uuid"]
+            if file_uuid:
                 await loop.run_in_executor(
-                    None, _create_note, f"Ответ на Д/З № {q_num}"
+                    None, _create_note, f"Ответ на Д/З № {q_num} (аудио)"
                 )
-                sent = await send_audio_to_chat(
-                    audio_url=audio_url,
-                    contact_id=contact_id,
-                    filename=info["filename"],
-                    lead_id=int(homework.lead_id),
-                    contact_name=contact_name,
-                    file_size=info["file_size"],
-                )
-                if not sent:
-                    await loop.run_in_executor(
-                        None,
-                        _create_note,
-                        f"Ответ на Д/З № {q_num} (аудио): {audio_url}",
-                    )
+                await attach_file_to_lead(int(homework.lead_id), file_uuid)
             else:
                 await loop.run_in_executor(
                     None,
                     _create_note,
-                    f"Ответ на Д/З № {q_num} (аудио): {audio_url or 'не удалось загрузить'}",
+                    f"Ответ на Д/З № {q_num} (аудио): не удалось загрузить",
+                )
+        elif info["type"] == "image":
+            file_uuid = info["uuid"]
+            if file_uuid:
+                await loop.run_in_executor(
+                    None, _create_note, f"Ответ на Д/З № {q_num} (фото)"
+                )
+                await attach_file_to_lead(int(homework.lead_id), file_uuid)
+            else:
+                await loop.run_in_executor(
+                    None,
+                    _create_note,
+                    f"Ответ на Д/З № {q_num} (фото): не удалось загрузить",
                 )
         else:
             await loop.run_in_executor(
@@ -373,6 +384,7 @@ async def _upload_answer_audio(
     q_num: int,
     send_type: str | None,
 ) -> tuple[str | None, int, str]:
+    """Returns (file_uuid, file_size, filename). file_uuid is None on failure."""
     ext = "ogg" if send_type == "voice" else "mp3"
     content_type = "audio/ogg" if send_type == "voice" else "audio/mpeg"
     filename = f"hw_{q_num}_{(file_id or 'unknown')[:8]}.{ext}"
@@ -381,8 +393,27 @@ async def _upload_answer_audio(
     try:
         tg_file = await bot.get_file(file_id)
         file_bytes = await tg_file.download_as_bytearray()
-        download_url, _ = await upload_audio(bytes(file_bytes), filename, content_type)
-        return download_url, len(file_bytes), filename
+        file_uuid, _ = await upload_file(bytes(file_bytes), filename, content_type)
+        return file_uuid, len(file_bytes), filename
     except Exception as e:
         logger.error(f"Failed to upload audio for question {q_num}: {e}", exc_info=True)
+        return None, 0, filename
+
+
+async def _upload_answer_image(
+    bot: Bot,
+    file_id: str | None,
+    q_num: int,
+) -> tuple[str | None, int, str]:
+    """Returns (file_uuid, file_size, filename). file_uuid is None on failure."""
+    filename = f"hw_{q_num}_{(file_id or 'unknown')[:8]}.jpg"
+    if not file_id:
+        return None, 0, filename
+    try:
+        tg_file = await bot.get_file(file_id)
+        file_bytes = await tg_file.download_as_bytearray()
+        file_uuid, _ = await upload_file(bytes(file_bytes), filename, "image/jpeg")
+        return file_uuid, len(file_bytes), filename
+    except Exception as e:
+        logger.error(f"Failed to upload image for question {q_num}: {e}", exc_info=True)
         return None, 0, filename
