@@ -101,7 +101,15 @@ async def _ask_question(
 async def _edit_to_question(
     n: int, context: ContextTypes.DEFAULT_TYPE, update: Update
 ) -> None:
-    """Edit the current hw_question_msg to show question n with no keyboard. Falls back to send."""
+    """Edit the current hw_question_msg to show question n with no keyboard. Falls back to send.
+    Also deletes the student's pending answer message."""
+    student_msg_id = context.user_data.pop("hw_student_msg_id", None)
+    if student_msg_id:
+        try:
+            await context.bot.delete_message(update.effective_chat.id, student_msg_id)
+        except Exception:
+            pass
+
     questions = _get_questions(context)
     total = len(questions)
     text = HW_QUESTION_PROMPT.format(n=n, total=total, question=questions[n - 1])
@@ -152,6 +160,7 @@ def _store_answer(q_num: int, message: Message, context: ContextTypes.DEFAULT_TY
     }
 
 
+
 def _next_question_state(current_q: int, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Return the ANSWERING state for the next unanswered question, or REVIEWING."""
     questions = _get_questions(context)
@@ -186,6 +195,7 @@ async def _show_review(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 async def handle_start_homework(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     query = update.callback_query
     await query.answer()
+    context.user_data.clear()
 
     try:
         hw_id = int(query.data.split("_")[-1])
@@ -232,20 +242,18 @@ def _make_answer_handler(q_num: int):
     async def handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         _store_answer(q_num, update.message, context)
         hw_id = _hw_id(context)
-        answers: dict = context.user_data.get("hw_answers", {})
-        answer_data = answers.get(q_num, {})
-        answer_preview = answer_data.get("text") if answer_data.get("is_text") else HW_MEDIA_LABEL
+
+        # Keep the student's message visible during confirmation; delete it on confirm/retry.
+        context.user_data["hw_student_msg_id"] = update.message.message_id
 
         questions = _get_questions(context)
         total = len(questions)
         question = _question_for(q_num, context)
-        base_text = HW_QUESTION_PROMPT.format(n=q_num, total=total, question=question)
-        confirm_text = f"{base_text}\n\n{HW_ANSWER_CONFIRM_PROMPT}\n\n*Ваш ответ:* {answer_preview}"
-
-        try:
-            await update.message.delete()
-        except Exception:
-            pass
+        confirm_text = (
+            HW_QUESTION_PROMPT.format(n=q_num, total=total, question=question)
+            + f"\n\n{HW_ANSWER_CONFIRM_PROMPT}"
+        )
+        keyboard = get_hw_answer_confirmation_keyboard(hw_id, q_num)
 
         msg_id = context.user_data.get("hw_question_msg_id")
         if msg_id:
@@ -254,19 +262,13 @@ def _make_answer_handler(q_num: int):
                     chat_id=update.effective_chat.id,
                     message_id=msg_id,
                     text=confirm_text,
-                    parse_mode="Markdown",
-                    reply_markup=get_hw_answer_confirmation_keyboard(hw_id, q_num),
+                    reply_markup=keyboard,
                 )
             except Exception:
-                await update.effective_chat.send_message(
-                    HW_ANSWER_CONFIRM_PROMPT,
-                    reply_markup=get_hw_answer_confirmation_keyboard(hw_id, q_num),
-                )
+                await update.effective_chat.send_message(confirm_text, reply_markup=keyboard)
         else:
-            await update.effective_chat.send_message(
-                HW_ANSWER_CONFIRM_PROMPT,
-                reply_markup=get_hw_answer_confirmation_keyboard(hw_id, q_num),
-            )
+            await update.effective_chat.send_message(confirm_text, reply_markup=keyboard)
+
         return _CONFIRM_STATE[q_num - 1]
     handler.__name__ = f"handle_answer_hw_{q_num}"
     return handler
@@ -278,10 +280,16 @@ def _make_confirm_handler(q_num: int):
         await query.answer()
         next_state = _next_question_state(q_num, context)
         if next_state == REVIEWING:
+            student_msg_id = context.user_data.pop("hw_student_msg_id", None)
+            if student_msg_id:
+                try:
+                    await context.bot.delete_message(update.effective_chat.id, student_msg_id)
+                except Exception:
+                    pass
             await _show_review(update, context)
             return REVIEWING
         next_q = q_num + 1
-        await _edit_to_question(next_q, context, update)
+        await _edit_to_question(next_q, context, update)  # also deletes hw_student_msg_id
         return _ANSWER_STATE[q_num]  # 0-indexed next q
     handler.__name__ = f"handle_confirm_hw_{q_num}"
     return handler
@@ -325,13 +333,11 @@ async def handle_review_confirm(update: Update, context: ContextTypes.DEFAULT_TY
         await submit_student_answers(hw_id, answers, context.bot)
     except Exception as e:
         logger.error(f"Failed to submit homework hw_id={hw_id}: {e}", exc_info=True)
+        context.user_data.clear()
         await update.message.reply_text(ERROR_MESSAGE)
         return ConversationHandler.END
 
-    context.user_data.pop("hw_id", None)
-    context.user_data.pop("hw_questions", None)
-    context.user_data.pop("hw_answers", None)
-
+    context.user_data.clear()
     await update.message.reply_text(HW_SUBMITTED, reply_markup=ReplyKeyboardRemove())
     return ConversationHandler.END
 
