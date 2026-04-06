@@ -5,9 +5,8 @@ from amocrm.v2.entity.note import COMMON_TYPE
 from telegram import Bot
 
 from config import CRM_HOMEWORK_PIPELINE, CRM_HW_SUBMITTED_STATUS
-from crm.crm_chat_service import send_video_to_chat
+from crm.crm_chat_service import send_media_to_chat, send_video_to_chat
 from crm.crm_service import (
-    create_attachment_note,
     get_crm_lead,
     update_lead_status_in_pipeline,
     upload_file,
@@ -229,7 +228,7 @@ async def submit_student_answers(
                 }
             )
         elif media_type == "audio":
-            file_uuid, version_uuid, file_size, filename = await _upload_answer_audio(
+            file_uuid, version_uuid, file_size, filename, download_url = await _upload_answer_audio(
                 bot, file_id, q_num, send_type
             )
             content = file_id or ""
@@ -240,10 +239,12 @@ async def submit_student_answers(
                     "uuid": file_uuid,
                     "version_uuid": version_uuid,
                     "filename": filename,
+                    "file_size": file_size,
+                    "download_url": download_url,
                 }
             )
         elif media_type == "image":
-            file_uuid, version_uuid, file_size, filename = await _upload_answer_image(
+            file_uuid, version_uuid, file_size, filename, download_url = await _upload_answer_image(
                 bot, file_id, q_num
             )
             content = file_id or ""
@@ -254,6 +255,8 @@ async def submit_student_answers(
                     "uuid": file_uuid,
                     "version_uuid": version_uuid,
                     "filename": filename,
+                    "file_size": file_size,
+                    "download_url": download_url,
                 }
             )
         else:
@@ -319,15 +322,24 @@ async def submit_student_answers(
                     f"Ответ на Д/З № {q_num} (видео): {video_url or 'не удалось загрузить'}",
                 )
         elif info["type"] == "audio":
-            file_uuid = info["uuid"]
-            if file_uuid:
-                await create_attachment_note(
-                    int(homework.lead_id),
-                    file_uuid,
-                    info["version_uuid"],
-                    info["filename"],
+            dl_url = info.get("download_url")
+            if dl_url and contact_id:
+                sent = await send_media_to_chat(
+                    media_url=dl_url,
+                    contact_id=contact_id,
+                    filename=info["filename"],
+                    media_type="voice",
+                    lead_id=int(homework.lead_id),
+                    contact_name=contact_name,
+                    file_size=info.get("file_size", 0),
                     text=f"Ответ на Д/З № {q_num} (аудио)",
                 )
+                if not sent:
+                    await loop.run_in_executor(
+                        None,
+                        _create_note,
+                        f"Ответ на Д/З № {q_num} (аудио): {dl_url}",
+                    )
             else:
                 await loop.run_in_executor(
                     None,
@@ -335,15 +347,24 @@ async def submit_student_answers(
                     f"Ответ на Д/З № {q_num} (аудио): не удалось загрузить",
                 )
         elif info["type"] == "image":
-            file_uuid = info["uuid"]
-            if file_uuid:
-                await create_attachment_note(
-                    int(homework.lead_id),
-                    file_uuid,
-                    info["version_uuid"],
-                    info["filename"],
+            dl_url = info.get("download_url")
+            if dl_url and contact_id:
+                sent = await send_media_to_chat(
+                    media_url=dl_url,
+                    contact_id=contact_id,
+                    filename=info["filename"],
+                    media_type="picture",
+                    lead_id=int(homework.lead_id),
+                    contact_name=contact_name,
+                    file_size=info.get("file_size", 0),
                     text=f"Ответ на Д/З № {q_num} (фото)",
                 )
+                if not sent:
+                    await loop.run_in_executor(
+                        None,
+                        _create_note,
+                        f"Ответ на Д/З № {q_num} (фото): {dl_url}",
+                    )
             else:
                 await loop.run_in_executor(
                     None,
@@ -401,41 +422,41 @@ async def _upload_answer_audio(
     file_id: str | None,
     q_num: int,
     send_type: str | None,
-) -> tuple[str | None, str | None, int, str]:
-    """Returns (file_uuid, version_uuid, file_size, filename). UUIDs are None on failure."""
+) -> tuple[str | None, str | None, int, str, str | None]:
+    """Returns (file_uuid, version_uuid, file_size, filename, download_url). UUIDs are None on failure."""
     ext = "ogg" if send_type == "voice" else "mp3"
     content_type = "audio/ogg" if send_type == "voice" else "audio/mpeg"
     filename = f"hw_{q_num}_{(file_id or 'unknown')[:8]}.{ext}"
     if not file_id:
-        return None, None, 0, filename
+        return None, None, 0, filename, None
     try:
         tg_file = await bot.get_file(file_id)
         file_bytes = await tg_file.download_as_bytearray()
-        file_uuid, version_uuid, _ = await upload_file(
+        file_uuid, version_uuid, _, download_url = await upload_file(
             bytes(file_bytes), filename, content_type
         )
-        return file_uuid, version_uuid, len(file_bytes), filename
+        return file_uuid, version_uuid, len(file_bytes), filename, download_url
     except Exception as e:
         logger.error(f"Failed to upload audio for question {q_num}: {e}", exc_info=True)
-        return None, None, 0, filename
+        return None, None, 0, filename, None
 
 
 async def _upload_answer_image(
     bot: Bot,
     file_id: str | None,
     q_num: int,
-) -> tuple[str | None, str | None, int, str]:
-    """Returns (file_uuid, version_uuid, file_size, filename). UUIDs are None on failure."""
+) -> tuple[str | None, str | None, int, str, str | None]:
+    """Returns (file_uuid, version_uuid, file_size, filename, download_url). UUIDs are None on failure."""
     filename = f"hw_{q_num}_{(file_id or 'unknown')[:8]}.jpg"
     if not file_id:
-        return None, None, 0, filename
+        return None, None, 0, filename, None
     try:
         tg_file = await bot.get_file(file_id)
         file_bytes = await tg_file.download_as_bytearray()
-        file_uuid, version_uuid, _ = await upload_file(
+        file_uuid, version_uuid, _, download_url = await upload_file(
             bytes(file_bytes), filename, "image/jpeg"
         )
-        return file_uuid, version_uuid, len(file_bytes), filename
+        return file_uuid, version_uuid, len(file_bytes), filename, download_url
     except Exception as e:
         logger.error(f"Failed to upload image for question {q_num}: {e}", exc_info=True)
-        return None, None, 0, filename
+        return None, None, 0, filename, None

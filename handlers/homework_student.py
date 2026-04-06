@@ -355,7 +355,11 @@ async def handle_review_confirm(update: Update, context: ContextTypes.DEFAULT_TY
         return ConversationHandler.END
 
     context.user_data.clear()
-    await pending_msg.edit_text(HW_SUBMITTED)
+    try:
+        await pending_msg.edit_text(HW_SUBMITTED)
+    except Exception as e:
+        logger.error(f"Failed to edit pending message: {e}", exc_info=True)
+        await update.message.reply_text(HW_SUBMITTED)
     return ConversationHandler.END
 
 

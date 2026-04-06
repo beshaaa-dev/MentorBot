@@ -206,6 +206,193 @@ async def send_video_to_chat(
         return False
 
 
+async def send_media_to_chat(
+    media_url: str,
+    contact_id: int,
+    filename: str,
+    media_type: str = "file",
+    lead_id: Optional[int] = None,
+    contact_name: str = "",
+    file_size: int = 0,
+    text: Optional[str] = None,
+) -> bool:
+    """
+    Отправка медиа-сообщения в чат AMoCRM.
+
+    Полный процесс: создание чата, привязка к контакту, отправка сообщения.
+
+    Args:
+        media_url: URL файла (AMoCRM Drive URL)
+        contact_id: ID контакта в CRM
+        filename: Имя файла
+        media_type: Тип сообщения в Chats API ("voice", "picture", "file", "audio")
+        lead_id: ID сделки (опционально)
+        contact_name: Имя контакта
+        file_size: Размер файла в байтах
+        text: Текст сообщения (отображается вместе с файлом)
+
+    Returns:
+        True при успехе, False при ошибке
+    """
+    start_time = time.time()
+    scope_id = await _get_or_create_scope_id()
+
+    if not scope_id:
+        logger.error("[send_media_to_chat] Failed to get scope_id")
+        return False
+
+    channel_secret = config.CRM_CHAT_CHANNEL_SECRET
+
+    if not channel_secret:
+        logger.error("[send_media_to_chat] Missing channel_secret in config")
+        return False
+
+    try:
+        # Step 1: Создание чата
+        conversation_id = f"tgbot-{contact_id}"
+        user_id = f"tgbot-user-{contact_id}"
+
+        chat_body = {
+            "conversation_id": conversation_id,
+            "user": {
+                "id": user_id,
+                "name": contact_name,
+            }
+        }
+
+        chat_request_body = json.dumps(chat_body, separators=(',', ':'))
+
+        method = "POST"
+        date = formatdate(timeval=None, localtime=False, usegmt=True)
+        path = f"/v2/origin/custom/{scope_id}/chats"
+
+        content_md5 = hashlib.md5(chat_request_body.encode()).hexdigest()
+        signature_string = "\n".join([method.upper(), content_md5, "application/json", date, path])
+        signature = hmac.new(channel_secret.encode(), signature_string.encode(), hashlib.sha1).hexdigest()
+
+        headers = {
+            "Date": date,
+            "Content-Type": "application/json",
+            "Content-MD5": content_md5.lower(),
+            "X-Signature": signature.lower(),
+        }
+
+        url = f"https://amojo.amocrm.ru{path}"
+
+        async with aiohttp.ClientSession() as session:
+            async with async_amo_crm_rate_limiter.limit():
+                async with session.post(url, headers=headers, data=chat_request_body, timeout=aiohttp.ClientTimeout(total=30)) as response:
+                    resp_text = await response.text()
+
+                    if response.status not in (200, 201):
+                        logger.error(
+                            f"[send_media_to_chat] Failed to create chat: {response.status} {resp_text}"
+                        )
+                        return False
+
+                    result = json.loads(resp_text)
+                    chat_id = result.get("id")
+
+        if not chat_id:
+            logger.error(f"[send_media_to_chat] No chat ID in response: {result}")
+            return False
+
+        # Step 2: Привязка чата к контакту
+        from crm.crm_service import get_access_token
+        access_token = await get_access_token()
+
+        if not access_token:
+            logger.error("[send_media_to_chat] Failed to get access token!")
+            return False
+
+        attach_url = f"https://{config.CRM_SUBDOMAIN}.amocrm.ru/api/v4/contacts/chats"
+        attach_headers = {
+            "Authorization": f"Bearer {access_token}",
+            "Content-Type": "application/json",
+        }
+        attach_body = [{"contact_id": contact_id, "chat_id": chat_id}]
+
+        async with aiohttp.ClientSession() as session:
+            async with async_amo_crm_rate_limiter.limit():
+                async with session.post(attach_url, headers=attach_headers, json=attach_body, timeout=aiohttp.ClientTimeout(total=30)) as attach_response:
+                    resp_text = await attach_response.text()
+
+                    if attach_response.status not in (200, 201):
+                        logger.warning(
+                            f"[send_media_to_chat] Failed to attach chat: {attach_response.status} {resp_text}"
+                        )
+
+        # Step 3: Отправка медиа-сообщения
+        timestamp = int(time.time())
+        msec_timestamp = int(time.time() * 1000)
+        msgid = f"tgbot-{media_type}-{msec_timestamp}"
+        sender_id = f"tgbot-contact-{timestamp}"
+
+        sender = {
+            "id": sender_id,
+            "name": contact_name,
+        }
+
+        payload = {
+            "timestamp": timestamp,
+            "msec_timestamp": msec_timestamp,
+            "msgid": msgid,
+            "conversation_ref_id": chat_id,
+            "sender": sender,
+            "message": {
+                "type": media_type,
+                "media": media_url,
+                "file_name": filename,
+                "file_size": file_size,
+                **({"text": text} if text else {}),
+            },
+            "silent": False,
+        }
+
+        if lead_id:
+            payload["source"] = {"external_id": str(lead_id)}
+
+        msg_body = {
+            "event_type": "new_message",
+            "payload": payload
+        }
+
+        msg_request_body = json.dumps(msg_body, separators=(',', ':'))
+
+        date = formatdate(timeval=None, localtime=False, usegmt=True)
+        path = f"/v2/origin/custom/{scope_id}"
+
+        content_md5 = hashlib.md5(msg_request_body.encode()).hexdigest()
+        signature_string = "\n".join([method.upper(), content_md5, "application/json", date, path])
+        signature = hmac.new(channel_secret.encode(), signature_string.encode(), hashlib.sha1).hexdigest()
+
+        headers = {
+            "Date": date,
+            "Content-Type": "application/json",
+            "Content-MD5": content_md5.lower(),
+            "X-Signature": signature.lower(),
+        }
+
+        url = f"https://amojo.amocrm.ru{path}"
+
+        async with aiohttp.ClientSession() as session:
+            async with async_amo_crm_rate_limiter.limit():
+                async with session.post(url, headers=headers, data=msg_request_body, timeout=aiohttp.ClientTimeout(total=30)) as response:
+                    resp_text = await response.text()
+
+                    if response.status in (200, 201):
+                        return True
+                    logger.error(
+                        f"[send_media_to_chat] Failed to send {media_type}: HTTP {response.status} {resp_text}"
+                    )
+                    return False
+
+    except Exception as e:
+        total_time = time.time() - start_time
+        logger.error(f"[send_media_to_chat] Exception occurred after {total_time:.2f}s: {e}", exc_info=True)
+        return False
+
+
 async def _get_amojo_id() -> str:
     logger.debug(f"[_get_amojo_id] Starting to fetch amojo_id...")
     try:

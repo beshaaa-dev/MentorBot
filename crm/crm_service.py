@@ -416,23 +416,23 @@ async def upload_video(
 
 async def upload_file(
     file_bytes: bytes, filename: str, content_type: str = "application/octet-stream"
-) -> tuple[str, str, int] | tuple[None, None, None]:
+) -> tuple[str, str, int, str | None] | tuple[None, None, None, None]:
     """
-    Upload any file to AMoCRM Drive and return the file UUID and version UUID.
+    Загрузка файла в AMoCRM Drive.
 
     Args:
-        file_bytes: File content as bytes
-        filename: Name for the uploaded file
-        content_type: MIME type of the file (e.g. "audio/ogg", "image/jpeg")
+        file_bytes: Содержимое файла
+        filename: Имя файла
+        content_type: MIME-тип файла (например "audio/ogg", "image/jpeg")
 
     Returns:
-        Tuple of (file_uuid, version_uuid, file_size) if successful, (None, None, None) otherwise
+        (file_uuid, version_uuid, file_size, download_url) при успехе, (None, None, None, None) при ошибке
     """
     try:
         access_token = await get_access_token()
         if not access_token:
             logger.error("[upload_file] Failed to get access token!")
-            return None, None, None
+            return None, None, None, None
 
         headers = {
             "Authorization": f"Bearer {access_token}",
@@ -452,7 +452,7 @@ async def upload_file(
                         logger.error(
                             f"[upload_file] Failed to get drive_url: {account_response.status}"
                         )
-                        return None, None, None
+                        return None, None, None, None
 
                     account_data = (
                         await account_response.json()
@@ -479,7 +479,7 @@ async def upload_file(
             logger.error(
                 "[upload_file] Failed to get access token for upload session!"
             )
-            return None, None, None
+            return None, None, None, None
 
         session_headers = {
             "Authorization": f"Bearer {access_token}",
@@ -499,7 +499,7 @@ async def upload_file(
                         logger.error(
                             f"[upload_file] Failed to create upload session: {session_response.status} - {text}"
                         )
-                        return None, None, None
+                        return None, None, None, None
 
                     session_info = (
                         await session_response.json()
@@ -513,7 +513,7 @@ async def upload_file(
             logger.error(
                 f"[upload_file] No upload_url in session response: {session_info}"
             )
-            return None, None, None
+            return None, None, None, None
 
         # Step 2: Upload file in parts
         total_size = len(file_bytes)
@@ -531,7 +531,7 @@ async def upload_file(
                 logger.error(
                     "[upload_file] Failed to get access token for part upload!"
                 )
-                return None, None
+                return None, None, None, None
 
             part_headers = {
                 "Authorization": f"Bearer {access_token}",
@@ -553,7 +553,7 @@ async def upload_file(
                             logger.error(
                                 f"[upload_file] Failed to upload file part {part_num}: {upload_response.status} - {text}"
                             )
-                            return None, None, None
+                            return None, None, None, None
 
                         upload_data = (
                             await upload_response.json()
@@ -566,8 +566,11 @@ async def upload_file(
                 version_uuid = upload_data.get("version_uuid")
                 if not file_uuid or not version_uuid:
                     logger.error("[upload_file] Missing uuid or version_uuid in upload response")
-                    return None, None, None
-                return file_uuid, version_uuid, file_size
+                    return None, None, None, None
+                download_url = (
+                    upload_data.get("_links", {}).get("download", {}).get("href")
+                )
+                return file_uuid, version_uuid, file_size, download_url
 
             next_url = upload_data.get("next_url")
             if next_url:
@@ -578,11 +581,11 @@ async def upload_file(
         logger.error(
             "[upload_file] ✗ No file UUID returned after upload"
         )
-        return None, None, None
+        return None, None, None, None
 
     except Exception as e:
         logger.error(f"[upload_file] ✗ Exception occurred: {e}", exc_info=True)
-        return None, None, None
+        return None, None, None, None
 
 
 async def create_attachment_note(
@@ -590,22 +593,22 @@ async def create_attachment_note(
     file_uuid: str,
     version_uuid: str,
     filename: str,
-    text: str | None = None,
 ) -> bool:
     """
-    Create an attachment note on a lead using an already-uploaded Drive file.
+    Создание примечания-вложения для сделки по загруженному файлу в Drive.
 
-    The note (with the file inline) appears in the lead's activity feed/timeline.
+    Примечание (с файлом) отображается в ленте активности сделки.
+    Тип 'attachment' НЕ поддерживает текстовое поле — для текста + файла
+    используйте Chats API (send_media_to_chat).
 
     Args:
-        lead_id: CRM lead ID
-        file_uuid: UUID returned by the Drive upload session
-        version_uuid: Version UUID returned by the Drive upload session
-        filename: Display name shown in the note
-        text: Optional note text shown above the attachment
+        lead_id: ID сделки в CRM
+        file_uuid: UUID файла из Drive upload session
+        version_uuid: UUID версии файла из Drive upload session
+        filename: Отображаемое имя файла в примечании
 
     Returns:
-        True if successful, False otherwise
+        True при успехе, False при ошибке
     """
     try:
         access_token = await get_access_token()
@@ -618,13 +621,6 @@ async def create_attachment_note(
             "Authorization": f"Bearer {access_token}",
             "Content-Type": "application/json",
         }
-        display_name = filename
-        if text:
-            ext = ""
-            dot_idx = filename.rfind(".")
-            if dot_idx != -1:
-                ext = filename[dot_idx:]
-            display_name = f"{text}{ext}"
 
         body = [
             {
@@ -632,7 +628,7 @@ async def create_attachment_note(
                 "params": {
                     "file_uuid": file_uuid,
                     "version_uuid": version_uuid,
-                    "file_name": display_name,
+                    "file_name": filename,
                 },
             }
         ]
