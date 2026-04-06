@@ -25,6 +25,8 @@ from messages import (
     CONFIRM_ALL_BUTTON,
     HW_CONFIRM_ALL_BUTTON,
     HW_REVIEW_CHANGE_BUTTON,
+    HW_CONFIRM_YES_BUTTON,
+    HW_CONFIRM_RETRY_BUTTON,
 )
 
 
@@ -155,16 +157,9 @@ def get_start_homework_keyboard(hw_id: int) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(keyboard)
 
 
-def get_hw_answer_confirmation_keyboard(hw_id: int, q_num: int) -> InlineKeyboardMarkup:
-    keyboard = [
-        [
-            InlineKeyboardButton("Да", callback_data=f"hw_confirm_{hw_id}_{q_num}"),
-            InlineKeyboardButton(
-                "Нет, попробовать ещё раз", callback_data=f"hw_retry_{hw_id}_{q_num}"
-            ),
-        ]
-    ]
-    return InlineKeyboardMarkup(keyboard)
+def get_hw_answer_confirmation_keyboard() -> ReplyKeyboardMarkup:
+    keyboard = [[KeyboardButton(HW_CONFIRM_YES_BUTTON), KeyboardButton(HW_CONFIRM_RETRY_BUTTON)]]
+    return ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=True)
 
 
 def get_hw_review_keyboard(question_count: int) -> ReplyKeyboardMarkup:

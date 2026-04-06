@@ -21,15 +21,15 @@ from keyboards import (
 from messages import (
     HW_QUESTION_PROMPT,
     HW_ANSWER_CONFIRM_PROMPT,
+    HW_CONFIRM_YES_BUTTON,
+    HW_CONFIRM_RETRY_BUTTON,
     HW_REVIEW_CHANGE_PROMPT,
     HW_REVIEW_CHANGE_BUTTON,
     HW_CONFIRM_ALL_BUTTON,
     HW_SUBMITTED,
     HW_NOT_FOUND,
-    HW_MEDIA_LABEL,
     ERROR_MESSAGE,
 )
-from handlers.utils import send_error_message
 from logger import setup_logger
 
 logger = setup_logger(__name__)
@@ -98,33 +98,22 @@ async def _ask_question(
     context.user_data["hw_question_msg_id"] = msg.message_id
 
 
-async def _edit_to_question(
+async def _delete_answer_msgs(context: ContextTypes.DEFAULT_TYPE, update: Update) -> None:
+    """Delete the student's answer message and the current confirm message."""
+    for key in ("hw_student_msg_id", "hw_question_msg_id"):
+        msg_id = context.user_data.pop(key, None)
+        if msg_id:
+            try:
+                await context.bot.delete_message(update.effective_chat.id, msg_id)
+            except Exception:
+                pass
+
+
+async def _transition_to_question(
     n: int, context: ContextTypes.DEFAULT_TYPE, update: Update
 ) -> None:
-    """Edit the current hw_question_msg to show question n with no keyboard. Falls back to send.
-    Also deletes the student's pending answer message."""
-    student_msg_id = context.user_data.pop("hw_student_msg_id", None)
-    if student_msg_id:
-        try:
-            await context.bot.delete_message(update.effective_chat.id, student_msg_id)
-        except Exception:
-            pass
-
-    questions = _get_questions(context)
-    total = len(questions)
-    text = HW_QUESTION_PROMPT.format(n=n, total=total, question=questions[n - 1])
-    msg_id = context.user_data.get("hw_question_msg_id")
-    if msg_id:
-        try:
-            await context.bot.edit_message_text(
-                chat_id=update.effective_chat.id,
-                message_id=msg_id,
-                text=text,
-                reply_markup=None,
-            )
-            return
-        except Exception:
-            pass
+    """Delete answer messages and send a fresh question."""
+    await _delete_answer_msgs(context, update)
     await _ask_question(n, context, update)
 
 
@@ -132,33 +121,40 @@ def _store_answer(q_num: int, message: Message, context: ContextTypes.DEFAULT_TY
     answers: dict = context.user_data.setdefault("hw_answers", {})
     is_text = bool(message.text)
     file_id: str | None = None
-    media_type: str = "text"
+    media_type: str = "text"   # coarse type for CRM: "text" | "video" | "other"
+    send_type: str | None = None  # granular type for Telegram resend
     if not is_text:
         if message.video:
             file_id = message.video.file_id
             media_type = "video"
+            send_type = "video"
         elif message.video_note:
             file_id = message.video_note.file_id
             media_type = "video"
+            send_type = "video_note"
         elif message.audio:
             file_id = message.audio.file_id
             media_type = "other"
+            send_type = "audio"
         elif message.voice:
             file_id = message.voice.file_id
             media_type = "other"
+            send_type = "voice"
         elif message.document:
             file_id = message.document.file_id
             media_type = "other"
+            send_type = "document"
         elif message.photo:
             file_id = message.photo[-1].file_id
             media_type = "other"
+            send_type = "photo"
     answers[q_num] = {
         "is_text": is_text,
         "text": message.text if is_text else None,
         "file_id": file_id,
         "media_type": media_type,
+        "send_type": send_type,
     }
-
 
 
 def _next_question_state(current_q: int, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -170,21 +166,47 @@ def _next_question_state(current_q: int, context: ContextTypes.DEFAULT_TYPE) -> 
     return REVIEWING
 
 
+async def _send_answer_content(
+    answer_data: dict, chat_id: int, context: ContextTypes.DEFAULT_TYPE
+) -> None:
+    if answer_data.get("is_text"):
+        text = answer_data.get("text") or ""
+        if text:
+            await context.bot.send_message(chat_id, text)
+        return
+    file_id = answer_data.get("file_id")
+    send_type = answer_data.get("send_type")
+    if not file_id or not send_type:
+        return
+    match send_type:
+        case "video":
+            await context.bot.send_video(chat_id, file_id)
+        case "video_note":
+            await context.bot.send_video_note(chat_id, file_id)
+        case "audio":
+            await context.bot.send_audio(chat_id, file_id)
+        case "voice":
+            await context.bot.send_voice(chat_id, file_id)
+        case "document":
+            await context.bot.send_document(chat_id, file_id)
+        case "photo":
+            await context.bot.send_photo(chat_id, file_id)
+
+
 async def _show_review(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     questions = _get_questions(context)
     answers: dict = context.user_data.get("hw_answers", {})
+    chat_id = update.effective_chat.id
     for i, q in enumerate(questions, start=1):
-        answer_data = answers.get(i, {})
-        if answer_data.get("is_text") and answer_data.get("text"):
-            answer_label = answer_data["text"]
-        else:
-            answer_label = HW_MEDIA_LABEL
-        await update.effective_chat.send_message(
-            f"*Вопрос {i}*: {q}\n*Ответ*: {answer_label}",
+        await context.bot.send_message(
+            chat_id,
+            f"*Вопрос {i}*: {q}",
             parse_mode="Markdown",
-            reply_markup=ReplyKeyboardRemove(),
+            reply_markup=ReplyKeyboardRemove() if i == 1 else None,
         )
-    await update.effective_chat.send_message(
+        await _send_answer_content(answers.get(i, {}), chat_id, context)
+    await context.bot.send_message(
+        chat_id,
         HW_REVIEW_CHANGE_PROMPT,
         reply_markup=get_hw_review_keyboard(len(questions)),
     )
@@ -241,9 +263,8 @@ async def handle_start_homework(update: Update, context: ContextTypes.DEFAULT_TY
 def _make_answer_handler(q_num: int):
     async def handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         _store_answer(q_num, update.message, context)
-        hw_id = _hw_id(context)
 
-        # Keep the student's message visible during confirmation; delete it on confirm/retry.
+        # Keep student's message visible during confirmation; delete it on confirm/retry.
         context.user_data["hw_student_msg_id"] = update.message.message_id
 
         questions = _get_questions(context)
@@ -253,21 +274,19 @@ def _make_answer_handler(q_num: int):
             HW_QUESTION_PROMPT.format(n=q_num, total=total, question=question)
             + f"\n\n{HW_ANSWER_CONFIRM_PROMPT}"
         )
-        keyboard = get_hw_answer_confirmation_keyboard(hw_id, q_num)
 
-        msg_id = context.user_data.get("hw_question_msg_id")
-        if msg_id:
+        # Delete the plain question message, then send the confirm prompt with reply keyboard.
+        old_msg_id = context.user_data.pop("hw_question_msg_id", None)
+        if old_msg_id:
             try:
-                await context.bot.edit_message_text(
-                    chat_id=update.effective_chat.id,
-                    message_id=msg_id,
-                    text=confirm_text,
-                    reply_markup=keyboard,
-                )
+                await context.bot.delete_message(update.effective_chat.id, old_msg_id)
             except Exception:
-                await update.effective_chat.send_message(confirm_text, reply_markup=keyboard)
-        else:
-            await update.effective_chat.send_message(confirm_text, reply_markup=keyboard)
+                pass
+
+        confirm_msg = await update.effective_chat.send_message(
+            confirm_text, reply_markup=get_hw_answer_confirmation_keyboard()
+        )
+        context.user_data["hw_question_msg_id"] = confirm_msg.message_id
 
         return _CONFIRM_STATE[q_num - 1]
     handler.__name__ = f"handle_answer_hw_{q_num}"
@@ -276,20 +295,15 @@ def _make_answer_handler(q_num: int):
 
 def _make_confirm_handler(q_num: int):
     async def handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-        query = update.callback_query
-        await query.answer()
-        next_state = _next_question_state(q_num, context)
-        if next_state == REVIEWING:
-            student_msg_id = context.user_data.pop("hw_student_msg_id", None)
-            if student_msg_id:
-                try:
-                    await context.bot.delete_message(update.effective_chat.id, student_msg_id)
-                except Exception:
-                    pass
+        try:
+            await update.message.delete()
+        except Exception:
+            pass
+        if context.user_data.pop("hw_review_edit", False) or _next_question_state(q_num, context) == REVIEWING:
+            await _delete_answer_msgs(context, update)
             await _show_review(update, context)
             return REVIEWING
-        next_q = q_num + 1
-        await _edit_to_question(next_q, context, update)  # also deletes hw_student_msg_id
+        await _transition_to_question(q_num + 1, context, update)
         return _ANSWER_STATE[q_num]  # 0-indexed next q
     handler.__name__ = f"handle_confirm_hw_{q_num}"
     return handler
@@ -297,9 +311,11 @@ def _make_confirm_handler(q_num: int):
 
 def _make_retry_handler(q_num: int):
     async def handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-        query = update.callback_query
-        await query.answer()
-        await _edit_to_question(q_num, context, update)
+        try:
+            await update.message.delete()
+        except Exception:
+            pass
+        await _transition_to_question(q_num, context, update)
         return _ANSWER_STATE[q_num - 1]
     handler.__name__ = f"handle_retry_hw_{q_num}"
     return handler
@@ -315,6 +331,7 @@ async def handle_review_change(update: Update, context: ContextTypes.DEFAULT_TYP
             questions = _get_questions(context)
             if n > len(questions):
                 break
+            context.user_data["hw_review_edit"] = True
             await _ask_question(n, context, update)
             return _ANSWER_STATE[n - 1]
     await _show_review(update, context)
@@ -349,12 +366,10 @@ _answer_handlers = [_make_answer_handler(n) for n in range(1, 6)]
 _confirm_handlers = [_make_confirm_handler(n) for n in range(1, 6)]
 _retry_handlers = [_make_retry_handler(n) for n in range(1, 6)]
 
-_review_change_filter = filters.TEXT & ~filters.COMMAND & filters.Regex(
-    r"^Изменить вопрос [1-5]$"
-)
-_review_confirm_filter = filters.TEXT & ~filters.COMMAND & filters.Regex(
-    f"^{HW_CONFIRM_ALL_BUTTON}$"
-)
+_hw_confirm_filter = filters.TEXT & ~filters.COMMAND & filters.Regex(f"^{HW_CONFIRM_YES_BUTTON}$")
+_hw_retry_filter = filters.TEXT & ~filters.COMMAND & filters.Regex(f"^{HW_CONFIRM_RETRY_BUTTON}$")
+_review_change_filter = filters.TEXT & ~filters.COMMAND & filters.Regex(r"^Изменить вопрос [1-5]$")
+_review_confirm_filter = filters.TEXT & ~filters.COMMAND & filters.Regex(f"^{HW_CONFIRM_ALL_BUTTON}$")
 
 
 # ── ConversationHandler registration ─────────────────────────────────────────
@@ -367,32 +382,32 @@ hw_student_conversation_handler = ConversationHandler(
         # Q1
         ANSWERING_HW_1: [MessageHandler(_ACCEPTED_MEDIA & ~filters.COMMAND, _answer_handlers[0])],
         CONFIRMING_HW_1: [
-            CallbackQueryHandler(_confirm_handlers[0], pattern=r"^hw_confirm_\d+_1$"),
-            CallbackQueryHandler(_retry_handlers[0], pattern=r"^hw_retry_\d+_1$"),
+            MessageHandler(_hw_confirm_filter, _confirm_handlers[0]),
+            MessageHandler(_hw_retry_filter, _retry_handlers[0]),
         ],
         # Q2
         ANSWERING_HW_2: [MessageHandler(_ACCEPTED_MEDIA & ~filters.COMMAND, _answer_handlers[1])],
         CONFIRMING_HW_2: [
-            CallbackQueryHandler(_confirm_handlers[1], pattern=r"^hw_confirm_\d+_2$"),
-            CallbackQueryHandler(_retry_handlers[1], pattern=r"^hw_retry_\d+_2$"),
+            MessageHandler(_hw_confirm_filter, _confirm_handlers[1]),
+            MessageHandler(_hw_retry_filter, _retry_handlers[1]),
         ],
         # Q3
         ANSWERING_HW_3: [MessageHandler(_ACCEPTED_MEDIA & ~filters.COMMAND, _answer_handlers[2])],
         CONFIRMING_HW_3: [
-            CallbackQueryHandler(_confirm_handlers[2], pattern=r"^hw_confirm_\d+_3$"),
-            CallbackQueryHandler(_retry_handlers[2], pattern=r"^hw_retry_\d+_3$"),
+            MessageHandler(_hw_confirm_filter, _confirm_handlers[2]),
+            MessageHandler(_hw_retry_filter, _retry_handlers[2]),
         ],
         # Q4
         ANSWERING_HW_4: [MessageHandler(_ACCEPTED_MEDIA & ~filters.COMMAND, _answer_handlers[3])],
         CONFIRMING_HW_4: [
-            CallbackQueryHandler(_confirm_handlers[3], pattern=r"^hw_confirm_\d+_4$"),
-            CallbackQueryHandler(_retry_handlers[3], pattern=r"^hw_retry_\d+_4$"),
+            MessageHandler(_hw_confirm_filter, _confirm_handlers[3]),
+            MessageHandler(_hw_retry_filter, _retry_handlers[3]),
         ],
         # Q5
         ANSWERING_HW_5: [MessageHandler(_ACCEPTED_MEDIA & ~filters.COMMAND, _answer_handlers[4])],
         CONFIRMING_HW_5: [
-            CallbackQueryHandler(_confirm_handlers[4], pattern=r"^hw_confirm_\d+_5$"),
-            CallbackQueryHandler(_retry_handlers[4], pattern=r"^hw_retry_\d+_5$"),
+            MessageHandler(_hw_confirm_filter, _confirm_handlers[4]),
+            MessageHandler(_hw_retry_filter, _retry_handlers[4]),
         ],
         # Review
         REVIEWING: [
