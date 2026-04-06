@@ -93,8 +93,12 @@ async def _ask_question(
 ) -> None:
     questions = _get_questions(context)
     total = len(questions)
+    hw_id = _hw_id(context)
     text = HW_QUESTION_PROMPT.format(n=n, total=total, question=questions[n - 1])
-    msg = await update.effective_chat.send_message(text, reply_markup=ReplyKeyboardRemove())
+    msg = await update.effective_chat.send_message(
+        text,
+        reply_markup=get_hw_answer_confirmation_keyboard(hw_id, n),
+    )
     context.user_data["hw_question_msg_id"] = msg.message_id
 
 
@@ -215,6 +219,11 @@ def _make_answer_handler(q_num: int):
         base_text = HW_QUESTION_PROMPT.format(n=q_num, total=total, question=question)
         confirm_text = f"{base_text}\n\n{HW_ANSWER_CONFIRM_PROMPT}\n\n*Ваш ответ:* {answer_preview}"
 
+        try:
+            await update.message.delete()
+        except Exception:
+            pass
+
         msg_id = context.user_data.get("hw_question_msg_id")
         if msg_id:
             try:
@@ -226,12 +235,12 @@ def _make_answer_handler(q_num: int):
                     reply_markup=get_hw_answer_confirmation_keyboard(hw_id, q_num),
                 )
             except Exception:
-                await update.message.reply_text(
+                await update.effective_chat.send_message(
                     HW_ANSWER_CONFIRM_PROMPT,
                     reply_markup=get_hw_answer_confirmation_keyboard(hw_id, q_num),
                 )
         else:
-            await update.message.reply_text(
+            await update.effective_chat.send_message(
                 HW_ANSWER_CONFIRM_PROMPT,
                 reply_markup=get_hw_answer_confirmation_keyboard(hw_id, q_num),
             )

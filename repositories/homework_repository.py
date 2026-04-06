@@ -201,15 +201,19 @@ async def submit_student_answers(
             content = text
             answer_info.append({"q_num": q_num, "type": "text", "text": text})
         elif media_type == "video":
-            download_url, file_size, filename = await _upload_answer_media(bot, file_id, q_num)
+            download_url, file_size, filename = await _upload_answer_media(
+                bot, file_id, q_num
+            )
             content = file_id or ""
-            answer_info.append({
-                "q_num": q_num,
-                "type": "video",
-                "url": download_url,
-                "filename": filename,
-                "file_size": file_size,
-            })
+            answer_info.append(
+                {
+                    "q_num": q_num,
+                    "type": "video",
+                    "url": download_url,
+                    "filename": filename,
+                    "file_size": file_size,
+                }
+            )
         else:
             content = file_id or ""
             answer_info.append({"q_num": q_num, "type": "other"})
@@ -245,10 +249,15 @@ async def submit_student_answers(
     for info in answer_info:
         q_num = info["q_num"]
         if info["type"] == "text":
-            await loop.run_in_executor(None, _create_note, f"Ответ на Д/З № {q_num}: {info['text']}")
+            await loop.run_in_executor(
+                None, _create_note, f"Ответ на Д/З № {q_num}: {info['text']}"
+            )
         elif info["type"] == "video":
             video_url = info["url"]
             if video_url and contact_id:
+                await loop.run_in_executor(
+                    None, _create_note, f"Ответ на Д/З № {q_num}"
+                )
                 sent = await send_video_to_chat(
                     video_url=video_url,
                     contact_id=contact_id,
@@ -259,7 +268,9 @@ async def submit_student_answers(
                 )
                 if not sent:
                     await loop.run_in_executor(
-                        None, _create_note, f"Ответ на Д/З № {q_num} (видео): {video_url}"
+                        None,
+                        _create_note,
+                        f"Ответ на Д/З № {q_num} (видео): {video_url}",
                     )
             else:
                 await loop.run_in_executor(
@@ -269,7 +280,9 @@ async def submit_student_answers(
                 )
         else:
             await loop.run_in_executor(
-                None, _create_note, f"Ответ на Д/З № {q_num} (медиафайл): передан в Telegram"
+                None,
+                _create_note,
+                f"Ответ на Д/З № {q_num} (медиафайл): передан в Telegram",
             )
     await loop.run_in_executor(None, _upsert_homework_answers, hw_id, answer_rows)
     await loop.run_in_executor(
