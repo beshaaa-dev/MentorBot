@@ -351,15 +351,19 @@ async def handle_review_confirm(update: Update, context: ContextTypes.DEFAULT_TY
     except Exception as e:
         logger.error(f"Failed to submit homework hw_id={hw_id}: {e}", exc_info=True)
         context.user_data.clear()
-        await pending_msg.edit_text(ERROR_MESSAGE)
+        try:
+            await pending_msg.delete()
+        except Exception:
+            pass
+        await update.message.reply_text(ERROR_MESSAGE)
         return ConversationHandler.END
 
     context.user_data.clear()
     try:
-        await pending_msg.edit_text(HW_SUBMITTED)
-    except Exception as e:
-        logger.error(f"Failed to edit pending message: {e}", exc_info=True)
-        await update.message.reply_text(HW_SUBMITTED)
+        await pending_msg.delete()
+    except Exception:
+        pass
+    await update.message.reply_text(HW_SUBMITTED)
     return ConversationHandler.END
 
 
