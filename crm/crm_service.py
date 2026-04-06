@@ -182,6 +182,20 @@ def update_lead_status_by_lead(lead: Lead, status_id: int | str) -> Lead:
     return update_lead_status_in_pipeline(lead, config.CRM_PIPELINE, status_id)
 
 
+def update_lead_hw_rating(lead: Lead, rating: int) -> None:
+    """Write the homework rating to the corresponding custom field on the lead."""
+    lead.hw_rating = rating
+    with amo_crm_rate_limiter.limit():
+        lead.save()
+
+
+def update_lead_hw_feedback(lead: Lead, feedback: str) -> None:
+    """Write the mentor feedback to the corresponding custom field on the lead."""
+    lead.hw_feedback = feedback
+    with amo_crm_rate_limiter.limit():
+        lead.save()
+
+
 def send_note(lead_id: int, note: str):
     lead = get_crm_lead(lead_id)
     if lead:

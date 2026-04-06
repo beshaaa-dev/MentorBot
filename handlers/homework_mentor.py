@@ -11,7 +11,7 @@ from telegram.ext import (
 )
 
 from config import CRM_HOMEWORK_PIPELINE, CRM_HW_EDIT_STATUS, CRM_HW_APPROVED_STATUS
-from crm.crm_service import get_crm_lead, update_lead_status_in_pipeline
+from crm.crm_service import get_crm_lead, update_lead_status_in_pipeline, update_lead_hw_rating, update_lead_hw_feedback
 from database.homework_service import (
     get_homework_by_id,
     update_homework_status,
@@ -252,9 +252,13 @@ async def handle_hw_feedback_callback(
         return ConversationHandler.END
 
     context.user_data["hw_feedback_id"] = hw_id
-    await query.message.reply_text(
-        HW_FEEDBACK_PROMPT, reply_markup=ReplyKeyboardRemove()
-    )
+    # Edit the review message in-place to show the feedback prompt,
+    # mirroring how the rating flow replaces it with the rating keyboard.
+    try:
+        await query.edit_message_text(text=HW_FEEDBACK_PROMPT, reply_markup=None)
+    except Exception as e:
+        logger.warning(f"Could not edit review message for feedback prompt: {e}")
+        await query.message.reply_text(HW_FEEDBACK_PROMPT, reply_markup=ReplyKeyboardRemove())
     return AWAITING_FEEDBACK
 
 
@@ -410,6 +414,14 @@ async def handle_hw_reedit_callback(
                 CRM_HOMEWORK_PIPELINE,
                 CRM_HW_EDIT_STATUS,
             )
+            if homework.rating is not None:
+                await loop.run_in_executor(
+                    None, update_lead_hw_rating, lead, homework.rating
+                )
+            if homework.feedback:
+                await loop.run_in_executor(
+                    None, update_lead_hw_feedback, lead, homework.feedback
+                )
     except Exception as e:
         logger.error(
             f"Failed to update CRM lead for hw reedit hw_id={hw_id}: {e}", exc_info=True
@@ -466,6 +478,14 @@ async def handle_hw_approve_callback(
                 CRM_HOMEWORK_PIPELINE,
                 CRM_HW_APPROVED_STATUS,
             )
+            if homework.rating is not None:
+                await loop.run_in_executor(
+                    None, update_lead_hw_rating, lead, homework.rating
+                )
+            if homework.feedback:
+                await loop.run_in_executor(
+                    None, update_lead_hw_feedback, lead, homework.feedback
+                )
     except Exception as e:
         logger.error(
             f"Failed to update CRM lead for hw approve hw_id={hw_id}: {e}",
