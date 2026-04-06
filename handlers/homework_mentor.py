@@ -11,7 +11,12 @@ from telegram.ext import (
 )
 
 from config import CRM_HOMEWORK_PIPELINE, CRM_HW_EDIT_STATUS, CRM_HW_APPROVED_STATUS
-from crm.crm_service import get_crm_lead, update_lead_status_in_pipeline, update_lead_hw_rating, update_lead_hw_feedback
+from crm.crm_service import (
+    get_crm_lead,
+    update_lead_status_in_pipeline,
+    update_lead_hw_rating,
+    update_lead_hw_feedback,
+)
 from database.homework_service import (
     get_homework_by_id,
     update_homework_status,
@@ -31,7 +36,6 @@ from messages import (
     ERROR_MESSAGE,
     HW_NO_PENDING_MENTOR,
     HW_FEEDBACK_PROMPT,
-    HW_FEEDBACK_SAVED,
     HW_FEEDBACK_CANCELLED,
     HW_RATE_PROMPT,
     HW_RATE_SAVED,
@@ -128,7 +132,9 @@ def _get_verified_mentor(tg_user_id: int):
     return user
 
 
-def _build_review_text(student_name: str, feedback: str | None, rating: int | None) -> str:
+def _build_review_text(
+    student_name: str, feedback: str | None, rating: int | None
+) -> str:
     """Строит текст карточки-ревью: имя студента + текущая обратная связь + оценка."""
     text = f"Домашняя работа. {student_name}"
     if feedback:
@@ -223,11 +229,6 @@ async def handle_hw_postpone_callback(
     )
     logger.info(f"Homework {hw_id} postponed by mentor {mentor.id}")
 
-    try:
-        await query.edit_message_reply_markup(reply_markup=None)
-    except Exception:
-        pass
-
     await _show_next_or_menu(query.message.chat_id, mentor.id, context)
 
 
@@ -258,7 +259,9 @@ async def handle_hw_feedback_callback(
         await query.edit_message_text(text=HW_FEEDBACK_PROMPT, reply_markup=None)
     except Exception as e:
         logger.warning(f"Could not edit review message for feedback prompt: {e}")
-        await query.message.reply_text(HW_FEEDBACK_PROMPT, reply_markup=ReplyKeyboardRemove())
+        await query.message.reply_text(
+            HW_FEEDBACK_PROMPT, reply_markup=ReplyKeyboardRemove()
+        )
     return AWAITING_FEEDBACK
 
 
@@ -278,8 +281,6 @@ async def handle_hw_feedback_text(
     loop = asyncio.get_running_loop()
     await loop.run_in_executor(None, update_homework_feedback, hw_id, feedback_text)
     logger.info(f"Feedback saved for homework {hw_id} by mentor {mentor.id}")
-
-    await update.message.reply_text(HW_FEEDBACK_SAVED)
 
     # Edit the review message to reflect the saved feedback
     review_msg_id = context.user_data.get("hw_review_msg_id")
@@ -429,11 +430,6 @@ async def handle_hw_reedit_callback(
 
     logger.info(f"Homework {hw_id} sent for reedit by mentor {mentor.id}")
 
-    try:
-        await query.edit_message_reply_markup(reply_markup=None)
-    except Exception:
-        pass
-
     await _show_next_or_menu(query.message.chat_id, mentor.id, context)
 
 
@@ -493,11 +489,6 @@ async def handle_hw_approve_callback(
         )
 
     logger.info(f"Homework {hw_id} approved by mentor {mentor.id}")
-
-    try:
-        await query.edit_message_reply_markup(reply_markup=None)
-    except Exception:
-        pass
 
     await _show_next_or_menu(query.message.chat_id, mentor.id, context)
 
