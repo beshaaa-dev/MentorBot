@@ -193,10 +193,8 @@ def get_check_homework_keyboard(hw_id: int) -> InlineKeyboardMarkup:
 
 def get_hw_mentor_decision_keyboard(hw_id: int) -> InlineKeyboardMarkup:
     keyboard = [
-        [
-            InlineKeyboardButton(HW_FEEDBACK_BUTTON, callback_data=f"hw_feedback_{hw_id}"),
-            InlineKeyboardButton(HW_RATE_BUTTON, callback_data=f"hw_rate_{hw_id}"),
-        ],
+        [InlineKeyboardButton(HW_FEEDBACK_BUTTON, callback_data=f"hw_feedback_{hw_id}")],
+        [InlineKeyboardButton(HW_RATE_BUTTON, callback_data=f"hw_rate_{hw_id}")],
         [InlineKeyboardButton(HW_POSTPONE_BUTTON, callback_data=f"hw_postpone_{hw_id}")],
         [InlineKeyboardButton(HW_REEDIT_BUTTON, callback_data=f"hw_reedit_{hw_id}")],
         [InlineKeyboardButton(HW_APPROVE_HW_BUTTON, callback_data=f"hw_approve_{hw_id}")],
