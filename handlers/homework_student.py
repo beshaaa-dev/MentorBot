@@ -21,7 +21,6 @@ from keyboards import (
 from messages import (
     HW_QUESTION_PROMPT,
     HW_ANSWER_CONFIRM_PROMPT,
-    HW_REVIEW_HEADER,
     HW_REVIEW_CHANGE_PROMPT,
     HW_REVIEW_CHANGE_BUTTON,
     HW_CONFIRM_ALL_BUTTON,
@@ -95,7 +94,8 @@ async def _ask_question(
     questions = _get_questions(context)
     total = len(questions)
     text = HW_QUESTION_PROMPT.format(n=n, total=total, question=questions[n - 1])
-    await update.effective_chat.send_message(text, reply_markup=ReplyKeyboardRemove())
+    msg = await update.effective_chat.send_message(text, reply_markup=ReplyKeyboardRemove())
+    context.user_data["hw_question_msg_id"] = msg.message_id
 
 
 def _store_answer(q_num: int, message: Message, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -142,20 +142,17 @@ def _next_question_state(current_q: int, context: ContextTypes.DEFAULT_TYPE) -> 
 async def _show_review(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     questions = _get_questions(context)
     answers: dict = context.user_data.get("hw_answers", {})
-    lines: list[str] = []
     for i, q in enumerate(questions, start=1):
         answer_data = answers.get(i, {})
         if answer_data.get("is_text") and answer_data.get("text"):
             answer_label = answer_data["text"]
         else:
             answer_label = HW_MEDIA_LABEL
-        lines.append(f"*Вопрос {i}*: {q}\n*Ответ*: {answer_label}")
-    summary = "\n\n".join(lines)
-    await update.effective_chat.send_message(
-        HW_REVIEW_HEADER.format(answers=summary),
-        parse_mode="Markdown",
-        reply_markup=ReplyKeyboardRemove(),
-    )
+        await update.effective_chat.send_message(
+            f"*Вопрос {i}*: {q}\n*Ответ*: {answer_label}",
+            parse_mode="Markdown",
+            reply_markup=ReplyKeyboardRemove(),
+        )
     await update.effective_chat.send_message(
         HW_REVIEW_CHANGE_PROMPT,
         reply_markup=get_hw_review_keyboard(len(questions)),
@@ -208,10 +205,36 @@ def _make_answer_handler(q_num: int):
     async def handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         _store_answer(q_num, update.message, context)
         hw_id = _hw_id(context)
-        await update.message.reply_text(
-            HW_ANSWER_CONFIRM_PROMPT,
-            reply_markup=get_hw_answer_confirmation_keyboard(hw_id, q_num),
-        )
+        answers: dict = context.user_data.get("hw_answers", {})
+        answer_data = answers.get(q_num, {})
+        answer_preview = answer_data.get("text") if answer_data.get("is_text") else HW_MEDIA_LABEL
+
+        questions = _get_questions(context)
+        total = len(questions)
+        question = _question_for(q_num, context)
+        base_text = HW_QUESTION_PROMPT.format(n=q_num, total=total, question=question)
+        confirm_text = f"{base_text}\n\n{HW_ANSWER_CONFIRM_PROMPT}\n\n*Ваш ответ:* {answer_preview}"
+
+        msg_id = context.user_data.get("hw_question_msg_id")
+        if msg_id:
+            try:
+                await context.bot.edit_message_text(
+                    chat_id=update.effective_chat.id,
+                    message_id=msg_id,
+                    text=confirm_text,
+                    parse_mode="Markdown",
+                    reply_markup=get_hw_answer_confirmation_keyboard(hw_id, q_num),
+                )
+            except Exception:
+                await update.message.reply_text(
+                    HW_ANSWER_CONFIRM_PROMPT,
+                    reply_markup=get_hw_answer_confirmation_keyboard(hw_id, q_num),
+                )
+        else:
+            await update.message.reply_text(
+                HW_ANSWER_CONFIRM_PROMPT,
+                reply_markup=get_hw_answer_confirmation_keyboard(hw_id, q_num),
+            )
         return _CONFIRM_STATE[q_num - 1]
     handler.__name__ = f"handle_answer_hw_{q_num}"
     return handler

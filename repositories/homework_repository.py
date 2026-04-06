@@ -167,6 +167,29 @@ async def submit_student_answers(
         5: "hw_answer_5",
     }
 
+    questions_total = sum(
+        1
+        for q in [
+            homework.first_hw,
+            homework.second_hw,
+            homework.third_hw,
+            homework.fourth_hw,
+            homework.fifth_hw,
+        ]
+        if q
+    )
+
+    for q_num in range(1, 6):
+        field_name = text_field_map[q_num]
+        if q_num > questions_total:
+            setattr(lead, field_name, "")
+        else:
+            data = answers.get(q_num, {})
+            if data.get("is_text") and data.get("text"):
+                setattr(lead, field_name, data["text"])
+            else:
+                setattr(lead, field_name, "Ответ в примечании")
+
     for q_num in sorted(answers.keys()):
         data = answers[q_num]
         is_text: bool = data.get("is_text", True)
@@ -176,9 +199,6 @@ async def submit_student_answers(
 
         if is_text and text:
             content = text
-            field_name = text_field_map.get(q_num)
-            if field_name:
-                setattr(lead, field_name, text)
             answer_info.append({"q_num": q_num, "type": "text", "text": text})
         elif media_type == "video":
             download_url, file_size, filename = await _upload_answer_media(bot, file_id, q_num)
@@ -225,7 +245,7 @@ async def submit_student_answers(
     for info in answer_info:
         q_num = info["q_num"]
         if info["type"] == "text":
-            await loop.run_in_executor(None, _create_note, f"Вопрос {q_num}: {info['text']}")
+            await loop.run_in_executor(None, _create_note, f"Ответ на Д/З № {q_num}: {info['text']}")
         elif info["type"] == "video":
             video_url = info["url"]
             if video_url and contact_id:
@@ -239,17 +259,17 @@ async def submit_student_answers(
                 )
                 if not sent:
                     await loop.run_in_executor(
-                        None, _create_note, f"Вопрос {q_num} (видео): {video_url}"
+                        None, _create_note, f"Ответ на Д/З № {q_num} (видео): {video_url}"
                     )
             else:
                 await loop.run_in_executor(
                     None,
                     _create_note,
-                    f"Вопрос {q_num} (видео): {video_url or 'не удалось загрузить'}",
+                    f"Ответ на Д/З № {q_num} (видео): {video_url or 'не удалось загрузить'}",
                 )
         else:
             await loop.run_in_executor(
-                None, _create_note, f"Вопрос {q_num} (медиафайл): передан в Telegram"
+                None, _create_note, f"Ответ на Д/З № {q_num} (медиафайл): передан в Telegram"
             )
     await loop.run_in_executor(None, _upsert_homework_answers, hw_id, answer_rows)
     await loop.run_in_executor(

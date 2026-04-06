@@ -168,9 +168,9 @@ def get_hw_answer_confirmation_keyboard(hw_id: int, q_num: int) -> InlineKeyboar
 
 
 def get_hw_review_keyboard(question_count: int) -> ReplyKeyboardMarkup:
-    row: list[KeyboardButton] = [
-        KeyboardButton(HW_REVIEW_CHANGE_BUTTON.format(n=n))
+    rows = [
+        [KeyboardButton(HW_REVIEW_CHANGE_BUTTON.format(n=n))]
         for n in range(1, question_count + 1)
     ]
-    rows = [row, [KeyboardButton(HW_CONFIRM_ALL_BUTTON)]]
+    rows.append([KeyboardButton(HW_CONFIRM_ALL_BUTTON)])
     return ReplyKeyboardMarkup(rows, resize_keyboard=True, one_time_keyboard=True)
