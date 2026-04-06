@@ -5,6 +5,7 @@ from telegram.ext import (
     ContextTypes,
     ConversationHandler,
     CallbackQueryHandler,
+    CommandHandler,
     MessageHandler,
     filters,
 )
@@ -383,6 +384,14 @@ async def handle_hw_approve_callback(
 
 # ── ConversationHandler for feedback flow ─────────────────────────────────────
 
+
+async def cancel_hw_feedback(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> int:
+    context.user_data.clear()
+    return ConversationHandler.END
+
+
 hw_mentor_feedback_handler = ConversationHandler(
     entry_points=[
         CallbackQueryHandler(handle_hw_feedback_callback, pattern=r"^hw_feedback_\d+$"),
@@ -392,7 +401,11 @@ hw_mentor_feedback_handler = ConversationHandler(
             MessageHandler(filters.TEXT & ~filters.COMMAND, handle_hw_feedback_text),
         ],
     },
-    fallbacks=[],
+    fallbacks=[
+        CommandHandler("cancel", cancel_hw_feedback),
+        MessageHandler(filters.COMMAND, cancel_hw_feedback),
+        CallbackQueryHandler(handle_hw_feedback_callback, pattern=r"^hw_feedback_\d+$"),
+    ],
     name="homework_mentor_feedback",
     conversation_timeout=3600,
 )
