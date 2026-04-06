@@ -1,9 +1,11 @@
 import asyncio
 from datetime import datetime, timezone
 
+from amocrm.v2.entity.note import COMMON_TYPE
 from telegram import Bot
 
 from config import CRM_HOMEWORK_PIPELINE, CRM_HW_SUBMITTED_STATUS
+from crm.crm_chat_service import send_video_to_chat
 from crm.crm_service import (
     get_crm_lead,
     update_lead_status_in_pipeline,
@@ -156,7 +158,7 @@ async def submit_student_answers(
         raise ValueError(f"CRM lead {homework.lead_id} not found")
 
     answer_rows: list[dict] = []
-    note_parts: list[str] = []
+    answer_info: list[dict] = []
     text_field_map = {
         1: "hw_answer_1",
         2: "hw_answer_2",
@@ -177,16 +179,20 @@ async def submit_student_answers(
             field_name = text_field_map.get(q_num)
             if field_name:
                 setattr(lead, field_name, text)
-            note_parts.append(f"Вопрос {q_num}: {text}")
+            answer_info.append({"q_num": q_num, "type": "text", "text": text})
         elif media_type == "video":
-            download_url = await _upload_answer_media(bot, file_id, q_num)
+            download_url, file_size, filename = await _upload_answer_media(bot, file_id, q_num)
             content = file_id or ""
-            note_parts.append(
-                f"Вопрос {q_num} (видео): {download_url or 'не удалось загрузить'}"
-            )
+            answer_info.append({
+                "q_num": q_num,
+                "type": "video",
+                "url": download_url,
+                "filename": filename,
+                "file_size": file_size,
+            })
         else:
             content = file_id or ""
-            note_parts.append(f"Вопрос {q_num} (медиафайл): передан в Telegram")
+            answer_info.append({"q_num": q_num, "type": "other"})
 
         answer_rows.append(
             {"question_number": q_num, "answer_content": content, "is_text": is_text}
@@ -204,16 +210,47 @@ async def submit_student_answers(
     lead.hw_completion_date = completion_ts
     lead.hw_deadline_missed = "Да" if missed_deadline else "Нет"
 
-    def _save_lead_and_note():
+    contact_id, contact_name = await loop.run_in_executor(None, _get_contact_info, lead)
+
+    def _save_lead():
         with amo_crm_rate_limiter.limit():
             lead.save()
-        from amocrm.v2.entity.note import COMMON_TYPE
 
-        note_text = "Ответы на домашнее задание:\n\n" + "\n\n".join(note_parts)
+    def _create_note(text: str) -> None:
         with amo_crm_rate_limiter.limit():
-            lead.notes.objects.create(text=note_text, note_type=COMMON_TYPE)
+            lead.notes.objects.create(text=text, note_type=COMMON_TYPE)
 
-    await loop.run_in_executor(None, _save_lead_and_note)
+    await loop.run_in_executor(None, _save_lead)
+
+    for info in answer_info:
+        q_num = info["q_num"]
+        if info["type"] == "text":
+            await loop.run_in_executor(None, _create_note, f"Вопрос {q_num}: {info['text']}")
+        elif info["type"] == "video":
+            video_url = info["url"]
+            if video_url and contact_id:
+                sent = await send_video_to_chat(
+                    video_url=video_url,
+                    contact_id=contact_id,
+                    filename=info["filename"],
+                    lead_id=int(homework.lead_id),
+                    contact_name=contact_name,
+                    file_size=info["file_size"],
+                )
+                if not sent:
+                    await loop.run_in_executor(
+                        None, _create_note, f"Вопрос {q_num} (видео): {video_url}"
+                    )
+            else:
+                await loop.run_in_executor(
+                    None,
+                    _create_note,
+                    f"Вопрос {q_num} (видео): {video_url or 'не удалось загрузить'}",
+                )
+        else:
+            await loop.run_in_executor(
+                None, _create_note, f"Вопрос {q_num} (медиафайл): передан в Telegram"
+            )
     await loop.run_in_executor(None, _upsert_homework_answers, hw_id, answer_rows)
     await loop.run_in_executor(
         None, _update_homework_status, hw_id, HomeworkStatus.SUBMITTED
@@ -229,19 +266,26 @@ async def submit_student_answers(
     logger.info(f"Homework {hw_id} submitted successfully")
 
 
+def _get_contact_info(lead) -> tuple[int | None, str]:
+    for contact in lead.contacts:
+        if contact.telegram_id:
+            return contact.id, getattr(contact, "name", "") or ""
+    return None, ""
+
+
 async def _upload_answer_media(
     bot: Bot,
     file_id: str | None,
     q_num: int,
-) -> str | None:
+) -> tuple[str | None, int, str]:
+    filename = f"hw_{q_num}_{(file_id or 'unknown')[:8]}.mp4"
     if not file_id:
-        return None
+        return None, 0, filename
     try:
         tg_file = await bot.get_file(file_id)
         file_bytes = await tg_file.download_as_bytearray()
-        filename = f"hw_{q_num}_{file_id[:8]}.mp4"
         download_url, _ = await upload_video(bytes(file_bytes), filename)
-        return download_url
+        return download_url, len(file_bytes), filename
     except Exception as e:
         logger.error(f"Failed to upload media for question {q_num}: {e}", exc_info=True)
-        return None
+        return None, 0, filename
