@@ -27,6 +27,12 @@ from messages import (
     HW_REVIEW_CHANGE_BUTTON,
     HW_CONFIRM_YES_BUTTON,
     HW_CONFIRM_RETRY_BUTTON,
+    HW_CHECK_BUTTON,
+    HW_POSTPONE_BUTTON,
+    HW_FEEDBACK_BUTTON,
+    HW_RATE_BUTTON,
+    HW_REEDIT_BUTTON,
+    HW_APPROVE_HW_BUTTON,
 )
 
 
@@ -176,3 +182,35 @@ def get_hw_review_keyboard(question_count: int) -> ReplyKeyboardMarkup:
     ]
     rows.append([KeyboardButton(HW_CONFIRM_ALL_BUTTON)])
     return ReplyKeyboardMarkup(rows, resize_keyboard=True, one_time_keyboard=True)
+
+
+def get_check_homework_keyboard(hw_id: int) -> InlineKeyboardMarkup:
+    keyboard = [
+        [InlineKeyboardButton(HW_CHECK_BUTTON, callback_data=f"check_homework_{hw_id}")]
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+
+def get_hw_mentor_decision_keyboard(hw_id: int) -> InlineKeyboardMarkup:
+    keyboard = [
+        [InlineKeyboardButton(HW_POSTPONE_BUTTON, callback_data=f"hw_postpone_{hw_id}")],
+        [
+            InlineKeyboardButton(HW_FEEDBACK_BUTTON, callback_data=f"hw_feedback_{hw_id}"),
+            InlineKeyboardButton(HW_RATE_BUTTON, callback_data=f"hw_rate_{hw_id}"),
+        ],
+        [
+            InlineKeyboardButton(HW_REEDIT_BUTTON, callback_data=f"hw_reedit_{hw_id}"),
+            InlineKeyboardButton(HW_APPROVE_HW_BUTTON, callback_data=f"hw_approve_{hw_id}"),
+        ],
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+
+def get_hw_rating_keyboard(hw_id: int) -> InlineKeyboardMarkup:
+    keyboard = [
+        [
+            InlineKeyboardButton(str(n), callback_data=f"hw_rate_val_{hw_id}_{n}")
+            for n in range(0, 6)
+        ]
+    ]
+    return InlineKeyboardMarkup(keyboard)

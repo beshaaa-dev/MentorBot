@@ -52,8 +52,8 @@ class HomeworkAnswer(Base):
     __table_args__ = (UniqueConstraint("homework_id", "question_number"),)
 
 
-class MentorHomeworkInvite(Base):
-    __tablename__ = "mentor_homework_invites"
+class MentorHomeworkNotification(Base):
+    __tablename__ = "mentor_homework_notifications"
 
     id = Column(Integer, primary_key=True, nullable=False)
     mentor_id = Column(Integer, nullable=False, unique=True)

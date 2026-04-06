@@ -1,5 +1,5 @@
 from database.db_helper import get_db
-from database.models import Homework, HomeworkAnswer, HomeworkStatus
+from database.models import Homework, HomeworkAnswer, HomeworkStatus, MentorHomeworkNotification
 from logger import setup_logger
 from timezone_utils import now_moscow
 from sqlalchemy.orm import joinedload
@@ -134,20 +134,133 @@ def update_homework_status(hw_id: int, status: HomeworkStatus) -> Homework | Non
 
 
 def get_pending_homework_by_student_id(student_id: int) -> Homework | None:
-    """Return the most recent homework in PENDING or IN_PROGRESS status for a student."""
+    """Return the most recent homework in PENDING, IN_PROGRESS, or EDIT status for a student."""
     with get_db() as db:
         try:
             return (
                 db.query(Homework)
                 .filter(
                     Homework.student_id == student_id,
-                    Homework.status.in_([HomeworkStatus.PENDING, HomeworkStatus.IN_PROGRESS]),
+                    Homework.status.in_([HomeworkStatus.PENDING, HomeworkStatus.IN_PROGRESS, HomeworkStatus.EDIT]),
                 )
                 .order_by(Homework.created_at.desc())
                 .first()
             )
         except Exception as e:
             logger.error(f"Error getting pending homework for student_id={student_id}: {e}")
+            raise
+
+
+def update_homework_feedback(hw_id: int, feedback: str) -> Homework | None:
+    """Сохраняет обратную связь ментора по домашнему заданию."""
+    with get_db() as db:
+        try:
+            homework = db.query(Homework).filter(Homework.id == hw_id).first()
+            if not homework:
+                return None
+            homework.feedback = feedback
+            homework.updated_at = now_moscow()
+            db.commit()
+            db.refresh(homework)
+            return homework
+        except Exception:
+            db.rollback()
+            raise
+
+
+def update_homework_rating(hw_id: int, rating: int) -> Homework | None:
+    """Сохраняет оценку ментора по домашнему заданию."""
+    with get_db() as db:
+        try:
+            homework = db.query(Homework).filter(Homework.id == hw_id).first()
+            if not homework:
+                return None
+            homework.rating = rating
+            homework.updated_at = now_moscow()
+            db.commit()
+            db.refresh(homework)
+            return homework
+        except Exception:
+            db.rollback()
+            raise
+
+
+def get_earliest_pending_mentor_homework(mentor_id: int) -> Homework | None:
+    """Возвращает самое раннее домашнее задание в статусе PENDING_MENTOR для данного ментора."""
+    with get_db() as db:
+        try:
+            return (
+                db.query(Homework)
+                .options(joinedload(Homework.answers))
+                .filter(
+                    Homework.mentor_id == mentor_id,
+                    Homework.status == HomeworkStatus.PENDING_MENTOR,
+                )
+                .order_by(Homework.updated_at.asc())
+                .first()
+            )
+        except Exception as e:
+            logger.error(f"Error getting earliest pending mentor homework for mentor_id={mentor_id}: {e}")
+            raise
+
+
+def get_postponed_homeworks_for_mentor(mentor_id: int) -> list[Homework]:
+    """Возвращает список отложенных домашних заданий для данного ментора."""
+    with get_db() as db:
+        try:
+            return (
+                db.query(Homework)
+                .options(joinedload(Homework.answers))
+                .filter(
+                    Homework.mentor_id == mentor_id,
+                    Homework.status == HomeworkStatus.POSTPONED,
+                )
+                .order_by(Homework.updated_at.asc())
+                .all()
+            )
+        except Exception as e:
+            logger.error(f"Error getting postponed homeworks for mentor_id={mentor_id}: {e}")
+            raise
+
+
+def get_mentor_hw_notification(mentor_id: int) -> MentorHomeworkNotification | None:
+    """Возвращает запись последнего уведомления о ДЗ для данного ментора."""
+    with get_db() as db:
+        try:
+            return (
+                db.query(MentorHomeworkNotification)
+                .filter(MentorHomeworkNotification.mentor_id == mentor_id)
+                .first()
+            )
+        except Exception as e:
+            logger.error(f"Error getting mentor hw notification for mentor_id={mentor_id}: {e}")
+            raise
+
+
+def upsert_mentor_hw_notification(mentor_id: int, message_id: int, chat_id: int) -> MentorHomeworkNotification:
+    """Создаёт или обновляет запись уведомления ментора о новом ДЗ."""
+    with get_db() as db:
+        try:
+            notification = (
+                db.query(MentorHomeworkNotification)
+                .filter(MentorHomeworkNotification.mentor_id == mentor_id)
+                .first()
+            )
+            if notification:
+                notification.message_id = message_id
+                notification.chat_id = chat_id
+            else:
+                notification = MentorHomeworkNotification(
+                    mentor_id=mentor_id,
+                    message_id=message_id,
+                    chat_id=chat_id,
+                )
+                db.add(notification)
+            db.commit()
+            db.refresh(notification)
+            return notification
+        except Exception:
+            db.rollback()
             raise
 
 

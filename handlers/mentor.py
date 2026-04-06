@@ -808,24 +808,54 @@ async def handle_postponed_tasks_button(
         return
 
     try:
-        result = await _present_postponed_task_view(
-            chat_id=update.effective_chat.id,
-            mentor_id=mentor.id,
-            context=context,
-            resend_media=True,
+        await _send_postponed_items(
+            update=update, context=context, mentor_id=mentor.id
         )
-        if not result:
-            await update.message.reply_text(
-                NO_POSTPONED_TASKS,
-                reply_markup=get_mentor_menu_keyboard(),
-            )
-            context.user_data.pop(POSTPONED_STATE_KEY, None)
+        context.user_data.pop(POSTPONED_STATE_KEY, None)
     except Exception as e:
-        logger.error(f"Error showing postponed task: {e}")
+        logger.error(f"Error showing postponed items: {e}")
         await update.message.reply_text(
             ERROR_MESSAGE, reply_markup=get_support_keyboard()
         )
         context.user_data.clear()
+
+
+async def _send_postponed_items(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    mentor_id: int,
+) -> None:
+    """
+    Показывает отложенные задачи, затем отложенные ДЗ.
+    Если ничего нет — показывает стандартное сообщение с меню.
+    """
+    chat_id = update.effective_chat.id
+
+    # 1) Показать отложенные задачи, если есть
+    task_shown = await _present_postponed_task_view(
+        chat_id=chat_id,
+        mentor_id=mentor_id,
+        context=context,
+        resend_media=True,
+    )
+
+    # 2) Показать отложенные ДЗ, если есть
+    from database.homework_service import get_postponed_homeworks_for_mentor
+    from handlers.homework_mentor import _send_homework_to_mentor
+    from messages import HW_POSTPONED_HW_HEADER
+
+    homeworks = get_postponed_homeworks_for_mentor(mentor_id)
+    if homeworks:
+        await context.bot.send_message(chat_id, HW_POSTPONED_HW_HEADER)
+        for hw in homeworks:
+            await _send_homework_to_mentor(chat_id, hw, context)
+
+    # 3) Если ничего не было показано — стандартное сообщение
+    if not task_shown and not homeworks:
+        await update.message.reply_text(
+            NO_POSTPONED_TASKS,
+            reply_markup=get_mentor_menu_keyboard(),
+        )
 
 
 async def _present_postponed_task_view(

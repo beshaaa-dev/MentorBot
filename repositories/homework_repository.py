@@ -20,6 +20,7 @@ from database.homework_service import (
     update_homework as _update_homework,
     update_homework_status as _update_homework_status,
     upsert_homework_answers as _upsert_homework_answers,
+    get_earliest_pending_mentor_homework as _get_earliest_pending_mentor_homework,
 )
 from database.models import Homework, HomeworkStatus
 from database.user_service import find_by_tg_id, find_by_tg_nickname, get_by_id
@@ -139,6 +140,48 @@ def save_homework_from_webhook(lead_id: str) -> tuple[Homework, int]:
         f"Created homework id={homework.id} for student_id={student.id}, lead_id={lead_id}"
     )
     return homework, student_tg_id
+
+
+def process_homework_for_mentor(lead_id: str) -> tuple[Homework, int, int]:
+    """
+    Получает лид из CRM, находит ментора и обновляет статус ДЗ → PENDING_MENTOR.
+
+    Returns:
+        (homework, mentor_tg_id, mentor_db_id)
+
+    Raises:
+        ValueError: если лид, ментор или запись ДЗ не найдены.
+    """
+    lead = get_crm_lead(lead_id)
+    if not lead:
+        raise ValueError(f"CRM lead {lead_id} not found")
+
+    mentor_tg_nickname = getattr(lead, "mentor_tg_nickname", None)
+    if not mentor_tg_nickname:
+        raise ValueError(f"Lead {lead_id} has no mentor_tg_nickname")
+
+    nickname = mentor_tg_nickname.lstrip("@")
+    mentor = find_by_tg_nickname(nickname)
+    if not mentor:
+        raise ValueError(f"Mentor @{nickname} not found in DB for lead {lead_id}")
+
+    if not mentor.tg_id:
+        raise ValueError(f"Mentor @{nickname} has no tg_id")
+
+    homework = _get_homework_by_lead_id(lead_id)
+    if not homework:
+        raise ValueError(f"No homework record for lead_id={lead_id}")
+
+    homework = _update_homework_status(homework.id, HomeworkStatus.PENDING_MENTOR)
+    logger.info(
+        f"Homework id={homework.id} set to PENDING_MENTOR for mentor @{nickname}"
+    )
+    return homework, mentor.tg_id, mentor.id
+
+
+def get_earliest_pending_homework_for_mentor(mentor_id: int) -> Homework | None:
+    """Возвращает самое раннее ДЗ в статусе PENDING_MENTOR для данного ментора."""
+    return _get_earliest_pending_mentor_homework(mentor_id)
 
 
 def _extract_student_and_mentor(lead: Lead) -> tuple[int, str | None]:
