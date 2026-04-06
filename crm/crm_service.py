@@ -584,15 +584,16 @@ async def upload_file(
         return None, None
 
 
-async def attach_file_to_lead(lead_id: int, file_uuid: str) -> bool:
+async def create_attachment_note(lead_id: int, file_uuid: str, filename: str) -> bool:
     """
-    Attach an already-uploaded Drive file to a lead via the Files API.
+    Create an attachment note on a lead using an already-uploaded Drive file.
 
-    The file will appear in the lead's Files tab in AmoCRM.
+    The note (with the file inline) appears in the lead's activity feed/timeline.
 
     Args:
         lead_id: CRM lead ID
         file_uuid: UUID returned by the Drive upload session
+        filename: Display name shown in the note
 
     Returns:
         True if successful, False otherwise
@@ -600,32 +601,40 @@ async def attach_file_to_lead(lead_id: int, file_uuid: str) -> bool:
     try:
         access_token = await get_access_token()
         if not access_token:
-            logger.error("[attach_file_to_lead] Failed to get access token")
+            logger.error("[create_attachment_note] Failed to get access token")
             return False
 
-        url = f"https://{config.CRM_SUBDOMAIN}.amocrm.ru/api/v4/leads/{lead_id}/files"
+        url = f"https://{config.CRM_SUBDOMAIN}.amocrm.ru/api/v4/leads/{lead_id}/notes"
         headers = {
             "Authorization": f"Bearer {access_token}",
             "Content-Type": "application/json",
         }
-        body = [{"file_uuid": file_uuid}]
+        body = [
+            {
+                "note_type": "attachment",
+                "params": {
+                    "file_uuid": file_uuid,
+                    "file_name": filename,
+                },
+            }
+        ]
 
         async with aiohttp.ClientSession() as session:
             async with async_amo_crm_rate_limiter.limit():
-                async with session.put(
+                async with session.post(
                     url,
                     headers=headers,
                     json=body,
                     timeout=aiohttp.ClientTimeout(total=30),
                 ) as response:
-                    if response.status == 202:
+                    if response.status == 200:
                         return True
                     text = await response.text()
                     logger.error(
-                        f"[attach_file_to_lead] Failed: HTTP {response.status} {text}"
+                        f"[create_attachment_note] Failed: HTTP {response.status} {text}"
                     )
                     return False
 
     except Exception as e:
-        logger.error(f"[attach_file_to_lead] Exception occurred: {e}", exc_info=True)
+        logger.error(f"[create_attachment_note] Exception occurred: {e}", exc_info=True)
         return False

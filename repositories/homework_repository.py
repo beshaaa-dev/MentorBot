@@ -7,7 +7,7 @@ from telegram import Bot
 from config import CRM_HOMEWORK_PIPELINE, CRM_HW_SUBMITTED_STATUS
 from crm.crm_chat_service import send_video_to_chat
 from crm.crm_service import (
-    attach_file_to_lead,
+    create_attachment_note,
     get_crm_lead,
     update_lead_status_in_pipeline,
     upload_file,
@@ -228,6 +228,7 @@ async def submit_student_answers(
                     "q_num": q_num,
                     "type": "audio",
                     "uuid": file_uuid,
+                    "filename": filename,
                 }
             )
         elif media_type == "image":
@@ -240,6 +241,7 @@ async def submit_student_answers(
                     "q_num": q_num,
                     "type": "image",
                     "uuid": file_uuid,
+                    "filename": filename,
                 }
             )
         else:
@@ -309,10 +311,9 @@ async def submit_student_answers(
         elif info["type"] == "audio":
             file_uuid = info["uuid"]
             if file_uuid:
-                await loop.run_in_executor(
-                    None, _create_note, f"Ответ на Д/З № {q_num} (аудио)"
+                await create_attachment_note(
+                    int(homework.lead_id), file_uuid, info["filename"]
                 )
-                await attach_file_to_lead(int(homework.lead_id), file_uuid)
             else:
                 await loop.run_in_executor(
                     None,
@@ -322,10 +323,9 @@ async def submit_student_answers(
         elif info["type"] == "image":
             file_uuid = info["uuid"]
             if file_uuid:
-                await loop.run_in_executor(
-                    None, _create_note, f"Ответ на Д/З № {q_num} (фото)"
+                await create_attachment_note(
+                    int(homework.lead_id), file_uuid, info["filename"]
                 )
-                await attach_file_to_lead(int(homework.lead_id), file_uuid)
             else:
                 await loop.run_in_executor(
                     None,
