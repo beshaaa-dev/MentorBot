@@ -618,7 +618,7 @@ async def create_attachment_note(
             "Authorization": f"Bearer {access_token}",
             "Content-Type": "application/json",
         }
-        note: dict = {
+        attachment_note: dict = {
             "note_type": "attachment",
             "params": {
                 "file_uuid": file_uuid,
@@ -626,9 +626,13 @@ async def create_attachment_note(
                 "file_name": filename,
             },
         }
+        body: list[dict] = []
         if text:
-            note["text"] = text
-        body = [note]
+            body.append({
+                "note_type": "common",
+                "params": {"text": text},
+            })
+        body.append(attachment_note)
 
         async with aiohttp.ClientSession() as session:
             async with async_amo_crm_rate_limiter.limit():
@@ -640,9 +644,9 @@ async def create_attachment_note(
                 ) as response:
                     if response.status == 200:
                         return True
-                    text = await response.text()
+                    resp_text = await response.text()
                     logger.error(
-                        f"[create_attachment_note] Failed: HTTP {response.status} {text}"
+                        f"[create_attachment_note] Failed: HTTP {response.status} {resp_text}"
                     )
                     return False
 

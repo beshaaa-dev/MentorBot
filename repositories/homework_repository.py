@@ -82,9 +82,7 @@ def save_homework_from_webhook(lead_id: str) -> tuple[Homework, int]:
             deadline=deadline,
             mentor_id=mentor_id,
         )
-        logger.info(
-            f"Updated homework id={existing.id} for lead_id={lead_id}"
-        )
+        logger.info(f"Updated homework id={existing.id} for lead_id={lead_id}")
         return homework, student_tg_id
 
     homework = _create_homework(
@@ -413,7 +411,9 @@ async def _upload_answer_audio(
     try:
         tg_file = await bot.get_file(file_id)
         file_bytes = await tg_file.download_as_bytearray()
-        file_uuid, version_uuid, _ = await upload_file(bytes(file_bytes), filename, content_type)
+        file_uuid, version_uuid, _ = await upload_file(
+            bytes(file_bytes), filename, content_type
+        )
         return file_uuid, version_uuid, len(file_bytes), filename
     except Exception as e:
         logger.error(f"Failed to upload audio for question {q_num}: {e}", exc_info=True)
@@ -432,7 +432,9 @@ async def _upload_answer_image(
     try:
         tg_file = await bot.get_file(file_id)
         file_bytes = await tg_file.download_as_bytearray()
-        file_uuid, version_uuid, _ = await upload_file(bytes(file_bytes), filename, "image/jpeg")
+        file_uuid, version_uuid, _ = await upload_file(
+            bytes(file_bytes), filename, "image/jpeg"
+        )
         return file_uuid, version_uuid, len(file_bytes), filename
     except Exception as e:
         logger.error(f"Failed to upload image for question {q_num}: {e}", exc_info=True)
