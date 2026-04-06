@@ -412,3 +412,177 @@ async def upload_video(
     except Exception as e:
         logger.error(f"[upload_video] ✗ Exception occurred: {e}", exc_info=True)
         return None, None
+
+
+async def upload_audio(
+    file_bytes: bytes, filename: str, content_type: str = "audio/ogg"
+) -> tuple[str, int] | tuple[None, None]:
+    """
+    Upload an audio file to AMoCRM Drive and return the download URL.
+
+    Args:
+        file_bytes: File content as bytes
+        filename: Name for the uploaded file
+        content_type: MIME type of the audio file (e.g. "audio/ogg", "audio/mpeg")
+
+    Returns:
+        Tuple of (download_url, file_size) if successful, (None, None) otherwise
+    """
+    try:
+        access_token = await get_access_token()
+        if not access_token:
+            logger.error("[upload_audio] Failed to get access token!")
+            return None, None
+
+        headers = {
+            "Authorization": f"Bearer {access_token}",
+        }
+
+        # Step 0: Get drive_url from account
+        account_url = (
+            f"https://{config.CRM_SUBDOMAIN}.amocrm.ru/api/v4/account?with=drive_url"
+        )
+
+        async with aiohttp.ClientSession() as session:
+            async with async_amo_crm_rate_limiter.limit():
+                async with session.get(
+                    account_url, headers=headers
+                ) as account_response:
+                    if account_response.status != 200:
+                        logger.error(
+                            f"[upload_audio] Failed to get drive_url: {account_response.status}"
+                        )
+                        return None, None
+
+                    account_data = (
+                        await account_response.json()
+                        if account_response.content_type
+                        and "json" in account_response.content_type
+                        else {}
+                    )
+                    drive_url = account_data.get(
+                        "drive_url", "https://drive-b.amocrm.ru"
+                    )
+
+        # Step 1: Create upload session
+        file_size = len(file_bytes)
+        session_url = f"{drive_url}/v1.0/sessions"
+        session_data = {
+            "file_name": filename,
+            "file_size": file_size,
+            "content_type": content_type,
+        }
+
+        # TODO: - Убрать костыль, когда AMOCRM исправить баг
+        access_token = await force_refresh_access_token()
+        if not access_token:
+            logger.error(
+                "[upload_audio] Failed to get access token for upload session!"
+            )
+            return None, None
+
+        session_headers = {
+            "Authorization": f"Bearer {access_token}",
+            "Content-Type": "application/json",
+        }
+
+        async with aiohttp.ClientSession() as session:
+            async with async_amo_crm_rate_limiter.limit():
+                async with session.post(
+                    session_url,
+                    headers=session_headers,
+                    json=session_data,
+                ) as session_response:
+                    text = await session_response.text()
+
+                    if session_response.status not in (200, 201):
+                        logger.error(
+                            f"[upload_audio] Failed to create upload session: {session_response.status} - {text}"
+                        )
+                        return None, None
+
+                    session_info = (
+                        await session_response.json()
+                        if session_response.content_type == "application/json"
+                        else {}
+                    )
+                    upload_url = session_info.get("upload_url")
+                    max_part_size = session_info.get("max_part_size", 524288)
+
+        if not upload_url:
+            logger.error(
+                f"[upload_audio] No upload_url in session response: {session_info}"
+            )
+            return None, None
+
+        # Step 2: Upload file in parts
+        total_size = len(file_bytes)
+        part_size = min(max_part_size, total_size)
+        offset = 0
+        part_num = 0
+
+        while offset < total_size:
+            part_num += 1
+            chunk = file_bytes[offset : offset + part_size]
+            chunk_len = len(chunk)
+
+            access_token = await get_access_token()
+            if not access_token:
+                logger.error(
+                    "[upload_audio] Failed to get access token for part upload!"
+                )
+                return None, None
+
+            part_headers = {
+                "Authorization": f"Bearer {access_token}",
+                "Content-Type": "application/octet-stream",
+                "Content-Range": f"bytes {offset}-{offset + chunk_len - 1}/{total_size}",
+            }
+
+            async with aiohttp.ClientSession() as session:
+                async with async_amo_crm_rate_limiter.limit():
+                    async with session.post(
+                        upload_url,
+                        headers=part_headers,
+                        data=chunk,
+                        timeout=aiohttp.ClientTimeout(total=30),
+                    ) as upload_response:
+                        text = await upload_response.text()
+
+                        if upload_response.status not in (200, 201, 202):
+                            logger.error(
+                                f"[upload_audio] Failed to upload file part {part_num}: {upload_response.status} - {text}"
+                            )
+                            return None, None
+
+                        upload_data = (
+                            await upload_response.json()
+                            if upload_response.content_type == "application/json"
+                            else {}
+                        )
+
+            if "uuid" in upload_data:
+                download_url = (
+                    upload_data.get("_links", {}).get("download", {}).get("href")
+                )
+
+                if not download_url:
+                    logger.error("[upload_audio] No download URL in upload response")
+                    return None, None
+
+                return download_url, file_size
+
+            next_url = upload_data.get("next_url")
+            if next_url:
+                upload_url = next_url
+
+            offset += chunk_len
+
+        logger.error(
+            "[upload_audio] ✗ No file UUID or download URL returned after upload"
+        )
+        return None, None
+
+    except Exception as e:
+        logger.error(f"[upload_audio] ✗ Exception occurred: {e}", exc_info=True)
+        return None, None

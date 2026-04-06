@@ -5,10 +5,11 @@ from amocrm.v2.entity.note import COMMON_TYPE
 from telegram import Bot
 
 from config import CRM_HOMEWORK_PIPELINE, CRM_HW_SUBMITTED_STATUS
-from crm.crm_chat_service import send_video_to_chat
+from crm.crm_chat_service import send_audio_to_chat, send_video_to_chat
 from crm.crm_service import (
     get_crm_lead,
     update_lead_status_in_pipeline,
+    upload_audio,
     upload_video,
 )
 from crm.crm_models import Lead
@@ -144,8 +145,9 @@ async def submit_student_answers(
     Upload video answers, write all CRM fields in one save, persist HomeworkAnswer rows,
     update homework status → SUBMITTED, update lead status → 84497010.
 
-    `answers` format: {question_number: {"is_text": bool, "text": str|None, "file_id": str|None, "media_type": str}}
-    media_type: "text" | "video" | "other". Only "video" is uploaded to CRM; "other" is noted as a file reference.
+    `answers` format: {question_number: {"is_text": bool, "text": str|None, "file_id": str|None, "media_type": str, "send_type": str|None}}
+    media_type: "text" | "video" | "audio" | "other".
+    "video" and "audio" are uploaded to CRM Drive and sent to chat; "other" is noted as a file reference.
     """
     loop = asyncio.get_running_loop()
 
@@ -196,6 +198,7 @@ async def submit_student_answers(
         text: str | None = data.get("text")
         file_id: str | None = data.get("file_id")
         media_type: str = data.get("media_type", "text")
+        send_type: str | None = data.get("send_type")
 
         if is_text and text:
             content = text
@@ -209,6 +212,20 @@ async def submit_student_answers(
                 {
                     "q_num": q_num,
                     "type": "video",
+                    "url": download_url,
+                    "filename": filename,
+                    "file_size": file_size,
+                }
+            )
+        elif media_type == "audio":
+            download_url, file_size, filename = await _upload_answer_audio(
+                bot, file_id, q_num, send_type
+            )
+            content = file_id or ""
+            answer_info.append(
+                {
+                    "q_num": q_num,
+                    "type": "audio",
                     "url": download_url,
                     "filename": filename,
                     "file_size": file_size,
@@ -278,6 +295,32 @@ async def submit_student_answers(
                     _create_note,
                     f"Ответ на Д/З № {q_num} (видео): {video_url or 'не удалось загрузить'}",
                 )
+        elif info["type"] == "audio":
+            audio_url = info["url"]
+            if audio_url and contact_id:
+                await loop.run_in_executor(
+                    None, _create_note, f"Ответ на Д/З № {q_num}"
+                )
+                sent = await send_audio_to_chat(
+                    audio_url=audio_url,
+                    contact_id=contact_id,
+                    filename=info["filename"],
+                    lead_id=int(homework.lead_id),
+                    contact_name=contact_name,
+                    file_size=info["file_size"],
+                )
+                if not sent:
+                    await loop.run_in_executor(
+                        None,
+                        _create_note,
+                        f"Ответ на Д/З № {q_num} (аудио): {audio_url}",
+                    )
+            else:
+                await loop.run_in_executor(
+                    None,
+                    _create_note,
+                    f"Ответ на Д/З № {q_num} (аудио): {audio_url or 'не удалось загрузить'}",
+                )
         else:
             await loop.run_in_executor(
                 None,
@@ -321,4 +364,25 @@ async def _upload_answer_media(
         return download_url, len(file_bytes), filename
     except Exception as e:
         logger.error(f"Failed to upload media for question {q_num}: {e}", exc_info=True)
+        return None, 0, filename
+
+
+async def _upload_answer_audio(
+    bot: Bot,
+    file_id: str | None,
+    q_num: int,
+    send_type: str | None,
+) -> tuple[str | None, int, str]:
+    ext = "ogg" if send_type == "voice" else "mp3"
+    content_type = "audio/ogg" if send_type == "voice" else "audio/mpeg"
+    filename = f"hw_{q_num}_{(file_id or 'unknown')[:8]}.{ext}"
+    if not file_id:
+        return None, 0, filename
+    try:
+        tg_file = await bot.get_file(file_id)
+        file_bytes = await tg_file.download_as_bytearray()
+        download_url, _ = await upload_audio(bytes(file_bytes), filename, content_type)
+        return download_url, len(file_bytes), filename
+    except Exception as e:
+        logger.error(f"Failed to upload audio for question {q_num}: {e}", exc_info=True)
         return None, 0, filename
