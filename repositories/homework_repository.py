@@ -18,6 +18,7 @@ from database.homework_service import (
     create_homework as _create_homework,
     get_homework_by_id as _get_homework_by_id,
     get_homework_by_lead_id as _get_homework_by_lead_id,
+    update_homework as _update_homework,
     update_homework_status as _update_homework_status,
     upsert_homework_answers as _upsert_homework_answers,
 )
@@ -41,13 +42,6 @@ def save_homework_from_webhook(lead_id: str) -> tuple[Homework, int]:
     Raises:
         ValueError: if the lead, student or required fields are missing.
     """
-    existing = _get_homework_by_lead_id(lead_id)
-    if existing:
-        student = get_by_id(existing.student_id)
-        tg_id = student.tg_id if student else 0
-        logger.info(f"Homework for lead_id={lead_id} already exists (id={existing.id})")
-        return existing, tg_id
-
     lead = get_crm_lead(lead_id)
     if not lead:
         raise ValueError(f"CRM lead {lead_id} not found")
@@ -74,6 +68,24 @@ def save_homework_from_webhook(lead_id: str) -> tuple[Homework, int]:
         raise ValueError(f"No questions found on lead {lead_id}")
 
     deadline = _read_deadline(lead)
+
+    existing = _get_homework_by_lead_id(lead_id)
+    if existing:
+        homework = _update_homework(
+            hw_id=existing.id,
+            first_hw=questions[0],
+            status=HomeworkStatus.PENDING,
+            second_hw=questions[1] if len(questions) > 1 else None,
+            third_hw=questions[2] if len(questions) > 2 else None,
+            fourth_hw=questions[3] if len(questions) > 3 else None,
+            fifth_hw=questions[4] if len(questions) > 4 else None,
+            deadline=deadline,
+            mentor_id=mentor_id,
+        )
+        logger.info(
+            f"Updated homework id={existing.id} for lead_id={lead_id}"
+        )
+        return homework, student_tg_id
 
     homework = _create_homework(
         student_id=student.id,

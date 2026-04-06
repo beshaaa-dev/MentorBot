@@ -72,11 +72,6 @@ async def homework_assigned(request: Request):
     status_id = form.get("leads[status][0][status_id]", "")
     lead_id = form.get("leads[status][0][id]", "")
 
-    logger.info(
-        "homework_assigned: raw payload — %s",
-        dict(form),
-    )
-
     if pipeline_id != str(CRM_HOMEWORK_PIPELINE) or status_id != CRM_HW_ASSIGNED_STATUS:
         logger.warning(
             "homework_assigned: unexpected pipeline_id=%s status_id=%s — ignoring",

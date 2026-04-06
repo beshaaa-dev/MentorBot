@@ -71,6 +71,45 @@ def get_homework_by_lead_id(lead_id: str) -> Homework | None:
             raise
 
 
+def update_homework(
+    hw_id: int,
+    first_hw: str,
+    status: HomeworkStatus | None = None,
+    second_hw: str | None = None,
+    third_hw: str | None = None,
+    fourth_hw: str | None = None,
+    fifth_hw: str | None = None,
+    deadline: datetime | None = None,
+    mentor_id: int | None = None,
+) -> Homework | None:
+    with get_db() as db:
+        try:
+            homework = (
+                db.query(Homework)
+                .options(joinedload(Homework.answers))
+                .filter(Homework.id == hw_id)
+                .first()
+            )
+            if not homework:
+                return None
+            homework.first_hw = first_hw
+            homework.second_hw = second_hw
+            homework.third_hw = third_hw
+            homework.fourth_hw = fourth_hw
+            homework.fifth_hw = fifth_hw
+            homework.deadline = deadline
+            homework.mentor_id = mentor_id
+            if status is not None:
+                homework.status = status
+            homework.updated_at = now_moscow()
+            db.commit()
+            db.refresh(homework)
+            return homework
+        except Exception:
+            db.rollback()
+            raise
+
+
 def update_homework_status(hw_id: int, status: HomeworkStatus) -> Homework | None:
     with get_db() as db:
         try:

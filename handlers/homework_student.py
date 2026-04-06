@@ -416,7 +416,9 @@ hw_student_conversation_handler = ConversationHandler(
             MessageHandler(_review_change_filter, handle_review_change),
         ],
     },
-    fallbacks=[],
+    fallbacks=[
+        CallbackQueryHandler(handle_start_homework, pattern=r"^start_homework_\d+$"),
+    ],
     persistent=True,
     name="homework_student",
     conversation_timeout=259200,  # 3 days
