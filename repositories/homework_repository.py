@@ -287,9 +287,6 @@ async def submit_student_answers(
         elif info["type"] == "video":
             video_url = info["url"]
             if video_url and contact_id:
-                await loop.run_in_executor(
-                    None, _create_note, f"Ответ на Д/З № {q_num}"
-                )
                 sent = await send_video_to_chat(
                     video_url=video_url,
                     contact_id=contact_id,
@@ -297,6 +294,7 @@ async def submit_student_answers(
                     lead_id=int(homework.lead_id),
                     contact_name=contact_name,
                     file_size=info["file_size"],
+                    text=f"Ответ на Д/З № {q_num}",
                 )
                 if not sent:
                     await loop.run_in_executor(
@@ -313,6 +311,9 @@ async def submit_student_answers(
         elif info["type"] == "audio":
             file_uuid = info["uuid"]
             if file_uuid:
+                await loop.run_in_executor(
+                    None, _create_note, f"Ответ на Д/З № {q_num} (аудио)"
+                )
                 await create_attachment_note(
                     int(homework.lead_id), file_uuid, info["version_uuid"], info["filename"]
                 )
@@ -325,6 +326,9 @@ async def submit_student_answers(
         elif info["type"] == "image":
             file_uuid = info["uuid"]
             if file_uuid:
+                await loop.run_in_executor(
+                    None, _create_note, f"Ответ на Д/З № {q_num} (фото)"
+                )
                 await create_attachment_note(
                     int(homework.lead_id), file_uuid, info["version_uuid"], info["filename"]
                 )

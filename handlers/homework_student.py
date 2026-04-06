@@ -355,7 +355,8 @@ async def handle_review_confirm(update: Update, context: ContextTypes.DEFAULT_TY
         return ConversationHandler.END
 
     context.user_data.clear()
-    await pending_msg.edit_text(HW_SUBMITTED)
+    await pending_msg.delete()
+    await update.message.reply_text(HW_SUBMITTED, reply_markup=ReplyKeyboardRemove())
     return ConversationHandler.END
 
 

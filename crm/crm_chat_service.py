@@ -27,7 +27,8 @@ async def send_video_to_chat(
     filename: str,
     lead_id: Optional[int] = None,
     contact_name: str = "",
-    file_size: int = 0
+    file_size: int = 0,
+    text: Optional[str] = None,
 ) -> bool:
     """
     Send a video message to AMoCRM chat.
@@ -154,7 +155,8 @@ async def send_video_to_chat(
                 "type": "video",
                 "media": video_url,
                 "file_name": filename,
-                "file_size": file_size
+                "file_size": file_size,
+                **({"text": text} if text else {}),
             },
             "silent": False,
         }
