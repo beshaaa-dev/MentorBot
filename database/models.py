@@ -12,7 +12,7 @@ class HomeworkStatus(str, Enum):
     PENDING_MENTOR = "pending_mentor"
     POSTPONED = "postponed"
     APPROVED = "approved"
-    REEDIT = "reedit"
+    EDIT = "edit"
 
 
 class Homework(Base):

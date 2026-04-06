@@ -28,6 +28,7 @@ from messages import (
     HW_CONFIRM_ALL_BUTTON,
     HW_SUBMITTED,
     HW_NOT_FOUND,
+    HW_MEDIA_LABEL,
     ERROR_MESSAGE,
 )
 from logger import setup_logger
@@ -176,7 +177,10 @@ async def _send_answer_content(
         return
     file_id = answer_data.get("file_id")
     send_type = answer_data.get("send_type")
-    if not file_id or not send_type:
+    if not file_id:
+        return
+    if not send_type:
+        await context.bot.send_message(chat_id, HW_MEDIA_LABEL)
         return
     match send_type:
         case "video":
@@ -212,7 +216,71 @@ async def _show_review(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     )
 
 
-# ── Entry: student taps Приступить ────────────────────────────────────────────
+# ── Entry: student taps Приступить / Исправить ───────────────────────────────
+
+async def handle_edit_homework(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Точка входа: студент нажимает «Исправить» после возврата на доработку."""
+    query = update.callback_query
+    await query.answer()
+    context.user_data.clear()
+
+    try:
+        hw_id = int(query.data.split("_")[-1])
+    except (ValueError, IndexError):
+        await query.message.reply_text(HW_NOT_FOUND)
+        return ConversationHandler.END
+
+    loop = asyncio.get_running_loop()
+    homework = await loop.run_in_executor(None, get_homework_by_id, hw_id)
+    if not homework:
+        await query.message.reply_text(HW_NOT_FOUND)
+        return ConversationHandler.END
+
+    questions = [
+        q
+        for q in [
+            homework.first_hw,
+            homework.second_hw,
+            homework.third_hw,
+            homework.fourth_hw,
+            homework.fifth_hw,
+        ]
+        if q
+    ]
+
+    context.user_data["hw_id"] = hw_id
+    context.user_data["hw_questions"] = questions
+
+    hw_answers: dict = {}
+    for ans in (homework.answers or []):
+        if ans.is_text:
+            hw_answers[ans.question_number] = {
+                "is_text": True,
+                "text": ans.answer_content,
+                "file_id": None,
+                "media_type": "text",
+                "send_type": None,
+            }
+        else:
+            hw_answers[ans.question_number] = {
+                "is_text": False,
+                "text": None,
+                "file_id": ans.answer_content,
+                "media_type": None,
+                "send_type": None,
+            }
+    context.user_data["hw_answers"] = hw_answers
+
+    await loop.run_in_executor(None, update_homework_status, hw_id, HomeworkStatus.IN_PROGRESS)
+
+    try:
+        await query.message.delete()
+    except Exception:
+        pass
+
+    await _show_review(update, context)
+    return REVIEWING
+
 
 async def handle_start_homework(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     query = update.callback_query
@@ -385,6 +453,7 @@ _review_confirm_filter = filters.TEXT & ~filters.COMMAND & filters.Regex(f"^{HW_
 hw_student_conversation_handler = ConversationHandler(
     entry_points=[
         CallbackQueryHandler(handle_start_homework, pattern=r"^start_homework_\d+$"),
+        CallbackQueryHandler(handle_edit_homework, pattern=r"^edit_homework_\d+$"),
     ],
     states={
         # Q1
@@ -425,6 +494,7 @@ hw_student_conversation_handler = ConversationHandler(
     },
     fallbacks=[
         CallbackQueryHandler(handle_start_homework, pattern=r"^start_homework_\d+$"),
+        CallbackQueryHandler(handle_edit_homework, pattern=r"^edit_homework_\d+$"),
     ],
     persistent=True,
     name="homework_student",

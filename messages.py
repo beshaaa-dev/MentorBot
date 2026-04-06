@@ -139,6 +139,7 @@ HW_CONFIRM_ALL_BUTTON = "Всё верно, отправить"
 HW_SUBMITTED = "Ваше домашнее задание отправлено! Ожидайте обратной связи 🧡"
 HW_NOT_FOUND = "Задание не найдено. Введите /start для продолжения."
 HW_MEDIA_LABEL = "[медиафайл]"
+HW_EDIT_NOTIFICATION = "Ваше домашнее задание отправлено на доработку.\n\nПричина: {reason}"
 
 # Broadcast system messages
 ADMIN_MENU_TITLE = (

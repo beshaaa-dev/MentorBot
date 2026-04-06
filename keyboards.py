@@ -150,6 +150,13 @@ def get_task_review_keyboard(has_task_2: bool, has_task_3: bool) -> ReplyKeyboar
     return ReplyKeyboardMarkup(rows, resize_keyboard=True, one_time_keyboard=True)
 
 
+def get_edit_homework_keyboard(hw_id: int) -> InlineKeyboardMarkup:
+    keyboard = [
+        [InlineKeyboardButton("Исправить", callback_data=f"edit_homework_{hw_id}")]
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+
 def get_start_homework_keyboard(hw_id: int) -> InlineKeyboardMarkup:
     keyboard = [
         [InlineKeyboardButton("Приступить", callback_data=f"start_homework_{hw_id}")]

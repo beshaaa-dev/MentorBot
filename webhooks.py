@@ -10,7 +10,7 @@ load_dotenv(dotenv_path=Path(__file__).resolve().parent / ".env", override=True)
 
 from fastapi import FastAPI, Header, HTTPException, Request
 from fastapi.responses import JSONResponse
-from config import CRM_HOMEWORK_PIPELINE, CRM_HW_ASSIGNED_STATUS
+from config import CRM_HOMEWORK_PIPELINE, CRM_HW_ASSIGNED_STATUS, CRM_HW_EDIT_STATUS
 from logger import setup_logger
 
 logger = setup_logger(__name__)
@@ -120,6 +120,94 @@ async def homework_assigned(request: Request):
     except Exception as e:
         logger.error(
             "homework_assigned: failed to send Telegram message: %s", e, exc_info=True
+        )
+
+    return JSONResponse({"status": "ok"})
+
+
+@app.post("/homework/edit")
+async def homework_edit(request: Request):
+    form = await request.form()
+
+    pipeline_id = form.get("leads[status][0][pipeline_id]", "")
+    status_id = form.get("leads[status][0][status_id]", "")
+    lead_id = form.get("leads[status][0][id]", "")
+
+    if pipeline_id != str(CRM_HOMEWORK_PIPELINE) or status_id != CRM_HW_EDIT_STATUS:
+        logger.warning(
+            "homework_edit: unexpected pipeline_id=%s status_id=%s — ignoring",
+            pipeline_id,
+            status_id,
+        )
+        return JSONResponse({"status": "ignored"})
+
+    if not lead_id:
+        logger.warning("homework_edit: missing lead id in form payload")
+        raise HTTPException(status_code=400, detail="Missing lead id")
+
+    logger.info("homework_edit: processing lead_id=%s", lead_id)
+
+    try:
+        from crm.crm_service import get_crm_lead
+        from database.homework_service import get_homework_by_lead_id, update_homework_status
+        from database.models import HomeworkStatus
+
+        loop = asyncio.get_running_loop()
+
+        lead = await loop.run_in_executor(None, get_crm_lead, lead_id)
+        if not lead:
+            logger.warning("homework_edit: CRM lead %s not found", lead_id)
+            return JSONResponse({"status": "error"}, status_code=404)
+
+        edit_reason = getattr(lead, "hw_edit_reason", None) or ""
+
+        student_tg_id: int | None = None
+        contact_refs = (lead._data.get("_embedded") or {}).get("contacts")
+        if contact_refs:
+            for contact in lead.contacts:
+                raw_tg_id = contact.telegram_id
+                if raw_tg_id:
+                    try:
+                        student_tg_id = int(str(raw_tg_id).strip())
+                    except ValueError:
+                        continue
+                    break
+
+        if not student_tg_id:
+            logger.warning("homework_edit: no student tg_id for lead_id=%s", lead_id)
+            return JSONResponse({"status": "ok"})
+
+        homework = await loop.run_in_executor(None, get_homework_by_lead_id, lead_id)
+        if not homework:
+            logger.warning("homework_edit: no homework record for lead_id=%s", lead_id)
+            return JSONResponse({"status": "error"}, status_code=404)
+
+        await loop.run_in_executor(
+            None, update_homework_status, homework.id, HomeworkStatus.EDIT
+        )
+    except Exception as e:
+        logger.error("homework_edit: failed to process: %s", e, exc_info=True)
+        return JSONResponse({"status": "error"}, status_code=500)
+
+    try:
+        from telegram import Bot
+        from keyboards import get_edit_homework_keyboard
+        from messages import HW_EDIT_NOTIFICATION
+
+        async with Bot(token=TELEGRAM_BOT_TOKEN) as bot:
+            await bot.send_message(
+                chat_id=student_tg_id,
+                text=HW_EDIT_NOTIFICATION.format(reason=edit_reason),
+                reply_markup=get_edit_homework_keyboard(homework.id),
+            )
+        logger.info(
+            "homework_edit: sent notification to student tg_id=%s for hw_id=%s",
+            student_tg_id,
+            homework.id,
+        )
+    except Exception as e:
+        logger.error(
+            "homework_edit: failed to send Telegram message: %s", e, exc_info=True
         )
 
     return JSONResponse({"status": "ok"})

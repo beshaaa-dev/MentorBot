@@ -68,7 +68,7 @@ class Lead(_Lead):
         "Время сдачи Д/З", field_id=560203
     )
     hw_deadline_missed = custom_field.TextCustomField("Просрочено", field_id=560205)
-    hw_reedit_reason = custom_field.TextCustomField(
+    hw_edit_reason = custom_field.TextCustomField(
         "Причина возврата на переработку", field_id=560207
     )
     # Поля для проекта с опросами
