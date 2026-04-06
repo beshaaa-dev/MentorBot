@@ -822,36 +822,37 @@ async def _send_postponed_items(
     mentor_id: int,
 ) -> None:
     """
-    Показывает отложенные задачи, затем отложенные ДЗ.
-    Если ничего нет — показывает стандартное сообщение с меню.
+    Показывает отложенные элементы по приоритету:
+    1. Отложенная задача (если есть)
+    2. Отложенное ДЗ (если задач нет)
+    3. Сообщение «ничего нет» (если нет ни того, ни другого)
     """
+    from database.homework_service import get_postponed_homeworks_for_mentor
+    from handlers.homework_mentor import _send_homework_to_mentor
+
     chat_id = update.effective_chat.id
 
-    # 1) Показать отложенные задачи, если есть
+    # 1. Send earliest postponed task if available
     task_shown = await _present_postponed_task_view(
         chat_id=chat_id,
         mentor_id=mentor_id,
         context=context,
         resend_media=True,
     )
+    if task_shown:
+        return
 
-    # 2) Показать отложенные ДЗ, если есть
-    from database.homework_service import get_postponed_homeworks_for_mentor
-    from handlers.homework_mentor import _send_homework_to_mentor
-    from messages import HW_POSTPONED_HW_HEADER
-
+    # 2. No postponed tasks — send earliest postponed homework if available
     homeworks = get_postponed_homeworks_for_mentor(mentor_id)
     if homeworks:
-        await context.bot.send_message(chat_id, HW_POSTPONED_HW_HEADER)
-        for hw in homeworks:
-            await _send_homework_to_mentor(chat_id, hw, context)
+        await _send_homework_to_mentor(chat_id, homeworks[0], context)
+        return
 
-    # 3) Если ничего не было показано — стандартное сообщение
-    if not task_shown and not homeworks:
-        await update.message.reply_text(
-            NO_POSTPONED_TASKS,
-            reply_markup=get_mentor_menu_keyboard(),
-        )
+    # 3. Nothing postponed
+    await update.message.reply_text(
+        NO_POSTPONED_TASKS,
+        reply_markup=get_mentor_menu_keyboard(),
+    )
 
 
 async def _present_postponed_task_view(
