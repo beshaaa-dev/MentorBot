@@ -32,6 +32,7 @@ from messages import (
     HW_NO_PENDING_MENTOR,
     HW_FEEDBACK_PROMPT,
     HW_FEEDBACK_SAVED,
+    HW_FEEDBACK_CANCELLED,
     HW_RATE_PROMPT,
     HW_RATE_SAVED,
     HW_MENTOR_QUESTION_HEADER,
@@ -86,7 +87,9 @@ async def _send_homework_to_mentor(
             answer_data = {
                 "media_type": answer.media_type,
                 "text": answer.answer_content if answer.media_type == "text" else None,
-                "file_id": answer.answer_content if answer.media_type != "text" else None,
+                "file_id": (
+                    answer.answer_content if answer.media_type != "text" else None
+                ),
             }
             await _send_answer_content(answer_data, chat_id, context)
 
@@ -125,21 +128,21 @@ def _get_verified_mentor(tg_user_id: int):
 async def handle_check_homework_callback(
     update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> None:
+    logger.debug("check_homework: callback handler called")
     query = update.callback_query
+    await query.answer()
+
     tg_id = query.from_user.id if query.from_user else None
     chat_id = query.message.chat_id if query.message else None
     logger.info(
         f"check_homework callback: tg_id={tg_id} chat_id={chat_id} data={query.data!r}"
     )
 
-    await query.answer()
     logger.debug("check_homework: callback query answered")
 
     mentor = _get_verified_mentor(query.from_user.id)
     if not mentor:
-        logger.warning(
-            f"check_homework: not a mentor or user not found tg_id={tg_id}"
-        )
+        logger.warning(f"check_homework: not a mentor or user not found tg_id={tg_id}")
         await query.message.reply_text(ERROR_MESSAGE)
         return
 
@@ -199,7 +202,9 @@ async def handle_hw_postpone_callback(
         return
 
     loop = asyncio.get_running_loop()
-    await loop.run_in_executor(None, update_homework_status, hw_id, HomeworkStatus.POSTPONED)
+    await loop.run_in_executor(
+        None, update_homework_status, hw_id, HomeworkStatus.POSTPONED
+    )
     logger.info(f"Homework {hw_id} postponed by mentor {mentor.id}")
 
     try:
@@ -231,7 +236,9 @@ async def handle_hw_feedback_callback(
         return ConversationHandler.END
 
     context.user_data["hw_feedback_id"] = hw_id
-    await query.message.reply_text(HW_FEEDBACK_PROMPT, reply_markup=ReplyKeyboardRemove())
+    await query.message.reply_text(
+        HW_FEEDBACK_PROMPT, reply_markup=ReplyKeyboardRemove()
+    )
     return AWAITING_FEEDBACK
 
 
@@ -345,10 +352,16 @@ async def handle_hw_reedit_callback(
         lead = await loop.run_in_executor(None, get_crm_lead, homework.lead_id)
         if lead:
             await loop.run_in_executor(
-                None, update_lead_status_in_pipeline, lead, CRM_HOMEWORK_PIPELINE, CRM_HW_EDIT_STATUS
+                None,
+                update_lead_status_in_pipeline,
+                lead,
+                CRM_HOMEWORK_PIPELINE,
+                CRM_HW_EDIT_STATUS,
             )
     except Exception as e:
-        logger.error(f"Failed to update CRM lead for hw reedit hw_id={hw_id}: {e}", exc_info=True)
+        logger.error(
+            f"Failed to update CRM lead for hw reedit hw_id={hw_id}: {e}", exc_info=True
+        )
 
     logger.info(f"Homework {hw_id} sent for reedit by mentor {mentor.id}")
 
@@ -387,16 +400,25 @@ async def handle_hw_approve_callback(
         await query.message.reply_text(ERROR_MESSAGE)
         return
 
-    await loop.run_in_executor(None, update_homework_status, hw_id, HomeworkStatus.APPROVED)
+    await loop.run_in_executor(
+        None, update_homework_status, hw_id, HomeworkStatus.APPROVED
+    )
 
     try:
         lead = await loop.run_in_executor(None, get_crm_lead, homework.lead_id)
         if lead:
             await loop.run_in_executor(
-                None, update_lead_status_in_pipeline, lead, CRM_HOMEWORK_PIPELINE, CRM_HW_APPROVED_STATUS
+                None,
+                update_lead_status_in_pipeline,
+                lead,
+                CRM_HOMEWORK_PIPELINE,
+                CRM_HW_APPROVED_STATUS,
             )
     except Exception as e:
-        logger.error(f"Failed to update CRM lead for hw approve hw_id={hw_id}: {e}", exc_info=True)
+        logger.error(
+            f"Failed to update CRM lead for hw approve hw_id={hw_id}: {e}",
+            exc_info=True,
+        )
 
     logger.info(f"Homework {hw_id} approved by mentor {mentor.id}")
 
@@ -411,12 +433,26 @@ async def handle_hw_approve_callback(
 # ── ConversationHandler for feedback flow ─────────────────────────────────────
 
 
-async def cancel_hw_feedback(
-    update: Update, context: ContextTypes.DEFAULT_TYPE
-) -> int:
+async def cancel_hw_feedback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     context.user_data.clear()
     return ConversationHandler.END
 
+
+def _make_feedback_escape(delegate):
+    """
+    Factory for escape-hatch fallbacks in hw_mentor_feedback_handler.
+
+    Produced handler:
+      1. Notifies the mentor that feedback input was cancelled.
+      2. Delegates to the real callback handler (which calls query.answer() itself).
+      3. Returns ConversationHandler.END to close the feedback conversation.
+    """
+    async def _handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+        context.user_data.pop("hw_feedback_id", None)
+        await update.callback_query.message.reply_text(HW_FEEDBACK_CANCELLED)
+        await delegate(update, context)
+        return ConversationHandler.END
+    return _handler
 
 
 hw_mentor_feedback_handler = ConversationHandler(
@@ -431,7 +467,15 @@ hw_mentor_feedback_handler = ConversationHandler(
     fallbacks=[
         CommandHandler("cancel", cancel_hw_feedback),
         MessageHandler(filters.COMMAND, cancel_hw_feedback),
-        CallbackQueryHandler(handle_hw_feedback_callback, pattern=r"^hw_feedback_\d+$"),
+        CallbackQueryHandler(handle_hw_feedback_callback,                            pattern=r"^hw_feedback_\d+$"),
+        # Escape hatches: if the mentor taps any mentor-flow button while stuck in
+        # AWAITING_FEEDBACK, cancel feedback gracefully and delegate to the real handler.
+        CallbackQueryHandler(_make_feedback_escape(handle_check_homework_callback),  pattern=r"^check_homework_\d+$"),
+        CallbackQueryHandler(_make_feedback_escape(handle_hw_postpone_callback),     pattern=r"^hw_postpone_\d+$"),
+        CallbackQueryHandler(_make_feedback_escape(handle_hw_rate_callback),         pattern=r"^hw_rate_\d+$"),
+        CallbackQueryHandler(_make_feedback_escape(handle_hw_rate_select_callback),  pattern=r"^hw_rate_val_\d+_\d+$"),
+        CallbackQueryHandler(_make_feedback_escape(handle_hw_reedit_callback),       pattern=r"^hw_reedit_\d+$"),
+        CallbackQueryHandler(_make_feedback_escape(handle_hw_approve_callback),      pattern=r"^hw_approve_\d+$"),
     ],
     persistent=True,
     name="homework_mentor_feedback",
