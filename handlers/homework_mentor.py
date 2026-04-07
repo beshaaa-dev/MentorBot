@@ -922,9 +922,12 @@ async def _handle_hw_nav_message(
 
     mentor = _get_verified_mentor(update.effective_user.id)
     if not mentor:
+        await _delete_hw_messages(update.effective_chat.id, context)
         await update.message.reply_text(ERROR_MESSAGE)
         context.user_data.clear()
         return
+
+    await _delete_hw_messages(update.effective_chat.id, context)
 
     state = context.user_data.get(state_key) or {}
     current_hw_id = state.get("hw_id")
@@ -960,8 +963,6 @@ async def _handle_hw_nav_message(
             reply_markup=get_mentor_homework_menu_keyboard(),
         )
         return
-
-    await _delete_hw_messages(update.effective_chat.id, context)
     try:
         shown = await _present_hw_navigation_view(
             chat_id=update.effective_chat.id,
@@ -1007,6 +1008,7 @@ async def handle_hw_to_menu_message(
     if HW_POSTPONED_STATE_KEY not in context.user_data and HW_HISTORY_STATE_KEY not in context.user_data:
         return
     await delete_user_message(update.message)
+    await _delete_hw_messages(update.effective_chat.id, context)
     context.user_data.pop(HW_POSTPONED_STATE_KEY, None)
     context.user_data.pop(HW_HISTORY_STATE_KEY, None)
     await update.message.reply_text(
