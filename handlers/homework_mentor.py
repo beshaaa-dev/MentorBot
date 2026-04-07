@@ -526,6 +526,7 @@ async def _handle_approve_feedback_text(
     await loop.run_in_executor(None, update_homework_feedback, hw_id, feedback_text)
     logger.info(f"Approve flow: feedback saved for homework {hw_id}")
 
+    await delete_user_message(update.message)
     await _finalize_approve(update.effective_chat.id, hw_id, mentor.id, context)
     return ConversationHandler.END
 
@@ -663,6 +664,7 @@ async def _handle_edit_from_mentor_note_text(
         return ConversationHandler.END
 
     reason = update.message.text or ""
+    await delete_user_message(update.message)
     await _finalize_edit_from_mentor(
         update.effective_chat.id, hw_id, mentor.id, reason, context,
     )
@@ -811,6 +813,7 @@ async def handle_hw_check_new_button(
         await update.message.reply_text(ERROR_MESSAGE)
         return
 
+    await _delete_hw_messages(update.effective_chat.id, context)
     context.user_data.clear()
     await _show_next_or_menu(update.effective_chat.id, mentor.id, context)
 
@@ -859,6 +862,7 @@ async def handle_hw_check_postponed_button(
         await update.message.reply_text(ERROR_MESSAGE)
         return
 
+    await _delete_hw_messages(update.effective_chat.id, context)
     context.user_data.pop(HW_POSTPONED_STATE_KEY, None)
 
     shown = await _present_hw_navigation_view(
@@ -886,6 +890,7 @@ async def handle_hw_check_history_button(
         await update.message.reply_text(ERROR_MESSAGE)
         return
 
+    await _delete_hw_messages(update.effective_chat.id, context)
     context.user_data.pop(HW_HISTORY_STATE_KEY, None)
 
     shown = await _present_hw_navigation_view(
@@ -956,6 +961,7 @@ async def _handle_hw_nav_message(
         )
         return
 
+    await _delete_hw_messages(update.effective_chat.id, context)
     try:
         shown = await _present_hw_navigation_view(
             chat_id=update.effective_chat.id,
