@@ -195,12 +195,12 @@ def get_check_homework_keyboard(hw_id: int) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(keyboard)
 
 
-def get_hw_mentor_decision_keyboard(hw_id: int) -> InlineKeyboardMarkup:
-    keyboard = [
-        [InlineKeyboardButton(HW_POSTPONE_BUTTON, callback_data=f"hw_postpone_{hw_id}")],
-        [InlineKeyboardButton(HW_APPROVE_HW_BUTTON, callback_data=f"hw_approve_{hw_id}")],
-        [InlineKeyboardButton(HW_EDIT_FROM_MENTOR_BUTTON, callback_data=f"hw_edit_from_mentor_{hw_id}")],
-    ]
+def get_hw_mentor_decision_keyboard(hw_id: int, show_postpone: bool = True) -> InlineKeyboardMarkup:
+    keyboard = []
+    if show_postpone:
+        keyboard.append([InlineKeyboardButton(HW_POSTPONE_BUTTON, callback_data=f"hw_postpone_{hw_id}")])
+    keyboard.append([InlineKeyboardButton(HW_APPROVE_HW_BUTTON, callback_data=f"hw_approve_{hw_id}")])
+    keyboard.append([InlineKeyboardButton(HW_EDIT_FROM_MENTOR_BUTTON, callback_data=f"hw_edit_from_mentor_{hw_id}")])
     return InlineKeyboardMarkup(keyboard)
 
 
@@ -253,6 +253,14 @@ def get_hw_rating_with_skip_keyboard(hw_id: int) -> InlineKeyboardMarkup:
             for n in range(0, 6)
         ],
         [InlineKeyboardButton(HW_SKIP_BUTTON, callback_data=f"hw_skip_rate_{hw_id}")],
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+
+def get_hw_edit_reason_skip_keyboard(hw_id: int) -> InlineKeyboardMarkup:
+    """Клавиатура с кнопкой 'Пропустить' для причины возврата на переработку."""
+    keyboard = [
+        [InlineKeyboardButton(HW_SKIP_BUTTON, callback_data=f"hw_skip_edit_reason_{hw_id}")],
     ]
     return InlineKeyboardMarkup(keyboard)
 

@@ -36,6 +36,7 @@ from keyboards import (
     get_hw_mentor_decision_keyboard,
     get_hw_rating_with_skip_keyboard,
     get_hw_feedback_skip_keyboard,
+    get_hw_edit_reason_skip_keyboard,
     get_mentor_homework_menu_keyboard,
     get_hw_navigation_keyboard,
 )
@@ -177,7 +178,10 @@ async def _send_homework_to_mentor(
     review_msg = await context.bot.send_message(
         chat_id,
         review_text,
-        reply_markup=get_hw_mentor_decision_keyboard(homework.id),
+        reply_markup=get_hw_mentor_decision_keyboard(
+            homework.id,
+            show_postpone=(homework.status == HomeworkStatus.PENDING_MENTOR),
+        ),
     )
     context.user_data["hw_review_msg_id"] = review_msg.message_id
     context.user_data["hw_review_student_name"] = student_name
@@ -231,13 +235,16 @@ def _build_review_text(
     rating: int | None,
     status: HomeworkStatus | None = None,
     tg_nickname: str | None = None,
+    edit_reason: str | None = None,
 ) -> str:
-    """Строит текст карточки-ревью: имя студента + tg + статус + обратная связь + оценка."""
+    """Строит текст карточки-ревью: имя студента + tg + статус + причина возврата + обратная связь + оценка."""
     text = f"Домашняя работа. {student_name}"
     if tg_nickname:
         text += f" (@{tg_nickname.lstrip('@')})"
     if status is not None:
         text += f"\nСтатус: {_STATUS_LABELS.get(status, status.value)}"
+    if edit_reason and not feedback:
+        text += f"\nПричина возврата на переработку: {edit_reason}"
     if feedback:
         text += f"\n\nОбратная связь: {feedback}"
     if rating is not None:
@@ -324,6 +331,7 @@ async def _edit_review_final(
         homework.rating if homework else None,
         homework.status if homework else None,
         tg_nickname=tg_nickname or None,
+        edit_reason=homework.edit_reason_from_mentor if homework else None,
     )
     try:
         await context.bot.edit_message_text(
@@ -604,11 +612,70 @@ async def _handle_edit_from_mentor_entry(
 
     context.user_data["hw_edit_from_mentor_id"] = hw_id
     try:
-        await query.edit_message_text(text=HW_EDIT_REASON_PROMPT, reply_markup=None)
+        await query.edit_message_text(
+            text=HW_EDIT_REASON_PROMPT,
+            reply_markup=get_hw_edit_reason_skip_keyboard(hw_id),
+        )
     except Exception as e:
         logger.warning(f"Could not edit review message for edit_from_mentor prompt: {e}")
-        await query.message.reply_text(HW_EDIT_REASON_PROMPT)
+        await query.message.reply_text(
+            HW_EDIT_REASON_PROMPT,
+            reply_markup=get_hw_edit_reason_skip_keyboard(hw_id),
+        )
     return EDIT_FROM_MENTOR_NOTE
+
+
+async def _finalize_edit_from_mentor(
+    chat_id: int, hw_id: int, mentor_id: int,
+    reason: str | None, context: ContextTypes.DEFAULT_TYPE,
+) -> None:
+    """Финализация возврата на переработку: обновление БД + CRM + review-сообщение + следующее ДЗ."""
+    loop = asyncio.get_running_loop()
+
+    await loop.run_in_executor(
+        None, update_homework_status, hw_id, HomeworkStatus.EDIT_FROM_MENTOR
+    )
+    if reason:
+        await loop.run_in_executor(
+            None, update_homework_edit_reason_from_mentor, hw_id, reason
+        )
+
+    homework = await loop.run_in_executor(None, get_homework_by_id, hw_id)
+    if not homework:
+        logger.error(f"Homework {hw_id} not found after status update")
+        return
+
+    try:
+        lead = await loop.run_in_executor(None, get_crm_lead, homework.lead_id)
+        if lead:
+            await loop.run_in_executor(
+                None,
+                update_lead_status_in_pipeline,
+                lead,
+                CRM_HOMEWORK_PIPELINE,
+                CRM_HW_EDIT_FROM_MENTOR_STATUS,
+            )
+            if reason:
+                await loop.run_in_executor(
+                    None, update_lead_hw_edit_reason_mentor, lead, reason
+                )
+    except Exception as e:
+        logger.error(
+            f"Failed to update CRM lead for hw edit_from_mentor hw_id={hw_id}: {e}",
+            exc_info=True,
+        )
+
+    logger.info(f"Homework {hw_id} sent for edit_from_mentor by mentor {mentor_id}")
+
+    review_msg_id = context.user_data.get("hw_review_msg_id")
+    student_name = context.user_data.get("hw_review_student_name", "")
+    student_tg = context.user_data.get("hw_review_student_tg", "")
+    if review_msg_id:
+        await _edit_review_final(
+            chat_id, review_msg_id, student_name, student_tg, hw_id, context,
+        )
+
+    await _show_next_or_menu(chat_id, mentor_id, context)
 
 
 async def _handle_edit_from_mentor_note_text(
@@ -625,52 +692,31 @@ async def _handle_edit_from_mentor_note_text(
         return ConversationHandler.END
 
     reason = update.message.text or ""
-    loop = asyncio.get_running_loop()
-
-    await loop.run_in_executor(
-        None, update_homework_status, hw_id, HomeworkStatus.EDIT_FROM_MENTOR
+    await _finalize_edit_from_mentor(
+        update.effective_chat.id, hw_id, mentor.id, reason, context,
     )
-    if reason:
-        await loop.run_in_executor(
-            None, update_homework_edit_reason_from_mentor, hw_id, reason
-        )
+    return ConversationHandler.END
 
-    homework = await loop.run_in_executor(None, get_homework_by_id, hw_id)
-    if not homework:
-        logger.error(f"Homework {hw_id} not found after status update")
+
+async def _handle_edit_from_mentor_skip_reason(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> int:
+    """Ментор пропустил ввод причины. Финализируем без причины."""
+    query = update.callback_query
+    await query.answer()
+
+    hw_id = context.user_data.pop("hw_edit_from_mentor_id", None)
+    if not hw_id:
         return ConversationHandler.END
 
-    try:
-        lead = await loop.run_in_executor(None, get_crm_lead, homework.lead_id)
-        if lead:
-            await loop.run_in_executor(
-                None,
-                update_lead_status_in_pipeline,
-                lead,
-                CRM_HOMEWORK_PIPELINE,
-                CRM_HW_EDIT_FROM_MENTOR_STATUS,
-            )
-            await loop.run_in_executor(
-                None, update_lead_hw_edit_reason_mentor, lead, reason
-            )
-    except Exception as e:
-        logger.error(
-            f"Failed to update CRM lead for hw edit_from_mentor hw_id={hw_id}: {e}",
-            exc_info=True,
-        )
+    mentor = _get_verified_mentor(query.from_user.id)
+    if not mentor:
+        await query.message.reply_text(ERROR_MESSAGE)
+        return ConversationHandler.END
 
-    logger.info(f"Homework {hw_id} sent for edit_from_mentor by mentor {mentor.id}")
-
-    review_msg_id = context.user_data.get("hw_review_msg_id")
-    student_name = context.user_data.get("hw_review_student_name", "")
-    student_tg = context.user_data.get("hw_review_student_tg", "")
-    if review_msg_id:
-        await _edit_review_final(
-            update.effective_chat.id, review_msg_id, student_name, student_tg,
-            hw_id, context,
-        )
-
-    await _show_next_or_menu(update.effective_chat.id, mentor.id, context)
+    await _finalize_edit_from_mentor(
+        query.message.chat_id, hw_id, mentor.id, None, context,
+    )
     return ConversationHandler.END
 
 
@@ -745,6 +791,9 @@ hw_edit_from_mentor_conversation_handler = ConversationHandler(
         EDIT_FROM_MENTOR_NOTE: [
             MessageHandler(
                 filters.TEXT & ~filters.COMMAND, _handle_edit_from_mentor_note_text
+            ),
+            CallbackQueryHandler(
+                _handle_edit_from_mentor_skip_reason, pattern=r"^hw_skip_edit_reason_\d+$"
             ),
         ],
     },
