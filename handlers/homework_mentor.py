@@ -148,7 +148,8 @@ async def _send_homework_to_mentor(
     ]
     answers_by_num = {a.question_number: a for a in (homework.answers or [])}
 
-    # 1. Send all Q&A pairs first
+    # 1. Send all Q&A pairs first, tracking message IDs for later cleanup
+    qa_msg_ids = []
     for i, question in enumerate(questions, start=1):
         kwargs = {
             "chat_id": chat_id,
@@ -157,7 +158,8 @@ async def _send_homework_to_mentor(
         }
         if i == 1 and nav_reply_markup is not None:
             kwargs["reply_markup"] = nav_reply_markup
-        await context.bot.send_message(**kwargs)
+        q_msg = await context.bot.send_message(**kwargs)
+        qa_msg_ids.append(q_msg.message_id)
         answer = answers_by_num.get(i)
         if answer:
             answer_data = {
@@ -167,9 +169,11 @@ async def _send_homework_to_mentor(
                     answer.answer_content if answer.media_type != "text" else None
                 ),
             }
-            await _send_answer_content(answer_data, chat_id, context)
+            ans_msg = await _send_answer_content(answer_data, chat_id, context)
+            if ans_msg:
+                qa_msg_ids.append(ans_msg.message_id)
 
-    # 2. Send review message at the bottom; store its id for later editing
+    # 2. Send review message at the bottom; store its id for later deletion
     student_tg = student.tg_nickname if student else None
     review_text = _build_review_text(
         student_name, homework.feedback, homework.rating, homework.status,
@@ -183,6 +187,7 @@ async def _send_homework_to_mentor(
             show_postpone=(homework.status == HomeworkStatus.PENDING_MENTOR),
         ),
     )
+    context.user_data["hw_qa_msg_ids"] = qa_msg_ids
     context.user_data["hw_review_msg_id"] = review_msg.message_id
     context.user_data["hw_review_student_name"] = student_name
     context.user_data["hw_review_hw_id"] = homework.id
@@ -311,36 +316,23 @@ async def handle_check_homework_callback(
     await _send_homework_to_mentor(query.message.chat_id, homework, context)
 
 
-# ── Helpers: обновление review-сообщения после действия ────────────────────────
+# ── Helpers: удаление Q/A и review-сообщений после действия ───────────────────
 
 
-async def _edit_review_final(
+async def _delete_hw_messages(
     chat_id: int,
-    review_msg_id: int,
-    student_name: str,
-    tg_nickname: str,
-    hw_id: int,
     context: ContextTypes.DEFAULT_TYPE,
 ) -> None:
-    """Обновляет review-сообщение после завершения действия (без кнопок)."""
-    loop = asyncio.get_running_loop()
-    homework = await loop.run_in_executor(None, get_homework_by_id, hw_id)
-    review_text = _build_review_text(
-        student_name,
-        homework.feedback if homework else None,
-        homework.rating if homework else None,
-        homework.status if homework else None,
-        tg_nickname=tg_nickname or None,
-        edit_reason=homework.edit_reason_from_mentor if homework else None,
-    )
-    try:
-        await context.bot.edit_message_text(
-            chat_id=chat_id,
-            message_id=review_msg_id,
-            text=review_text,
-        )
-    except Exception as e:
-        logger.warning(f"Could not edit review message after action: {e}")
+    """Удаляет все Q/A-сообщения и review-сообщение из чата ментора."""
+    msg_ids = list(context.user_data.pop("hw_qa_msg_ids", []))
+    review_msg_id = context.user_data.pop("hw_review_msg_id", None)
+    if review_msg_id:
+        msg_ids.append(review_msg_id)
+    for msg_id in msg_ids:
+        try:
+            await context.bot.delete_message(chat_id=chat_id, message_id=msg_id)
+        except Exception as e:
+            logger.warning(f"Could not delete message {msg_id} in chat {chat_id}: {e}")
 
 
 # ── Callback: Проверить позже ─────────────────────────────────────────────────
@@ -369,14 +361,7 @@ async def handle_hw_postpone_callback(
     )
     logger.info(f"Homework {hw_id} postponed by mentor {mentor.id}")
 
-    review_msg_id = context.user_data.get("hw_review_msg_id")
-    student_name = context.user_data.get("hw_review_student_name", "")
-    student_tg = context.user_data.get("hw_review_student_tg", "")
-    if review_msg_id:
-        await _edit_review_final(
-            query.message.chat_id, review_msg_id, student_name, student_tg, hw_id, context,
-        )
-
+    await _delete_hw_messages(query.message.chat_id, context)
     await _show_next_or_menu(query.message.chat_id, mentor.id, context)
 
 
@@ -480,7 +465,7 @@ async def _handle_approve_skip_rate(
 async def _finalize_approve(
     chat_id: int, hw_id: int, mentor_id: int, context: ContextTypes.DEFAULT_TYPE,
 ) -> None:
-    """Финализация одобрения: обновление БД + CRM + review-сообщение + следующее ДЗ."""
+    """Финализация одобрения: обновление БД + CRM + удаление сообщений + следующее ДЗ."""
     context.user_data.pop("hw_approve_id", None)
     loop = asyncio.get_running_loop()
 
@@ -519,14 +504,7 @@ async def _finalize_approve(
 
     logger.info(f"Homework {hw_id} approved by mentor {mentor_id}")
 
-    review_msg_id = context.user_data.get("hw_review_msg_id")
-    student_name = context.user_data.get("hw_review_student_name", "")
-    student_tg = context.user_data.get("hw_review_student_tg", "")
-    if review_msg_id:
-        await _edit_review_final(
-            chat_id, review_msg_id, student_name, student_tg, hw_id, context,
-        )
-
+    await _delete_hw_messages(chat_id, context)
     await _show_next_or_menu(chat_id, mentor_id, context)
 
 
@@ -629,7 +607,7 @@ async def _finalize_edit_from_mentor(
     chat_id: int, hw_id: int, mentor_id: int,
     reason: str | None, context: ContextTypes.DEFAULT_TYPE,
 ) -> None:
-    """Финализация возврата на переработку: обновление БД + CRM + review-сообщение + следующее ДЗ."""
+    """Финализация возврата на переработку: обновление БД + CRM + удаление сообщений + следующее ДЗ."""
     loop = asyncio.get_running_loop()
 
     await loop.run_in_executor(
@@ -667,14 +645,7 @@ async def _finalize_edit_from_mentor(
 
     logger.info(f"Homework {hw_id} sent for edit_from_mentor by mentor {mentor_id}")
 
-    review_msg_id = context.user_data.get("hw_review_msg_id")
-    student_name = context.user_data.get("hw_review_student_name", "")
-    student_tg = context.user_data.get("hw_review_student_tg", "")
-    if review_msg_id:
-        await _edit_review_final(
-            chat_id, review_msg_id, student_name, student_tg, hw_id, context,
-        )
-
+    await _delete_hw_messages(chat_id, context)
     await _show_next_or_menu(chat_id, mentor_id, context)
 
 

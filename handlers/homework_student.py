@@ -160,31 +160,31 @@ def _next_question_state(current_q: int, context: ContextTypes.DEFAULT_TYPE) -> 
 
 async def _send_answer_content(
     answer_data: dict, chat_id: int, context: ContextTypes.DEFAULT_TYPE
-) -> None:
+) -> Message | None:
     media_type = answer_data.get("media_type", "text")
     if media_type == "text":
         text = answer_data.get("text") or ""
         if text:
-            await context.bot.send_message(chat_id, text)
-        return
+            return await context.bot.send_message(chat_id, text)
+        return None
     file_id = answer_data.get("file_id")
     if not file_id:
-        return
+        return None
     match media_type:
         case "video":
-            await context.bot.send_video(chat_id, file_id)
+            return await context.bot.send_video(chat_id, file_id)
         case "video_note":
-            await context.bot.send_video_note(chat_id, file_id)
+            return await context.bot.send_video_note(chat_id, file_id)
         case "audio":
-            await context.bot.send_audio(chat_id, file_id)
+            return await context.bot.send_audio(chat_id, file_id)
         case "voice":
-            await context.bot.send_voice(chat_id, file_id)
+            return await context.bot.send_voice(chat_id, file_id)
         case "document":
-            await context.bot.send_document(chat_id, file_id)
+            return await context.bot.send_document(chat_id, file_id)
         case "photo":
-            await context.bot.send_photo(chat_id, file_id)
+            return await context.bot.send_photo(chat_id, file_id)
         case _:
-            await context.bot.send_message(chat_id, HW_MEDIA_LABEL)
+            return await context.bot.send_message(chat_id, HW_MEDIA_LABEL)
 
 
 async def _show_review(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
