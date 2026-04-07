@@ -143,6 +143,9 @@ HW_MEDIA_LABEL = "[медиафайл]"
 HW_EDIT_NOTIFICATION = (
     "Ваше домашнее задание отправлено на доработку.\n\nПричина: {reason}"
 )
+HW_ACCEPTED_NOTIFICATION = "Ваше домашнее задание успешно проверено ✅"
+HW_ACCEPTED_RATING = "\nОценка: {rating}/5"
+HW_ACCEPTED_FEEDBACK = "\nОбратная связь: {feedback}"
 HW_FOR_MENTOR_NOTIFICATION = "Новое домашнее задание для проверки"
 HW_CHECK_BUTTON = "Проверить"
 HW_NO_PENDING_MENTOR = "Домашних заданий на проверку пока нет."
@@ -151,12 +154,32 @@ HW_FEEDBACK_BUTTON = "Дать обратную связь"
 HW_RATE_BUTTON = "Оценить"
 HW_REEDIT_BUTTON = "Отправить на доработку"
 HW_APPROVE_HW_BUTTON = "Одобрить"
+HW_EDIT_FROM_MENTOR_BUTTON = "На доработку"
 HW_FEEDBACK_PROMPT = "Введите обратную связь для студента:"
 HW_FEEDBACK_CANCELLED = "Ввод обратной связи отменён."
 HW_RATE_PROMPT = "Оцените домашнее задание (0–5):"
 HW_RATE_SAVED = "Оценка сохранена."
+HW_SKIP_BUTTON = "Пропустить"
+HW_EDIT_REASON_PROMPT = "Укажите причину возврата на переработку:"
+HW_APPROVE_CANCELLED = "Одобрение отменено."
+HW_EDIT_FROM_MENTOR_CANCELLED = "Возврат на доработку отменён."
 HW_MENTOR_QUESTION_HEADER = "*Вопрос {n}:* {question}"
 HW_POSTPONED_HW_HEADER = "Отложенные домашние задания:"
+
+# Mentor homework menu
+MENTOR_HW_MENU_INFO = (
+    "Вот, что Вы можете сделать:\n\n"
+    "• *Проверить новые Д/З* — узнать есть ли домашняя работа на проверке\n"
+    "• *Отложенные Д/З* — вернуться к отложенным работам\n"
+    "• *История Д/З* — посмотреть уже одобренные работы"
+)
+MENTOR_HW_CHECK_NEW_BUTTON = "Проверить новые Д/З"
+MENTOR_HW_CHECK_POSTPONED_BUTTON = "Отложенные Д/З"
+MENTOR_HW_CHECK_HISTORY_BUTTON = "История Д/З"
+MENTOR_HW_NO_POSTPONED = "Отложенных Д/З нет."
+MENTOR_HW_NO_HISTORY = "Проверенных Д/З нет."
+MENTOR_HW_NAV_PREV = "Предыдущее Д/З"
+MENTOR_HW_NAV_NEXT = "Следующее Д/З"
 
 # Broadcast system messages
 ADMIN_MENU_TITLE = (

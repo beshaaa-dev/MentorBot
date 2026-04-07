@@ -10,7 +10,7 @@ load_dotenv(dotenv_path=Path(__file__).resolve().parent / ".env", override=True)
 
 from fastapi import FastAPI, Header, HTTPException, Request
 from fastapi.responses import JSONResponse
-from config import CRM_HOMEWORK_PIPELINE, CRM_HW_ASSIGNED_STATUS, CRM_HW_EDIT_STATUS, CRM_HW_FOR_MENTOR_STATUS
+from config import CRM_HOMEWORK_PIPELINE, CRM_HW_ASSIGNED_STATUS, CRM_HW_EDIT_STATUS, CRM_HW_EDIT_FROM_MENTOR_STATUS, CRM_HW_FOR_MENTOR_STATUS, CRM_HW_APPROVED_STATUS
 from logger import setup_logger
 
 logger = setup_logger(__name__)
@@ -185,6 +185,67 @@ async def homework_edit(request: Request):
     return JSONResponse({"status": "ok"})
 
 
+@app.post("/homework/edit_from_mentor")
+async def homework_edit_from_mentor(request: Request):
+    form = await request.form()
+
+    pipeline_id = form.get("leads[status][0][pipeline_id]", "")
+    status_id = form.get("leads[status][0][status_id]", "")
+    lead_id = form.get("leads[status][0][id]", "")
+
+    if pipeline_id != str(CRM_HOMEWORK_PIPELINE) or status_id != CRM_HW_EDIT_FROM_MENTOR_STATUS:
+        logger.warning(
+            "homework_edit_from_mentor: unexpected pipeline_id=%s status_id=%s — ignoring",
+            pipeline_id,
+            status_id,
+        )
+        return JSONResponse({"status": "ignored"})
+
+    if not lead_id:
+        logger.warning("homework_edit_from_mentor: missing lead id in form payload")
+        raise HTTPException(status_code=400, detail="Missing lead id")
+
+    logger.info("homework_edit_from_mentor: processing lead_id=%s", lead_id)
+
+    try:
+        from repositories.homework_repository import process_homework_edit_from_mentor
+
+        loop = asyncio.get_running_loop()
+        homework, student_tg_id, edit_reason = await loop.run_in_executor(
+            None, process_homework_edit_from_mentor, lead_id
+        )
+    except ValueError as e:
+        logger.warning("homework_edit_from_mentor: %s", e)
+        return JSONResponse({"status": "error", "detail": str(e)}, status_code=404)
+    except Exception as e:
+        logger.error("homework_edit_from_mentor: failed to process: %s", e, exc_info=True)
+        return JSONResponse({"status": "error"}, status_code=500)
+
+    try:
+        from telegram import Bot
+        from keyboards import get_edit_homework_keyboard
+        from messages import HW_EDIT_NOTIFICATION
+
+        text = HW_EDIT_NOTIFICATION.format(reason=edit_reason) if edit_reason else HW_EDIT_NOTIFICATION.split("\n\n")[0]
+        async with Bot(token=TELEGRAM_BOT_TOKEN) as bot:
+            await bot.send_message(
+                chat_id=student_tg_id,
+                text=text,
+                reply_markup=get_edit_homework_keyboard(homework.id),
+            )
+        logger.info(
+            "homework_edit_from_mentor: sent notification to student tg_id=%s for hw_id=%s",
+            student_tg_id,
+            homework.id,
+        )
+    except Exception as e:
+        logger.error(
+            "homework_edit_from_mentor: failed to send Telegram message: %s", e, exc_info=True
+        )
+
+    return JSONResponse({"status": "ok"})
+
+
 @app.post("/homework/validated")
 async def homework_validated(request: Request):
     form = await request.form()
@@ -255,6 +316,74 @@ async def homework_validated(request: Request):
     except Exception as e:
         logger.error(
             "homework_validated: failed to send Telegram message: %s", e, exc_info=True
+        )
+
+    return JSONResponse({"status": "ok"})
+
+
+@app.post("/homework/accepted")
+async def homework_accepted(request: Request):
+    form = await request.form()
+
+    pipeline_id = form.get("leads[status][0][pipeline_id]", "")
+    status_id = form.get("leads[status][0][status_id]", "")
+    lead_id = form.get("leads[status][0][id]", "")
+
+    if pipeline_id != str(CRM_HOMEWORK_PIPELINE) or status_id != CRM_HW_APPROVED_STATUS:
+        logger.warning(
+            "homework_accepted: unexpected pipeline_id=%s status_id=%s — ignoring",
+            pipeline_id,
+            status_id,
+        )
+        return JSONResponse({"status": "ignored"})
+
+    if not lead_id:
+        logger.warning("homework_accepted: missing lead id in form payload")
+        raise HTTPException(status_code=400, detail="Missing lead id")
+
+    logger.info("homework_accepted: processing lead_id=%s", lead_id)
+
+    try:
+        from repositories.homework_repository import process_homework_accepted
+
+        loop = asyncio.get_running_loop()
+        homework, student_tg_id = await loop.run_in_executor(
+            None, process_homework_accepted, lead_id
+        )
+    except ValueError as e:
+        logger.warning("homework_accepted: %s", e)
+        return JSONResponse({"status": "error", "detail": str(e)}, status_code=404)
+    except Exception as e:
+        logger.error("homework_accepted: failed to process: %s", e, exc_info=True)
+        return JSONResponse({"status": "error"}, status_code=500)
+
+    if not student_tg_id:
+        logger.warning("homework_accepted: no student tg_id for lead_id=%s", lead_id)
+        return JSONResponse({"status": "ok"})
+
+    try:
+        from telegram import Bot
+        from messages import HW_ACCEPTED_NOTIFICATION, HW_ACCEPTED_RATING, HW_ACCEPTED_FEEDBACK
+
+        text = HW_ACCEPTED_NOTIFICATION
+        if homework.rating is not None:
+            text += HW_ACCEPTED_RATING.format(rating=homework.rating)
+        if homework.feedback:
+            text += HW_ACCEPTED_FEEDBACK.format(feedback=homework.feedback)
+
+        async with Bot(token=TELEGRAM_BOT_TOKEN) as bot:
+            await bot.send_message(
+                chat_id=student_tg_id,
+                text=text,
+            )
+        logger.info(
+            "homework_accepted: sent notification to student tg_id=%s for hw_id=%s",
+            student_tg_id,
+            homework.id,
+        )
+    except Exception as e:
+        logger.error(
+            "homework_accepted: failed to send Telegram message: %s", e, exc_info=True
         )
 
     return JSONResponse({"status": "ok"})

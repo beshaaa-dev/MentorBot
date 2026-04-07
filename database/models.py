@@ -13,6 +13,7 @@ class HomeworkStatus(str, Enum):
     POSTPONED = "postponed"
     APPROVED = "approved"
     EDIT = "edit"
+    EDIT_FROM_MENTOR = "edit_from_mentor"
 
 
 class Homework(Base):
@@ -31,6 +32,7 @@ class Homework(Base):
     deadline = Column(DateTime, nullable=True)
     feedback = Column(String, nullable=True)
     rating = Column(Integer, nullable=True)
+    edit_reason_from_mentor = Column(String, nullable=True)
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
 

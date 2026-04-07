@@ -71,6 +71,9 @@ class Lead(_Lead):
     hw_edit_reason = custom_field.TextCustomField(
         "Причина возврата на переработку", field_id=560207
     )
+    hw_edit_reason_mentor = custom_field.TextCustomField(
+        "Причина возврата на переработку от ментора", field_id=560533
+    )
     hw_rating = custom_field.NumericCustomField("Оценка наставника", field_id=560359)
     hw_feedback = custom_field.TextCustomField("Фидбек ментора", field_id=560361)
     # Поля для проекта с опросами

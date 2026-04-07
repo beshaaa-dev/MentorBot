@@ -196,6 +196,13 @@ def update_lead_hw_feedback(lead: Lead, feedback: str) -> None:
         lead.save()
 
 
+def update_lead_hw_edit_reason_mentor(lead: Lead, reason: str) -> None:
+    """Записывает причину возврата на переработку от ментора в поле лида."""
+    lead.hw_edit_reason_mentor = reason
+    with amo_crm_rate_limiter.limit():
+        lead.save()
+
+
 def send_note(lead_id: int, note: str):
     lead = get_crm_lead(lead_id)
     if lead:

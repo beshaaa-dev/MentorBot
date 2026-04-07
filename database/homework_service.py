@@ -133,6 +133,23 @@ def update_homework_status(hw_id: int, status: HomeworkStatus) -> Homework | Non
             raise
 
 
+def update_homework_edit_reason_from_mentor(hw_id: int, reason: str) -> Homework | None:
+    """Сохраняет причину возврата на переработку от ментора."""
+    with get_db() as db:
+        try:
+            homework = db.query(Homework).filter(Homework.id == hw_id).first()
+            if not homework:
+                return None
+            homework.edit_reason_from_mentor = reason
+            homework.updated_at = now_moscow()
+            db.commit()
+            db.refresh(homework)
+            return homework
+        except Exception:
+            db.rollback()
+            raise
+
+
 def get_pending_homework_by_student_id(student_id: int) -> Homework | None:
     """Return the most recent homework in PENDING, IN_PROGRESS, or EDIT status for a student."""
     with get_db() as db:
@@ -261,6 +278,44 @@ def upsert_mentor_hw_notification(mentor_id: int, message_id: int, chat_id: int)
             return notification
         except Exception:
             db.rollback()
+            raise
+
+
+def has_homework_for_mentor(mentor_id: int) -> bool:
+    """Проверяет, есть ли у ментора хотя бы одно домашнее задание."""
+    with get_db() as db:
+        try:
+            return (
+                db.query(Homework.id)
+                .filter(Homework.mentor_id == mentor_id)
+                .first()
+            ) is not None
+        except Exception as e:
+            logger.error(f"Error checking homework existence for mentor_id={mentor_id}: {e}")
+            raise
+
+
+def get_homeworks_for_mentor_by_status(
+    mentor_id: int, status: HomeworkStatus | list[HomeworkStatus],
+) -> list[Homework]:
+    """Возвращает список домашних заданий ментора с указанным статусом (или списком статусов), отсортированных по дате обновления."""
+    with get_db() as db:
+        try:
+            statuses = status if isinstance(status, list) else [status]
+            return (
+                db.query(Homework)
+                .options(joinedload(Homework.answers))
+                .filter(
+                    Homework.mentor_id == mentor_id,
+                    Homework.status.in_(statuses),
+                )
+                .order_by(Homework.updated_at.asc())
+                .all()
+            )
+        except Exception as e:
+            logger.error(
+                f"Error getting homeworks for mentor_id={mentor_id}: {e}"
+            )
             raise
 
 

@@ -23,7 +23,7 @@ from database.homework_service import (
     get_earliest_pending_mentor_homework as _get_earliest_pending_mentor_homework,
 )
 from database.models import Homework, HomeworkStatus
-from database.user_service import find_by_tg_id, find_by_tg_nickname, get_by_id
+from database.user_service import find_by_tg_id, find_by_tg_nickname, get_by_id, update_user
 from logger import setup_logger
 from rate_limiter import amo_crm_rate_limiter
 from timezone_utils import now_moscow
@@ -67,6 +67,45 @@ def process_homework_edit(lead_id: str) -> tuple[Homework, int, str]:
         deadline=deadline,
     )
     logger.info(f"Updated homework id={homework.id} for edit, lead_id={lead_id}")
+    return homework, student_tg_id, edit_reason
+
+
+def process_homework_edit_from_mentor(lead_id: str) -> tuple[Homework, int, str]:
+    """
+    Получает лид из CRM, обновляет вопросы/дедлайн и статус → EDIT_FROM_MENTOR.
+
+    Returns:
+        (homework, student_tg_id, edit_reason)
+
+    Raises:
+        ValueError: если лид, студент или домашнее задание не найдены.
+    """
+    lead = get_crm_lead(lead_id)
+    if not lead:
+        raise ValueError(f"CRM lead {lead_id} not found")
+
+    student_tg_id, _ = _extract_student_and_mentor(lead)
+
+    edit_reason = getattr(lead, "hw_edit_reason_mentor", None) or ""
+
+    homework = _get_homework_by_lead_id(lead_id)
+    if not homework:
+        raise ValueError(f"No homework record for lead_id={lead_id}")
+
+    questions = read_questions(lead)
+    deadline = read_deadline(lead)
+
+    homework = _update_homework(
+        hw_id=homework.id,
+        first_hw=questions[0] if questions else homework.first_hw,
+        status=HomeworkStatus.EDIT_FROM_MENTOR,
+        second_hw=questions[1] if len(questions) > 1 else None,
+        third_hw=questions[2] if len(questions) > 2 else None,
+        fourth_hw=questions[3] if len(questions) > 3 else None,
+        fifth_hw=questions[4] if len(questions) > 4 else None,
+        deadline=deadline,
+    )
+    logger.info(f"Updated homework id={homework.id} for edit_from_mentor, lead_id={lead_id}")
     return homework, student_tg_id, edit_reason
 
 
@@ -168,6 +207,9 @@ def process_homework_for_mentor(lead_id: str) -> tuple[Homework, int, int]:
     if not mentor.tg_id:
         raise ValueError(f"Mentor @{nickname} has no tg_id")
 
+    # Обновляем данные пользователей из CRM-контактов
+    _sync_users_from_lead(lead)
+
     homework = _get_homework_by_lead_id(lead_id)
     if not homework:
         raise ValueError(f"No homework record for lead_id={lead_id}")
@@ -177,6 +219,29 @@ def process_homework_for_mentor(lead_id: str) -> tuple[Homework, int, int]:
         f"Homework id={homework.id} set to PENDING_MENTOR for mentor @{nickname}"
     )
     return homework, mentor.tg_id, mentor.id
+
+
+def process_homework_accepted(lead_id: str) -> tuple[Homework, int]:
+    """
+    Получает лид из CRM, находит студента и домашнее задание.
+
+    Returns:
+        (homework, student_tg_id)
+
+    Raises:
+        ValueError: если лид, студент или запись ДЗ не найдены.
+    """
+    lead = get_crm_lead(lead_id)
+    if not lead:
+        raise ValueError(f"CRM lead {lead_id} not found")
+
+    student_tg_id, _ = _extract_student_and_mentor(lead)
+
+    homework = _get_homework_by_lead_id(lead_id)
+    if not homework:
+        raise ValueError(f"No homework record for lead_id={lead_id}")
+
+    return homework, student_tg_id
 
 
 def get_earliest_pending_homework_for_mentor(mentor_id: int) -> Homework | None:
@@ -198,9 +263,51 @@ def _extract_student_and_mentor(lead: Lead) -> tuple[int, str | None]:
             except ValueError:
                 continue
             mentor_nickname = getattr(lead, "mentor_tg_nickname", None)
+            _sync_user_from_contact(tg_id, contact)
             return tg_id, mentor_nickname
 
     raise ValueError(f"No contact with telegram_id found on lead {lead.id}")
+
+
+def _sync_users_from_lead(lead: Lead) -> None:
+    """Обновляет данные всех пользователей из CRM-контактов лида."""
+    for contact in lead.contacts:
+        raw_tg_id = contact.telegram_id
+        if raw_tg_id:
+            try:
+                tg_id = int(str(raw_tg_id).strip())
+                _sync_user_from_contact(tg_id, contact)
+            except (ValueError, TypeError):
+                pass
+
+
+def _sync_user_from_contact(tg_id: int, contact) -> None:
+    """Обновляет имя и tg_nickname пользователя в БД из данных CRM-контакта."""
+    try:
+        user = find_by_tg_id(tg_id)
+        if not user:
+            return
+
+        contact_name = getattr(contact, "name", None) or ""
+        tg_nickname = getattr(contact, "telegram_nickname", None)
+
+        parts = contact_name.strip().split(maxsplit=1)
+        first_name = parts[0] if parts else None
+        last_name = parts[1] if len(parts) > 1 else None
+
+        update_kwargs = {}
+        if first_name:
+            update_kwargs["first_name"] = first_name
+        if last_name:
+            update_kwargs["last_name"] = last_name
+        if tg_nickname:
+            update_kwargs["tg_nickname"] = tg_nickname.lstrip("@")
+
+        if update_kwargs:
+            update_user(user.id, **update_kwargs)
+            logger.info(f"Synced user tg_id={tg_id} from CRM contact: {update_kwargs}")
+    except Exception as e:
+        logger.warning(f"Failed to sync user tg_id={tg_id} from CRM contact: {e}")
 
 
 def read_questions(lead: Lead) -> list[str]:

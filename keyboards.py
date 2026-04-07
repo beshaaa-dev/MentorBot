@@ -29,10 +29,14 @@ from messages import (
     HW_CONFIRM_RETRY_BUTTON,
     HW_CHECK_BUTTON,
     HW_POSTPONE_BUTTON,
-    HW_FEEDBACK_BUTTON,
-    HW_RATE_BUTTON,
-    HW_REEDIT_BUTTON,
     HW_APPROVE_HW_BUTTON,
+    HW_EDIT_FROM_MENTOR_BUTTON,
+    HW_SKIP_BUTTON,
+    MENTOR_HW_CHECK_NEW_BUTTON,
+    MENTOR_HW_CHECK_POSTPONED_BUTTON,
+    MENTOR_HW_CHECK_HISTORY_BUTTON,
+    MENTOR_HW_NAV_PREV,
+    MENTOR_HW_NAV_NEXT,
 )
 
 
@@ -193,13 +197,42 @@ def get_check_homework_keyboard(hw_id: int) -> InlineKeyboardMarkup:
 
 def get_hw_mentor_decision_keyboard(hw_id: int) -> InlineKeyboardMarkup:
     keyboard = [
-        [InlineKeyboardButton(HW_FEEDBACK_BUTTON, callback_data=f"hw_feedback_{hw_id}")],
-        [InlineKeyboardButton(HW_RATE_BUTTON, callback_data=f"hw_rate_{hw_id}")],
         [InlineKeyboardButton(HW_POSTPONE_BUTTON, callback_data=f"hw_postpone_{hw_id}")],
-        [InlineKeyboardButton(HW_REEDIT_BUTTON, callback_data=f"hw_reedit_{hw_id}")],
         [InlineKeyboardButton(HW_APPROVE_HW_BUTTON, callback_data=f"hw_approve_{hw_id}")],
+        [InlineKeyboardButton(HW_EDIT_FROM_MENTOR_BUTTON, callback_data=f"hw_edit_from_mentor_{hw_id}")],
     ]
     return InlineKeyboardMarkup(keyboard)
+
+
+def get_mentor_homework_menu_keyboard() -> ReplyKeyboardMarkup:
+    """Клавиатура меню домашних заданий ментора."""
+    keyboard = [
+        [KeyboardButton(MENTOR_HW_CHECK_NEW_BUTTON)],
+        [KeyboardButton(MENTOR_HW_CHECK_POSTPONED_BUTTON)],
+        [KeyboardButton(MENTOR_HW_CHECK_HISTORY_BUTTON)],
+    ]
+    return ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=True)
+
+
+def get_hw_navigation_keyboard(
+    older_hw_id: int | None,
+    newer_hw_id: int | None,
+) -> ReplyKeyboardMarkup:
+    """Клавиатура навигации по домашним заданиям (предыдущее/следующее + В меню)."""
+    navigation_row: list[KeyboardButton] = []
+    if older_hw_id is not None:
+        navigation_row.append(KeyboardButton(MENTOR_HW_NAV_PREV))
+    if newer_hw_id is not None:
+        navigation_row.append(KeyboardButton(MENTOR_HW_NAV_NEXT))
+
+    menu_row = [KeyboardButton(TO_MENU_BUTTON)]
+
+    rows: list[list[KeyboardButton]] = []
+    if navigation_row:
+        rows.append(navigation_row)
+    rows.append(menu_row)
+
+    return ReplyKeyboardMarkup(rows, resize_keyboard=True, one_time_keyboard=True)
 
 
 def get_hw_rating_keyboard(hw_id: int) -> InlineKeyboardMarkup:
@@ -208,5 +241,25 @@ def get_hw_rating_keyboard(hw_id: int) -> InlineKeyboardMarkup:
             InlineKeyboardButton(str(n), callback_data=f"hw_rate_val_{hw_id}_{n}")
             for n in range(0, 6)
         ]
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+
+def get_hw_rating_with_skip_keyboard(hw_id: int) -> InlineKeyboardMarkup:
+    """Клавиатура оценки с кнопкой 'Пропустить'."""
+    keyboard = [
+        [
+            InlineKeyboardButton(str(n), callback_data=f"hw_rate_val_{hw_id}_{n}")
+            for n in range(0, 6)
+        ],
+        [InlineKeyboardButton(HW_SKIP_BUTTON, callback_data=f"hw_skip_rate_{hw_id}")],
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+
+def get_hw_feedback_skip_keyboard(hw_id: int) -> InlineKeyboardMarkup:
+    """Клавиатура с кнопкой 'Пропустить' для обратной связи."""
+    keyboard = [
+        [InlineKeyboardButton(HW_SKIP_BUTTON, callback_data=f"hw_skip_feedback_{hw_id}")],
     ]
     return InlineKeyboardMarkup(keyboard)

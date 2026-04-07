@@ -222,7 +222,7 @@ async def handle_edit_homework(update: Update, context: ContextTypes.DEFAULT_TYP
 
     loop = asyncio.get_running_loop()
     homework = await loop.run_in_executor(None, get_homework_by_id, hw_id)
-    if not homework or homework.status != HomeworkStatus.EDIT:
+    if not homework or homework.status not in (HomeworkStatus.EDIT, HomeworkStatus.EDIT_FROM_MENTOR):
         await query.message.reply_text(HW_NOT_FOUND)
         return ConversationHandler.END
 

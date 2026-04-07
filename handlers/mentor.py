@@ -1,3 +1,5 @@
+import asyncio
+
 from telegram import Update, ReplyKeyboardRemove, InputFile, Message
 from telegram.ext import (
     ContextTypes,
@@ -29,6 +31,7 @@ from keyboards import (
     get_decided_task_navigation_keyboard,
     get_mentor_menu_keyboard,
     get_postponed_task_navigation_keyboard,
+    get_mentor_homework_menu_keyboard,
 )
 from messages import (
     ERROR_MESSAGE,
@@ -53,8 +56,10 @@ from messages import (
     POSTPONED_TASKS_BUTTON,
     NO_POSTPONED_TASKS,
     TASK_STATUS_CHANGE_NOT_ALLOWED,
+    MENTOR_HW_MENU_INFO,
 )
 from database.models import Task, TaskStatus, User, UserRole
+from database.homework_service import has_homework_for_mentor
 from handlers.utils import (
     send_error_message,
     delete_user_message,
@@ -109,6 +114,17 @@ async def handle_mentor(
         MENTOR_GREETING_TEMPLATE,
         reply_markup=ReplyKeyboardRemove(),
     )
+
+    loop = asyncio.get_running_loop()
+    has_hw = await loop.run_in_executor(None, has_homework_for_mentor, user.id)
+    if has_hw:
+        await update.message.reply_text(
+            MENTOR_HW_MENU_INFO,
+            reply_markup=get_mentor_homework_menu_keyboard(),
+            parse_mode="Markdown",
+        )
+        return
+
     await _send_earliest_task(update.effective_chat.id, user.id, context, update)
 
 

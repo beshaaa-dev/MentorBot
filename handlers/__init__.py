@@ -5,13 +5,15 @@ from handlers.common import (
 )
 from handlers.homework_student import hw_student_conversation_handler
 from handlers.homework_mentor import (
-    hw_mentor_feedback_handler,
+    hw_approve_conversation_handler,
+    hw_edit_from_mentor_conversation_handler,
     hw_check_homework_handler,
     hw_postpone_handler,
-    hw_rate_handler,
-    hw_rate_select_handler,
-    hw_reedit_handler,
-    hw_approve_handler,
+    hw_check_new_button_handler,
+    hw_check_postponed_button_handler,
+    hw_check_history_button_handler,
+    hw_nav_handler,
+    hw_to_menu_from_nav_handler,
 )
 from handlers.mentor import (
     mentor_back_button_handler,
@@ -50,13 +52,16 @@ handlers = [
     admin_menu_callback_handler,  # Broad pattern, must be after specific handlers
     # Homework handlers
     hw_student_conversation_handler,
-    hw_mentor_feedback_handler,
+    hw_approve_conversation_handler,
+    hw_edit_from_mentor_conversation_handler,
     hw_check_homework_handler,
     hw_postpone_handler,
-    hw_rate_select_handler,
-    hw_rate_handler,
-    hw_reedit_handler,
-    hw_approve_handler,
+    # Homework menu handlers
+    hw_to_menu_from_nav_handler,
+    hw_nav_handler,
+    hw_check_new_button_handler,
+    hw_check_postponed_button_handler,
+    hw_check_history_button_handler,
     # Mentor handlers
     mentor_to_menu_handler,
     mentor_postponed_nav_handler,
