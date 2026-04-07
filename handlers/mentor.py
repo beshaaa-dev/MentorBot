@@ -34,7 +34,6 @@ from messages import (
     ERROR_MESSAGE,
     MENTOR_GREETING_TEMPLATE,
     MENTOR_NO_TASK,
-    MENTOR_NOTHING_TO_REVIEW,
     BACK_BUTTON,
     MENU_INFO,
     NO_PREVIOUS_TASKS,
@@ -78,18 +77,13 @@ TELEGRAM_MESSAGE_CHAR_LIMIT = 4096
 # ================================
 
 
-async def _send_next_review_item(
+async def _send_earliest_task(
+    chat_id: int,
     mentor_id: int,
-    update: Update,
     context: ContextTypes.DEFAULT_TYPE,
+    update: Update,
 ) -> None:
-    """Send the next item awaiting review: task first, then homework, then 'nothing' message."""
-    from database.homework_service import get_earliest_pending_mentor_homework
-    from handlers.homework_mentor import _send_homework_to_mentor
-
-    chat_id = update.effective_chat.id
-
-    # 1. Send earliest task if available
+    """Helper to send earliest task or show menu if no tasks available."""
     task = get_earliest_task(mentor_id)
     if task:
         try:
@@ -97,19 +91,13 @@ async def _send_next_review_item(
         except Exception as e:
             logger.error(f"Error sending earliest task: {e}")
             await send_error_message(update)
-        return
-
-    # 2. No tasks — send earliest pending homework if available
-    homework = get_earliest_pending_mentor_homework(mentor_id)
-    if homework:
-        await _send_homework_to_mentor(chat_id, homework, context)
-        return
-
-    # 3. Nothing to review
-    await update.message.reply_text(
-        MENTOR_NOTHING_TO_REVIEW,
-        reply_markup=get_mentor_menu_keyboard(),
-    )
+    else:
+        await context.bot.send_message(chat_id=chat_id, text=MENTOR_NO_TASK)
+        await update.message.reply_text(
+            MENU_INFO,
+            reply_markup=get_mentor_menu_keyboard(),
+            parse_mode="Markdown",
+        )
 
 
 async def handle_mentor(
@@ -121,7 +109,7 @@ async def handle_mentor(
         MENTOR_GREETING_TEMPLATE,
         reply_markup=ReplyKeyboardRemove(),
     )
-    await _send_next_review_item(user.id, update, context)
+    await _send_earliest_task(update.effective_chat.id, user.id, context, update)
 
 
 async def handle_check_new_task_button(
@@ -139,7 +127,7 @@ async def handle_check_new_task_button(
         return
 
     context.user_data.clear()
-    await _send_next_review_item(mentor.id, update, context)
+    await _send_earliest_task(update.effective_chat.id, mentor.id, context, update)
 
 
 
@@ -821,18 +809,9 @@ async def _send_postponed_items(
     context: ContextTypes.DEFAULT_TYPE,
     mentor_id: int,
 ) -> None:
-    """
-    Показывает отложенные элементы по приоритету:
-    1. Отложенная задача (если есть)
-    2. Отложенное ДЗ (если задач нет)
-    3. Сообщение «ничего нет» (если нет ни того, ни другого)
-    """
-    from database.homework_service import get_postponed_homeworks_for_mentor
-    from handlers.homework_mentor import _send_homework_to_mentor
-
+    """Показывает отложенные задания или сообщение «ничего нет»."""
     chat_id = update.effective_chat.id
 
-    # 1. Send earliest postponed task if available
     task_shown = await _present_postponed_task_view(
         chat_id=chat_id,
         mentor_id=mentor_id,
@@ -842,13 +821,6 @@ async def _send_postponed_items(
     if task_shown:
         return
 
-    # 2. No postponed tasks — send earliest postponed homework if available
-    homeworks = get_postponed_homeworks_for_mentor(mentor_id)
-    if homeworks:
-        await _send_homework_to_mentor(chat_id, homeworks[0], context)
-        return
-
-    # 3. Nothing postponed
     await update.message.reply_text(
         NO_POSTPONED_TASKS,
         reply_markup=get_mentor_menu_keyboard(),
