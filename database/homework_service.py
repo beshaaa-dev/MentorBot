@@ -151,14 +151,14 @@ def update_homework_edit_reason_from_mentor(hw_id: int, reason: str) -> Homework
 
 
 def get_pending_homework_by_student_id(student_id: int) -> Homework | None:
-    """Return the most recent homework in PENDING, IN_PROGRESS, or EDIT status for a student."""
+    """Return the most recent homework in PENDING, IN_PROGRESS, EDIT, or EDIT_FROM_MENTOR status for a student."""
     with get_db() as db:
         try:
             return (
                 db.query(Homework)
                 .filter(
                     Homework.student_id == student_id,
-                    Homework.status.in_([HomeworkStatus.PENDING, HomeworkStatus.IN_PROGRESS, HomeworkStatus.EDIT]),
+                    Homework.status.in_([HomeworkStatus.PENDING, HomeworkStatus.IN_PROGRESS, HomeworkStatus.EDIT, HomeworkStatus.EDIT_FROM_MENTOR]),
                 )
                 .order_by(Homework.created_at.desc())
                 .first()

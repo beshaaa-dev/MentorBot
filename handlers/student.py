@@ -18,15 +18,19 @@ from repositories.user_repository import (
     TestDetails,
 )
 from database.homework_service import get_pending_homework_by_student_id
-from database.models import Homework
+from database.models import Homework, HomeworkStatus, User, UserRole
 from repositories.task_repository import (
     create_task,
     mark_task_as_failed,
     TaskMessageData,
 )
 from database.user_service import get_by_id
-from database.models import User, UserRole
-from keyboards import get_confirmation_keyboard, get_task_review_keyboard, get_start_homework_keyboard
+from keyboards import (
+    get_confirmation_keyboard,
+    get_task_review_keyboard,
+    get_start_homework_keyboard,
+    get_edit_homework_keyboard,
+)
 from messages import (
     GREETING_WITH_NAME_TEMPLATE,
     STUDENT_NO_TASK,
@@ -53,6 +57,7 @@ from messages import (
     CHANGE_TASK_3_BUTTON,
     CONFIRM_ALL_BUTTON,
     HW_NEW_ASSIGNMENT,
+    HW_EDIT_NOTIFICATION,
 )
 from keyboards import get_check_task_keyboard
 from handlers.utils import (
@@ -94,6 +99,7 @@ async def handle_student(
     test = get_test(user.crm_id)
     if test:
         from handlers.test import start_test
+
         return await start_test(user, test, update, context)
 
     # Проверяем есть ли задание на отправку видеовизитки
@@ -146,9 +152,7 @@ async def send_task_message(
         TASK_DEADLINE.format(deadline=task.deadline) if task.deadline else ""
     )
     message = TASK.format(text=task.first_task) + deadline_block
-    await update.message.reply_text(
-        message, reply_markup=ReplyKeyboardRemove()
-    )
+    await update.message.reply_text(message, reply_markup=ReplyKeyboardRemove())
     await update.message.reply_text(
         REQUEST_TASK_ANSWER, reply_markup=ReplyKeyboardRemove()
     )
@@ -158,10 +162,31 @@ async def send_task_message(
 async def send_homework_start_message(
     homework: Homework, update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> int:
-    await update.message.reply_text(
-        HW_NEW_ASSIGNMENT,
-        reply_markup=get_start_homework_keyboard(homework.id),
-    )
+    if homework.status == HomeworkStatus.EDIT_FROM_MENTOR:
+        text = (
+            HW_EDIT_NOTIFICATION.format(reason=homework.edit_reason_from_mentor)
+            if homework.edit_reason_from_mentor
+            else HW_EDIT_NOTIFICATION.split("\n\n")[0]
+        )
+        await update.message.reply_text(
+            text,
+            reply_markup=get_edit_homework_keyboard(homework.id),
+        )
+    elif homework.status == HomeworkStatus.EDIT:
+        text = (
+            HW_EDIT_NOTIFICATION.format(reason=homework.edit_reason)
+            if homework.edit_reason
+            else HW_EDIT_NOTIFICATION.split("\n\n")[0]
+        )
+        await update.message.reply_text(
+            text,
+            reply_markup=get_edit_homework_keyboard(homework.id),
+        )
+    else:
+        await update.message.reply_text(
+            HW_NEW_ASSIGNMENT,
+            reply_markup=get_start_homework_keyboard(homework.id),
+        )
     return ConversationHandler.END
 
 
@@ -612,14 +637,17 @@ async def confirm_visit_card_video(
     update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> int:
     """Handle visit card video confirmation."""
-    from repositories.visit_card_repository import process_visit_card_video, VisitCardProcessingError
+    from repositories.visit_card_repository import (
+        process_visit_card_video,
+        VisitCardProcessingError,
+    )
 
     text = update.message.text
     await delete_user_message(update.message)
 
     if text == CONFIRM_BUTTON:
         file_id = context.user_data.get("visit_card_file_id")
-        
+
         if not file_id:
             logger.warning("No file_id found in context for visit card")
             await send_error_message(update)
@@ -638,8 +666,7 @@ async def confirm_visit_card_video(
 
             # Process visit card video (upload to Drive + send to chat)
             await process_visit_card_video(
-                telegram_user_id=update.effective_user.id,
-                file_bytes=bytes(file_bytes)
+                telegram_user_id=update.effective_user.id, file_bytes=bytes(file_bytes)
             )
 
             await uploading_msg.delete()
@@ -652,7 +679,9 @@ async def confirm_visit_card_video(
             await uploading_msg.delete()
             await send_error_message(update)
         except Exception as e:
-            logger.error(f"Unexpected error in visit card video handler: {e}", exc_info=True)
+            logger.error(
+                f"Unexpected error in visit card video handler: {e}", exc_info=True
+            )
             await uploading_msg.delete()
             await send_error_message(update)
 
@@ -714,15 +743,11 @@ def create_student_conversation_handler(
             ],
             ASKING_QUESTION: [
                 CallbackQueryHandler(
-                    handle_question_answer,
-                    pattern=r"^answer_(yes|no)_\d+$"
+                    handle_question_answer, pattern=r"^answer_(yes|no)_\d+$"
                 )
             ],
             ASKING_CASE: [
-                CallbackQueryHandler(
-                    handle_case_answer,
-                    pattern=r"^case_\d+_[A-D]$"
-                )
+                CallbackQueryHandler(handle_case_answer, pattern=r"^case_\d+_[A-D]$")
             ],
         },
         fallbacks=[CommandHandler("cancel", cancel_task)],
@@ -730,5 +755,5 @@ def create_student_conversation_handler(
         per_message=False,
         name="student_conversation",
         persistent=True,
-        conversation_timeout=60*60*24*3,  # 3 дня
+        conversation_timeout=60 * 60 * 24 * 3,  # 3 дня
     )
