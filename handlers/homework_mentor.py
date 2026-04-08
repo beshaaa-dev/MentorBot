@@ -199,7 +199,27 @@ async def _show_next_or_menu(
     mentor_id: int,
     context: ContextTypes.DEFAULT_TYPE,
 ) -> None:
-    """Показывает следующее ДЗ в очереди PENDING_MENTOR или меню, если очередь пуста."""
+    """Показывает следующее ДЗ: из очереди POSTPONED (если активна), затем PENDING_MENTOR, иначе меню."""
+    # If the mentor was browsing the postponed queue, continue within it
+    if HW_POSTPONED_STATE_KEY in context.user_data:
+        state = context.user_data.get(HW_POSTPONED_STATE_KEY) or {}
+        current_hw_id = state.get("hw_id")
+        cached_hw_ids: list[int] = state.get("cached_hw_ids") or []
+        remaining_ids = [hid for hid in cached_hw_ids if hid != current_hw_id]
+        context.user_data.pop(HW_POSTPONED_STATE_KEY, None)
+        if remaining_ids:
+            shown = await _present_hw_navigation_view(
+                chat_id=chat_id,
+                mentor_id=mentor_id,
+                status=HomeworkStatus.POSTPONED,
+                state_key=HW_POSTPONED_STATE_KEY,
+                context=context,
+                target_hw_id=remaining_ids[0],
+                cached_hw_ids=remaining_ids,
+            )
+            if shown:
+                return
+
     loop = asyncio.get_running_loop()
     next_hw = await loop.run_in_executor(
         None, get_earliest_pending_mentor_homework, mentor_id
@@ -864,6 +884,7 @@ async def handle_hw_check_postponed_button(
 
     await _delete_hw_messages(update.effective_chat.id, context)
     context.user_data.pop(HW_POSTPONED_STATE_KEY, None)
+    context.user_data.pop(HW_HISTORY_STATE_KEY, None)
 
     shown = await _present_hw_navigation_view(
         chat_id=update.effective_chat.id,
@@ -892,6 +913,7 @@ async def handle_hw_check_history_button(
 
     await _delete_hw_messages(update.effective_chat.id, context)
     context.user_data.pop(HW_HISTORY_STATE_KEY, None)
+    context.user_data.pop(HW_POSTPONED_STATE_KEY, None)
 
     shown = await _present_hw_navigation_view(
         chat_id=update.effective_chat.id,
