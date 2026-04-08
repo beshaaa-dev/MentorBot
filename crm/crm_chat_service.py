@@ -394,33 +394,21 @@ async def send_media_to_chat(
 
 
 async def _get_amojo_id() -> str:
-    logger.debug(f"[_get_amojo_id] Starting to fetch amojo_id...")
     try:
         from crm.crm_service import get_access_token
-        logger.debug(f"[_get_amojo_id] Requesting access token...")
         access_token = await get_access_token()
         
         if not access_token:
             logger.error(f"[_get_amojo_id] Failed to get access token!")
             return None
         
-        logger.debug(f"[_get_amojo_id] Access token obtained: {access_token[:20]}...")
-        
         url = f"https://{config.CRM_SUBDOMAIN}.amocrm.ru/api/v4/account?with=amojo_id"
         headers = {"Authorization": f"Bearer {access_token}"}
-        
-        logger.info(f"[_get_amojo_id] === GET AMOJO_ID REQUEST ===")
-        logger.info(f"[_get_amojo_id] URL: {url}")
-        logger.info(f"[_get_amojo_id] Headers: Authorization=Bearer {access_token[:20]}...")
         
         async with aiohttp.ClientSession() as session:
             async with async_amo_crm_rate_limiter.limit():
                 async with session.get(url, headers=headers, timeout=aiohttp.ClientTimeout(total=30)) as response:
                     text = await response.text()
-                    logger.info(f"[_get_amojo_id] === GET AMOJO_ID RESPONSE ===")
-                    logger.info(f"[_get_amojo_id] Status: {response.status}")
-                    logger.info(f"[_get_amojo_id] Response headers: {dict(response.headers)}")
-                    logger.info(f"[_get_amojo_id] Response body: {text}")
                     
                     if response.status == 200:
                         result = json.loads(text)
@@ -449,7 +437,6 @@ async def _connect_channel(channel_id: str, channel_secret: str, amojo_id: str, 
         }
         
         connect_request_body = json.dumps(connect_body, separators=(',', ':'))
-        logger.debug(f"[_connect_channel] Connect request body: {connect_request_body}")
         method = "POST"
         content_type = "application/json"
         date = formatdate(timeval=None, localtime=False, usegmt=True)
@@ -458,8 +445,6 @@ async def _connect_channel(channel_id: str, channel_secret: str, amojo_id: str, 
         content_md5 = hashlib.md5(connect_request_body.encode()).hexdigest()
         signature_string = "\n".join([method.upper(), content_md5, content_type, date, path])
         signature = hmac.new(channel_secret.encode(), signature_string.encode(), hashlib.sha1).hexdigest()
-        
-        logger.debug(f"[_connect_channel] Connect signature: method={method}, path={path}, content_md5={content_md5}")
         
         headers = {
             "Date": date,
@@ -470,19 +455,10 @@ async def _connect_channel(channel_id: str, channel_secret: str, amojo_id: str, 
         
         url = f"https://amojo.amocrm.ru{path}"
         
-        logger.info(f"[_connect_channel] === CONNECT CHANNEL REQUEST ===")
-        logger.info(f"[_connect_channel] URL: {url}")
-        logger.info(f"[_connect_channel] Headers: {headers}")
-        logger.info(f"[_connect_channel] Body: {connect_request_body}")
-        
         async with aiohttp.ClientSession() as session:
             async with async_amo_crm_rate_limiter.limit():
                 async with session.post(url, headers=headers, data=connect_request_body, timeout=aiohttp.ClientTimeout(total=30)) as response:
                     text = await response.text()
-                    logger.info(f"[_connect_channel] === CONNECT CHANNEL RESPONSE ===")
-                    logger.info(f"[_connect_channel] Status: {response.status}")
-                    logger.info(f"[_connect_channel] Response headers: {dict(response.headers)}")
-                    logger.info(f"[_connect_channel] Response body: {text}")
                     
                     if response.status in (200, 201):
                         result = json.loads(text)
@@ -510,7 +486,6 @@ async def _get_or_create_scope_id() -> str:
     """
     global _cached_scope_id
     
-    logger.debug(f"[_get_or_create_scope_id] Acquiring lock...")
     async with _scope_id_lock:
         if _cached_scope_id:
             logger.info(f"[_get_or_create_scope_id] Using cached scope_id: {_cached_scope_id}")
@@ -533,8 +508,6 @@ async def _get_or_create_scope_id() -> str:
         if not channel_id or not channel_secret:
             logger.error(f"[_get_or_create_scope_id] Missing channel_id or channel_secret in config")
             return None
-        
-        logger.debug(f"[_get_or_create_scope_id] Channel ID: {channel_id}, Secret: {len(channel_secret)} chars")
         
         amojo_id = await _get_amojo_id()
         if not amojo_id:
