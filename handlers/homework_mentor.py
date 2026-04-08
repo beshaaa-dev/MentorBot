@@ -68,6 +68,15 @@ EDIT_FROM_MENTOR_NOTE = 203
 HW_POSTPONED_STATE_KEY = "hw_postponed_state"
 HW_HISTORY_STATE_KEY = "hw_history_state"
 
+_KEY_APPROVE_ID = "hw_approve_id"
+_KEY_EDIT_MENTOR_ID = "hw_edit_from_mentor_id"
+_KEY_QA_MSG_IDS = "hw_qa_msg_ids"
+_KEY_REVIEW_MSG_ID = "hw_review_msg_id"
+_KEY_STUDENT_NAME = "hw_review_student_name"
+_KEY_STUDENT_TG = "hw_review_student_tg"
+_NAV_HW_ID = "hw_id"
+_NAV_CACHED_IDS = "cached_hw_ids"
+
 
 @dataclass
 class HwNavigationContext:
@@ -148,7 +157,6 @@ async def _send_homework_to_mentor(
     ]
     answers_by_num = {a.question_number: a for a in (homework.answers or [])}
 
-    # 1. Send all Q&A pairs first, tracking message IDs for later cleanup
     qa_msg_ids = []
     for i, question in enumerate(questions, start=1):
         kwargs = {
@@ -173,7 +181,6 @@ async def _send_homework_to_mentor(
             if ans_msg:
                 qa_msg_ids.append(ans_msg.message_id)
 
-    # 2. Send review message at the bottom; store its id for later deletion
     student_tg = student.tg_nickname if student else None
     review_text = _build_review_text(
         student_name, homework.feedback, homework.rating, homework.status,
@@ -187,11 +194,10 @@ async def _send_homework_to_mentor(
             show_postpone=(homework.status == HomeworkStatus.PENDING_MENTOR),
         ),
     )
-    context.user_data["hw_qa_msg_ids"] = qa_msg_ids
-    context.user_data["hw_review_msg_id"] = review_msg.message_id
-    context.user_data["hw_review_student_name"] = student_name
-    context.user_data["hw_review_hw_id"] = homework.id
-    context.user_data["hw_review_student_tg"] = student_tg or ""
+    context.user_data[_KEY_QA_MSG_IDS] = qa_msg_ids
+    context.user_data[_KEY_REVIEW_MSG_ID] = review_msg.message_id
+    context.user_data[_KEY_STUDENT_NAME] = student_name
+    context.user_data[_KEY_STUDENT_TG] = student_tg or ""
 
 
 async def _show_next_or_menu(
@@ -203,8 +209,8 @@ async def _show_next_or_menu(
     # If the mentor was browsing the postponed queue, continue within it
     if HW_POSTPONED_STATE_KEY in context.user_data:
         state = context.user_data.get(HW_POSTPONED_STATE_KEY) or {}
-        current_hw_id = state.get("hw_id")
-        cached_hw_ids: list[int] = state.get("cached_hw_ids") or []
+        current_hw_id = state.get(_NAV_HW_ID)
+        cached_hw_ids: list[int] = state.get(_NAV_CACHED_IDS) or []
         remaining_ids = [hid for hid in cached_hw_ids if hid != current_hw_id]
         context.user_data.pop(HW_POSTPONED_STATE_KEY, None)
         if remaining_ids:
@@ -283,56 +289,29 @@ def _build_review_text(
 async def handle_check_homework_callback(
     update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> None:
-    logger.debug("check_homework: callback handler called")
     query = update.callback_query
     await query.answer()
 
-    tg_id = query.from_user.id if query.from_user else None
-    chat_id = query.message.chat_id if query.message else None
-    logger.info(
-        f"check_homework callba/hck: tg_id={tg_id} chat_id={chat_id} data={query.data!r}"
-    )
-
-    logger.debug("check_homework: callback query answered")
-
     mentor = _get_verified_mentor(query.from_user.id)
     if not mentor:
-        logger.warning(f"check_homework: not a mentor or user not found tg_id={tg_id}")
         await query.message.reply_text(ERROR_MESSAGE)
         return
 
-    logger.info(f"check_homework: loading pending homework mentor_id={mentor.id}")
     loop = asyncio.get_running_loop()
-    homework = await loop.run_in_executor(
-        None, get_earliest_pending_mentor_homework, mentor.id
-    )
-    hw_id = homework.id if homework else None
-    logger.info(
-        f"check_homework: earliest pending mentor_id={mentor.id} homework_id={hw_id}"
-    )
+    homework = await loop.run_in_executor(None, get_earliest_pending_mentor_homework, mentor.id)
+    logger.info(f"check_homework: mentor_id={mentor.id} homework_id={homework.id if homework else None}")
 
     try:
         await query.message.delete()
-        logger.debug(f"check_homework: deleted message chat_id={chat_id}")
     except Exception as e:
-        logger.warning(
-            f"check_homework: could not delete message chat_id={chat_id}: {e}",
-            exc_info=True,
-        )
+        logger.warning(f"check_homework: could not delete message: {e}")
 
     if not homework:
-        logger.info(
-            f"check_homework: no pending homework mentor_id={mentor.id}, sending menu"
-        )
         await query.message.reply_text(
             HW_NO_PENDING_MENTOR, reply_markup=get_mentor_homework_menu_keyboard()
         )
         return
 
-    logger.info(
-        f"check_homework: sending homework_id={homework.id} to mentor_id={mentor.id} "
-        f"chat_id={query.message.chat_id}"
-    )
     await _send_homework_to_mentor(query.message.chat_id, homework, context)
 
 
@@ -344,8 +323,8 @@ async def _delete_hw_messages(
     context: ContextTypes.DEFAULT_TYPE,
 ) -> None:
     """Удаляет все Q/A-сообщения и review-сообщение из чата ментора."""
-    msg_ids = list(context.user_data.pop("hw_qa_msg_ids", []))
-    review_msg_id = context.user_data.pop("hw_review_msg_id", None)
+    msg_ids = list(context.user_data.pop(_KEY_QA_MSG_IDS, []))
+    review_msg_id = context.user_data.pop(_KEY_REVIEW_MSG_ID, None)
     if review_msg_id:
         msg_ids.append(review_msg_id)
     for msg_id in msg_ids:
@@ -406,7 +385,7 @@ async def _handle_approve_entry(
         await query.message.reply_text(ERROR_MESSAGE)
         return ConversationHandler.END
 
-    context.user_data["hw_approve_id"] = hw_id
+    context.user_data[_KEY_APPROVE_ID] = hw_id
     try:
         await query.edit_message_text(
             text=HW_RATE_PROMPT,
@@ -417,7 +396,7 @@ async def _handle_approve_entry(
         new_msg = await query.message.reply_text(
             HW_RATE_PROMPT, reply_markup=get_hw_rating_with_skip_keyboard(hw_id)
         )
-        context.user_data["hw_review_msg_id"] = new_msg.message_id
+        context.user_data[_KEY_REVIEW_MSG_ID] = new_msg.message_id
     return APPROVE_RATING
 
 
@@ -428,7 +407,7 @@ async def _handle_approve_rate_select(
     query = update.callback_query
     await query.answer()
 
-    hw_id = context.user_data.get("hw_approve_id")
+    hw_id = context.user_data.get(_KEY_APPROVE_ID)
     if not hw_id:
         return ConversationHandler.END
 
@@ -453,7 +432,7 @@ async def _handle_approve_rate_select(
         new_msg = await query.message.reply_text(
             HW_FEEDBACK_PROMPT, reply_markup=get_hw_feedback_skip_keyboard(hw_id)
         )
-        context.user_data["hw_review_msg_id"] = new_msg.message_id
+        context.user_data[_KEY_REVIEW_MSG_ID] = new_msg.message_id
     return APPROVE_FEEDBACK
 
 
@@ -464,7 +443,7 @@ async def _handle_approve_skip_rate(
     query = update.callback_query
     await query.answer()
 
-    hw_id = context.user_data.get("hw_approve_id")
+    hw_id = context.user_data.get(_KEY_APPROVE_ID)
     if not hw_id:
         return ConversationHandler.END
 
@@ -478,7 +457,7 @@ async def _handle_approve_skip_rate(
         new_msg = await query.message.reply_text(
             HW_FEEDBACK_PROMPT, reply_markup=get_hw_feedback_skip_keyboard(hw_id)
         )
-        context.user_data["hw_review_msg_id"] = new_msg.message_id
+        context.user_data[_KEY_REVIEW_MSG_ID] = new_msg.message_id
     return APPROVE_FEEDBACK
 
 
@@ -486,14 +465,13 @@ async def _finalize_approve(
     chat_id: int, hw_id: int, mentor_id: int, context: ContextTypes.DEFAULT_TYPE,
 ) -> None:
     """Финализация одобрения: обновление БД + CRM + удаление сообщений + следующее ДЗ."""
-    context.user_data.pop("hw_approve_id", None)
+    context.user_data.pop(_KEY_APPROVE_ID, None)
     loop = asyncio.get_running_loop()
 
-    await loop.run_in_executor(
-        None, update_homework_status, hw_id, HomeworkStatus.APPROVED
+    homework, _ = await asyncio.gather(
+        loop.run_in_executor(None, get_homework_by_id, hw_id),
+        loop.run_in_executor(None, update_homework_status, hw_id, HomeworkStatus.APPROVED),
     )
-
-    homework = await loop.run_in_executor(None, get_homework_by_id, hw_id)
     if not homework:
         logger.error(f"Homework {hw_id} not found after status update")
         return
@@ -501,21 +479,17 @@ async def _finalize_approve(
     try:
         lead = await loop.run_in_executor(None, get_crm_lead, homework.lead_id)
         if lead:
-            await loop.run_in_executor(
-                None,
-                update_lead_status_in_pipeline,
-                lead,
-                CRM_HOMEWORK_PIPELINE,
-                CRM_HW_APPROVED_STATUS,
-            )
+            crm_tasks = [
+                loop.run_in_executor(
+                    None, update_lead_status_in_pipeline, lead,
+                    CRM_HOMEWORK_PIPELINE, CRM_HW_APPROVED_STATUS,
+                )
+            ]
             if homework.rating is not None:
-                await loop.run_in_executor(
-                    None, update_lead_hw_rating, lead, homework.rating
-                )
+                crm_tasks.append(loop.run_in_executor(None, update_lead_hw_rating, lead, homework.rating))
             if homework.feedback:
-                await loop.run_in_executor(
-                    None, update_lead_hw_feedback, lead, homework.feedback
-                )
+                crm_tasks.append(loop.run_in_executor(None, update_lead_hw_feedback, lead, homework.feedback))
+            await asyncio.gather(*crm_tasks)
     except Exception as e:
         logger.error(
             f"Failed to update CRM lead for hw approve hw_id={hw_id}: {e}",
@@ -532,7 +506,7 @@ async def _handle_approve_feedback_text(
     update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> int:
     """Ментор ввёл обратную связь. Сохраняем и финализируем."""
-    hw_id = context.user_data.get("hw_approve_id")
+    hw_id = context.user_data.get(_KEY_APPROVE_ID)
     if not hw_id:
         return ConversationHandler.END
 
@@ -558,7 +532,7 @@ async def _handle_approve_skip_feedback(
     query = update.callback_query
     await query.answer()
 
-    hw_id = context.user_data.get("hw_approve_id")
+    hw_id = context.user_data.get(_KEY_APPROVE_ID)
     if not hw_id:
         return ConversationHandler.END
 
@@ -572,20 +546,25 @@ async def _handle_approve_skip_feedback(
 
 
 async def _cancel_approve(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    context.user_data.pop("hw_approve_id", None)
+    context.user_data.pop(_KEY_APPROVE_ID, None)
     return ConversationHandler.END
 
 
-def _make_approve_escape(delegate):
-    """Фабрика escape-обработчиков для ConversationHandler одобрения."""
+def _make_escape_handler(state_key: str, cancel_message: str, delegate):
+    """Фабрика escape-обработчиков для ConversationHandler'ов ментора."""
 
     async def _handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-        context.user_data.pop("hw_approve_id", None)
-        await update.callback_query.message.reply_text(HW_APPROVE_CANCELLED)
+        context.user_data.pop(state_key, None)
+        await update.callback_query.message.reply_text(cancel_message)
         await delegate(update, context)
         return ConversationHandler.END
 
     return _handler
+
+
+def _make_approve_escape(delegate):
+    return _make_escape_handler(_KEY_APPROVE_ID, HW_APPROVE_CANCELLED, delegate)
+
 
 
 # ── Edit-from-mentor flow: причина возврата → финализация ─────────────────────
@@ -609,7 +588,7 @@ async def _handle_edit_from_mentor_entry(
         await query.message.reply_text(ERROR_MESSAGE)
         return ConversationHandler.END
 
-    context.user_data["hw_edit_from_mentor_id"] = hw_id
+    context.user_data[_KEY_EDIT_MENTOR_ID] = hw_id
     try:
         await query.edit_message_text(
             text=HW_EDIT_REASON_PROMPT,
@@ -631,15 +610,15 @@ async def _finalize_edit_from_mentor(
     """Финализация возврата на переработку: обновление БД + CRM + удаление сообщений + следующее ДЗ."""
     loop = asyncio.get_running_loop()
 
-    await loop.run_in_executor(
-        None, update_homework_status, hw_id, HomeworkStatus.EDIT_FROM_MENTOR
-    )
+    db_tasks = [
+        loop.run_in_executor(None, get_homework_by_id, hw_id),
+        loop.run_in_executor(None, update_homework_status, hw_id, HomeworkStatus.EDIT_FROM_MENTOR),
+    ]
     if reason:
-        await loop.run_in_executor(
-            None, update_homework_edit_reason_from_mentor, hw_id, reason
-        )
+        db_tasks.append(loop.run_in_executor(None, update_homework_edit_reason_from_mentor, hw_id, reason))
+    results = await asyncio.gather(*db_tasks)
+    homework = results[0]
 
-    homework = await loop.run_in_executor(None, get_homework_by_id, hw_id)
     if not homework:
         logger.error(f"Homework {hw_id} not found after status update")
         return
@@ -647,17 +626,15 @@ async def _finalize_edit_from_mentor(
     try:
         lead = await loop.run_in_executor(None, get_crm_lead, homework.lead_id)
         if lead:
-            await loop.run_in_executor(
-                None,
-                update_lead_status_in_pipeline,
-                lead,
-                CRM_HOMEWORK_PIPELINE,
-                CRM_HW_EDIT_FROM_MENTOR_STATUS,
-            )
-            if reason:
-                await loop.run_in_executor(
-                    None, update_lead_hw_edit_reason_mentor, lead, reason
+            crm_tasks = [
+                loop.run_in_executor(
+                    None, update_lead_status_in_pipeline, lead,
+                    CRM_HOMEWORK_PIPELINE, CRM_HW_EDIT_FROM_MENTOR_STATUS,
                 )
+            ]
+            if reason:
+                crm_tasks.append(loop.run_in_executor(None, update_lead_hw_edit_reason_mentor, lead, reason))
+            await asyncio.gather(*crm_tasks)
     except Exception as e:
         logger.error(
             f"Failed to update CRM lead for hw edit_from_mentor hw_id={hw_id}: {e}",
@@ -674,7 +651,7 @@ async def _handle_edit_from_mentor_note_text(
     update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> int:
     """Ментор ввёл причину возврата. Обновляем CRM и БД, финализируем."""
-    hw_id = context.user_data.pop("hw_edit_from_mentor_id", None)
+    hw_id = context.user_data.pop(_KEY_EDIT_MENTOR_ID, None)
     if not hw_id:
         return ConversationHandler.END
 
@@ -698,7 +675,7 @@ async def _handle_edit_from_mentor_skip_reason(
     query = update.callback_query
     await query.answer()
 
-    hw_id = context.user_data.pop("hw_edit_from_mentor_id", None)
+    hw_id = context.user_data.pop(_KEY_EDIT_MENTOR_ID, None)
     if not hw_id:
         return ConversationHandler.END
 
@@ -714,20 +691,12 @@ async def _handle_edit_from_mentor_skip_reason(
 
 
 async def _cancel_edit_from_mentor(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    context.user_data.pop("hw_edit_from_mentor_id", None)
+    context.user_data.pop(_KEY_EDIT_MENTOR_ID, None)
     return ConversationHandler.END
 
 
 def _make_edit_from_mentor_escape(delegate):
-    """Фабрика escape-обработчиков для ConversationHandler возврата на переработку."""
-
-    async def _handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-        context.user_data.pop("hw_edit_from_mentor_id", None)
-        await update.callback_query.message.reply_text(HW_EDIT_FROM_MENTOR_CANCELLED)
-        await delegate(update, context)
-        return ConversationHandler.END
-
-    return _handler
+    return _make_escape_handler(_KEY_EDIT_MENTOR_ID, HW_EDIT_FROM_MENTOR_CANCELLED, delegate)
 
 
 # ── ConversationHandler: Approve flow ─────────────────────────────────────────
@@ -864,69 +833,67 @@ async def _present_hw_navigation_view(
     )
 
     context.user_data[state_key] = {
-        "chat_id": chat_id,
-        "hw_id": nav_ctx.homework.id,
-        "cached_hw_ids": nav_ctx.cached_hw_ids,
+        _NAV_HW_ID: nav_ctx.homework.id,
+        _NAV_CACHED_IDS: nav_ctx.cached_hw_ids,
     }
     return True
+
+
+async def _handle_hw_nav_list_button(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    status: HomeworkStatus | list[HomeworkStatus],
+    state_key: str,
+    empty_message: str,
+) -> None:
+    """Общий обработчик кнопок 'Отложенные Д/З' / 'История Д/З'."""
+    await delete_user_message(update.message)
+
+    mentor = _get_verified_mentor(update.effective_user.id)
+    if not mentor:
+        await update.message.reply_text(ERROR_MESSAGE)
+        return
+
+    await _delete_hw_messages(update.effective_chat.id, context)
+    context.user_data.pop(HW_POSTPONED_STATE_KEY, None)
+    context.user_data.pop(HW_HISTORY_STATE_KEY, None)
+
+    shown = await _present_hw_navigation_view(
+        chat_id=update.effective_chat.id,
+        mentor_id=mentor.id,
+        status=status,
+        state_key=state_key,
+        context=context,
+    )
+    if not shown:
+        await update.message.reply_text(
+            empty_message,
+            reply_markup=get_mentor_homework_menu_keyboard(),
+        )
 
 
 async def handle_hw_check_postponed_button(
     update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> None:
     """Обработка кнопки 'Отложенные Д/З'."""
-    await delete_user_message(update.message)
-
-    mentor = _get_verified_mentor(update.effective_user.id)
-    if not mentor:
-        await update.message.reply_text(ERROR_MESSAGE)
-        return
-
-    await _delete_hw_messages(update.effective_chat.id, context)
-    context.user_data.pop(HW_POSTPONED_STATE_KEY, None)
-    context.user_data.pop(HW_HISTORY_STATE_KEY, None)
-
-    shown = await _present_hw_navigation_view(
-        chat_id=update.effective_chat.id,
-        mentor_id=mentor.id,
+    await _handle_hw_nav_list_button(
+        update, context,
         status=HomeworkStatus.POSTPONED,
         state_key=HW_POSTPONED_STATE_KEY,
-        context=context,
+        empty_message=MENTOR_HW_NO_POSTPONED,
     )
-    if not shown:
-        await update.message.reply_text(
-            MENTOR_HW_NO_POSTPONED,
-            reply_markup=get_mentor_homework_menu_keyboard(),
-        )
 
 
 async def handle_hw_check_history_button(
     update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> None:
     """Обработка кнопки 'История Д/З'."""
-    await delete_user_message(update.message)
-
-    mentor = _get_verified_mentor(update.effective_user.id)
-    if not mentor:
-        await update.message.reply_text(ERROR_MESSAGE)
-        return
-
-    await _delete_hw_messages(update.effective_chat.id, context)
-    context.user_data.pop(HW_HISTORY_STATE_KEY, None)
-    context.user_data.pop(HW_POSTPONED_STATE_KEY, None)
-
-    shown = await _present_hw_navigation_view(
-        chat_id=update.effective_chat.id,
-        mentor_id=mentor.id,
+    await _handle_hw_nav_list_button(
+        update, context,
         status=[HomeworkStatus.APPROVED, HomeworkStatus.EDIT_FROM_MENTOR],
         state_key=HW_HISTORY_STATE_KEY,
-        context=context,
+        empty_message=MENTOR_HW_NO_HISTORY,
     )
-    if not shown:
-        await update.message.reply_text(
-            MENTOR_HW_NO_HISTORY,
-            reply_markup=get_mentor_homework_menu_keyboard(),
-        )
 
 
 # ── Homework menu: navigation handlers ──────────────────────────────────────
@@ -943,17 +910,15 @@ async def _handle_hw_nav_message(
     await delete_user_message(update.message)
 
     mentor = _get_verified_mentor(update.effective_user.id)
+    await _delete_hw_messages(update.effective_chat.id, context)
     if not mentor:
-        await _delete_hw_messages(update.effective_chat.id, context)
         await update.message.reply_text(ERROR_MESSAGE)
         context.user_data.clear()
         return
 
-    await _delete_hw_messages(update.effective_chat.id, context)
-
     state = context.user_data.get(state_key) or {}
-    current_hw_id = state.get("hw_id")
-    cached_hw_ids = state.get("cached_hw_ids")
+    current_hw_id = state.get(_NAV_HW_ID)
+    cached_hw_ids = state.get(_NAV_CACHED_IDS)
     if not current_hw_id or not cached_hw_ids:
         await update.message.reply_text(
             empty_message,
