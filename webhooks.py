@@ -2,6 +2,7 @@ import asyncio
 import hmac
 import hashlib
 import os
+import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 from dotenv import load_dotenv
@@ -29,6 +30,33 @@ app = FastAPI(title="amoCRM Webhook", lifespan=lifespan)
 
 WEBHOOK_SECRET = os.getenv("AMO_CHAT_WEBHOOK_SECRET")
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+
+# --- Дедупликация вебхуков ---
+_DEDUP_TTL = 60  # секунды
+_dedup_cache: dict[str, float] = {}
+
+
+def _is_duplicate(key: str) -> bool:
+    """Возвращает True, если вебхук с данным ключом уже обработан в пределах TTL."""
+    now = time.monotonic()
+    # Очистка устаревших записей
+    expired = [k for k, ts in _dedup_cache.items() if now - ts > _DEDUP_TTL]
+    for k in expired:
+        del _dedup_cache[k]
+    if key in _dedup_cache:
+        return True
+    _dedup_cache[key] = now
+    return False
+
+
+_background_tasks: set[asyncio.Task] = set()
+
+
+def _create_background_task(coro) -> None:
+    """Создаёт фоновую задачу с корректной обработкой ошибок и prevent GC."""
+    task = asyncio.create_task(coro)
+    _background_tasks.add(task)
+    task.add_done_callback(_background_tasks.discard)
 
 
 def verify_signature(body: bytes, signature: str | None) -> None:
@@ -64,28 +92,8 @@ async def handle_chat_webhook(
     return JSONResponse({"status": "ok"})
 
 
-@app.post("/homework/assigned")
-async def homework_assigned(request: Request):
-    form = await request.form()
-
-    pipeline_id = form.get("leads[status][0][pipeline_id]", "")
-    status_id = form.get("leads[status][0][status_id]", "")
-    lead_id = form.get("leads[status][0][id]", "")
-
-    if pipeline_id != str(CRM_HOMEWORK_PIPELINE) or status_id != CRM_HW_ASSIGNED_STATUS:
-        logger.warning(
-            "homework_assigned: unexpected pipeline_id=%s status_id=%s — ignoring",
-            pipeline_id,
-            status_id,
-        )
-        return JSONResponse({"status": "ignored"})
-
-    if not lead_id:
-        logger.warning("homework_assigned: missing lead id in form payload")
-        raise HTTPException(status_code=400, detail="Missing lead id")
-
-    logger.info("homework_assigned: processing lead_id=%s", lead_id)
-
+async def _process_homework_assigned(lead_id: str) -> None:
+    """Фоновая обработка вебхука назначения ДЗ."""
     try:
         from repositories.homework_repository import save_homework_from_webhook
 
@@ -95,11 +103,11 @@ async def homework_assigned(request: Request):
         )
     except Exception as e:
         logger.error("homework_assigned: failed to save homework: %s", e, exc_info=True)
-        return JSONResponse({"status": "error"}, status_code=500)
+        return
 
     if not student_tg_id:
         logger.warning("homework_assigned: no student tg_id for lead_id=%s", lead_id)
-        return JSONResponse({"status": "ok"})
+        return
 
     try:
         from telegram import Bot
@@ -122,31 +130,33 @@ async def homework_assigned(request: Request):
             "homework_assigned: failed to send Telegram message: %s", e, exc_info=True
         )
 
-    return JSONResponse({"status": "ok"})
 
-
-@app.post("/homework/edit")
-async def homework_edit(request: Request):
+@app.post("/homework/assigned")
+async def homework_assigned(request: Request):
     form = await request.form()
 
     pipeline_id = form.get("leads[status][0][pipeline_id]", "")
     status_id = form.get("leads[status][0][status_id]", "")
     lead_id = form.get("leads[status][0][id]", "")
 
-    if pipeline_id != str(CRM_HOMEWORK_PIPELINE) or status_id != CRM_HW_EDIT_STATUS:
-        logger.warning(
-            "homework_edit: unexpected pipeline_id=%s status_id=%s — ignoring",
-            pipeline_id,
-            status_id,
-        )
+    if pipeline_id != str(CRM_HOMEWORK_PIPELINE) or status_id != CRM_HW_ASSIGNED_STATUS:
         return JSONResponse({"status": "ignored"})
 
     if not lead_id:
-        logger.warning("homework_edit: missing lead id in form payload")
         raise HTTPException(status_code=400, detail="Missing lead id")
 
-    logger.info("homework_edit: processing lead_id=%s", lead_id)
+    dedup_key = f"assigned:{lead_id}"
+    if _is_duplicate(dedup_key):
+        logger.info("homework_assigned: duplicate webhook for lead_id=%s — skipping", lead_id)
+        return JSONResponse({"status": "ok"})
 
+    logger.info("homework_assigned: scheduling background processing for lead_id=%s", lead_id)
+    _create_background_task(_process_homework_assigned(lead_id))
+    return JSONResponse({"status": "ok"})
+
+
+async def _process_homework_edit(lead_id: str) -> None:
+    """Фоновая обработка вебхука редактирования ДЗ."""
     try:
         from repositories.homework_repository import process_homework_edit
 
@@ -154,12 +164,9 @@ async def homework_edit(request: Request):
         homework, student_tg_id, edit_reason = await loop.run_in_executor(
             None, process_homework_edit, lead_id
         )
-    except ValueError as e:
-        logger.warning("homework_edit: %s", e)
-        return JSONResponse({"status": "error", "detail": str(e)}, status_code=404)
     except Exception as e:
         logger.error("homework_edit: failed to process: %s", e, exc_info=True)
-        return JSONResponse({"status": "error"}, status_code=500)
+        return
 
     try:
         from telegram import Bot
@@ -182,31 +189,33 @@ async def homework_edit(request: Request):
             "homework_edit: failed to send Telegram message: %s", e, exc_info=True
         )
 
-    return JSONResponse({"status": "ok"})
 
-
-@app.post("/homework/edit_from_mentor")
-async def homework_edit_from_mentor(request: Request):
+@app.post("/homework/edit")
+async def homework_edit(request: Request):
     form = await request.form()
 
     pipeline_id = form.get("leads[status][0][pipeline_id]", "")
     status_id = form.get("leads[status][0][status_id]", "")
     lead_id = form.get("leads[status][0][id]", "")
 
-    if pipeline_id != str(CRM_HOMEWORK_PIPELINE) or status_id != CRM_HW_EDIT_FROM_MENTOR_STATUS:
-        logger.warning(
-            "homework_edit_from_mentor: unexpected pipeline_id=%s status_id=%s — ignoring",
-            pipeline_id,
-            status_id,
-        )
+    if pipeline_id != str(CRM_HOMEWORK_PIPELINE) or status_id != CRM_HW_EDIT_STATUS:
         return JSONResponse({"status": "ignored"})
 
     if not lead_id:
-        logger.warning("homework_edit_from_mentor: missing lead id in form payload")
         raise HTTPException(status_code=400, detail="Missing lead id")
 
-    logger.info("homework_edit_from_mentor: processing lead_id=%s", lead_id)
+    dedup_key = f"edit:{lead_id}"
+    if _is_duplicate(dedup_key):
+        logger.info("homework_edit: duplicate webhook for lead_id=%s — skipping", lead_id)
+        return JSONResponse({"status": "ok"})
 
+    logger.info("homework_edit: scheduling background processing for lead_id=%s", lead_id)
+    _create_background_task(_process_homework_edit(lead_id))
+    return JSONResponse({"status": "ok"})
+
+
+async def _process_homework_edit_from_mentor(lead_id: str) -> None:
+    """Фоновая обработка вебхука возврата ДЗ от ментора."""
     try:
         from repositories.homework_repository import process_homework_edit_from_mentor
 
@@ -214,12 +223,9 @@ async def homework_edit_from_mentor(request: Request):
         homework, student_tg_id, edit_reason = await loop.run_in_executor(
             None, process_homework_edit_from_mentor, lead_id
         )
-    except ValueError as e:
-        logger.warning("homework_edit_from_mentor: %s", e)
-        return JSONResponse({"status": "error", "detail": str(e)}, status_code=404)
     except Exception as e:
         logger.error("homework_edit_from_mentor: failed to process: %s", e, exc_info=True)
-        return JSONResponse({"status": "error"}, status_code=500)
+        return
 
     try:
         from telegram import Bot
@@ -243,31 +249,33 @@ async def homework_edit_from_mentor(request: Request):
             "homework_edit_from_mentor: failed to send Telegram message: %s", e, exc_info=True
         )
 
-    return JSONResponse({"status": "ok"})
 
-
-@app.post("/homework/validated")
-async def homework_validated(request: Request):
+@app.post("/homework/edit_from_mentor")
+async def homework_edit_from_mentor(request: Request):
     form = await request.form()
 
     pipeline_id = form.get("leads[status][0][pipeline_id]", "")
     status_id = form.get("leads[status][0][status_id]", "")
     lead_id = form.get("leads[status][0][id]", "")
 
-    if pipeline_id != str(CRM_HOMEWORK_PIPELINE) or status_id != CRM_HW_FOR_MENTOR_STATUS:
-        logger.warning(
-            "homework_validated: unexpected pipeline_id=%s status_id=%s — ignoring",
-            pipeline_id,
-            status_id,
-        )
+    if pipeline_id != str(CRM_HOMEWORK_PIPELINE) or status_id != CRM_HW_EDIT_FROM_MENTOR_STATUS:
         return JSONResponse({"status": "ignored"})
 
     if not lead_id:
-        logger.warning("homework_validated: missing lead id in form payload")
         raise HTTPException(status_code=400, detail="Missing lead id")
 
-    logger.info("homework_validated: processing lead_id=%s", lead_id)
+    dedup_key = f"edit_from_mentor:{lead_id}"
+    if _is_duplicate(dedup_key):
+        logger.info("homework_edit_from_mentor: duplicate webhook for lead_id=%s — skipping", lead_id)
+        return JSONResponse({"status": "ok"})
 
+    logger.info("homework_edit_from_mentor: scheduling background processing for lead_id=%s", lead_id)
+    _create_background_task(_process_homework_edit_from_mentor(lead_id))
+    return JSONResponse({"status": "ok"})
+
+
+async def _process_homework_validated(lead_id: str) -> None:
+    """Фоновая обработка вебхука отправки ДЗ ментору."""
     try:
         from repositories.homework_repository import process_homework_for_mentor
 
@@ -275,12 +283,9 @@ async def homework_validated(request: Request):
         homework, mentor_tg_id, mentor_db_id = await loop.run_in_executor(
             None, process_homework_for_mentor, lead_id
         )
-    except ValueError as e:
-        logger.warning("homework_validated: %s", e)
-        return JSONResponse({"status": "error", "detail": str(e)}, status_code=404)
     except Exception as e:
         logger.error("homework_validated: failed to process: %s", e, exc_info=True)
-        return JSONResponse({"status": "error"}, status_code=500)
+        return
 
     try:
         from telegram import Bot
@@ -288,8 +293,9 @@ async def homework_validated(request: Request):
         from messages import HW_FOR_MENTOR_NOTIFICATION
         from database.homework_service import get_mentor_hw_notification, upsert_mentor_hw_notification
 
+        old_notification = await loop.run_in_executor(None, get_mentor_hw_notification, mentor_db_id)
+
         async with Bot(token=TELEGRAM_BOT_TOKEN) as bot:
-            old_notification = await loop.run_in_executor(None, get_mentor_hw_notification, mentor_db_id)
             if old_notification:
                 try:
                     await bot.delete_message(
@@ -318,31 +324,33 @@ async def homework_validated(request: Request):
             "homework_validated: failed to send Telegram message: %s", e, exc_info=True
         )
 
-    return JSONResponse({"status": "ok"})
 
-
-@app.post("/homework/accepted")
-async def homework_accepted(request: Request):
+@app.post("/homework/validated")
+async def homework_validated(request: Request):
     form = await request.form()
 
     pipeline_id = form.get("leads[status][0][pipeline_id]", "")
     status_id = form.get("leads[status][0][status_id]", "")
     lead_id = form.get("leads[status][0][id]", "")
 
-    if pipeline_id != str(CRM_HOMEWORK_PIPELINE) or status_id != CRM_HW_APPROVED_STATUS:
-        logger.warning(
-            "homework_accepted: unexpected pipeline_id=%s status_id=%s — ignoring",
-            pipeline_id,
-            status_id,
-        )
+    if pipeline_id != str(CRM_HOMEWORK_PIPELINE) or status_id != CRM_HW_FOR_MENTOR_STATUS:
         return JSONResponse({"status": "ignored"})
 
     if not lead_id:
-        logger.warning("homework_accepted: missing lead id in form payload")
         raise HTTPException(status_code=400, detail="Missing lead id")
 
-    logger.info("homework_accepted: processing lead_id=%s", lead_id)
+    dedup_key = f"validated:{lead_id}"
+    if _is_duplicate(dedup_key):
+        logger.info("homework_validated: duplicate webhook for lead_id=%s — skipping", lead_id)
+        return JSONResponse({"status": "ok"})
 
+    logger.info("homework_validated: scheduling background processing for lead_id=%s", lead_id)
+    _create_background_task(_process_homework_validated(lead_id))
+    return JSONResponse({"status": "ok"})
+
+
+async def _process_homework_accepted(lead_id: str) -> None:
+    """Фоновая обработка вебхука принятия ДЗ."""
     try:
         from repositories.homework_repository import process_homework_accepted
 
@@ -350,16 +358,13 @@ async def homework_accepted(request: Request):
         homework, student_tg_id = await loop.run_in_executor(
             None, process_homework_accepted, lead_id
         )
-    except ValueError as e:
-        logger.warning("homework_accepted: %s", e)
-        return JSONResponse({"status": "error", "detail": str(e)}, status_code=404)
     except Exception as e:
         logger.error("homework_accepted: failed to process: %s", e, exc_info=True)
-        return JSONResponse({"status": "error"}, status_code=500)
+        return
 
     if not student_tg_id:
         logger.warning("homework_accepted: no student tg_id for lead_id=%s", lead_id)
-        return JSONResponse({"status": "ok"})
+        return
 
     try:
         from telegram import Bot
@@ -386,6 +391,28 @@ async def homework_accepted(request: Request):
             "homework_accepted: failed to send Telegram message: %s", e, exc_info=True
         )
 
+
+@app.post("/homework/accepted")
+async def homework_accepted(request: Request):
+    form = await request.form()
+
+    pipeline_id = form.get("leads[status][0][pipeline_id]", "")
+    status_id = form.get("leads[status][0][status_id]", "")
+    lead_id = form.get("leads[status][0][id]", "")
+
+    if pipeline_id != str(CRM_HOMEWORK_PIPELINE) or status_id != CRM_HW_APPROVED_STATUS:
+        return JSONResponse({"status": "ignored"})
+
+    if not lead_id:
+        raise HTTPException(status_code=400, detail="Missing lead id")
+
+    dedup_key = f"accepted:{lead_id}"
+    if _is_duplicate(dedup_key):
+        logger.info("homework_accepted: duplicate webhook for lead_id=%s — skipping", lead_id)
+        return JSONResponse({"status": "ok"})
+
+    logger.info("homework_accepted: scheduling background processing for lead_id=%s", lead_id)
+    _create_background_task(_process_homework_accepted(lead_id))
     return JSONResponse({"status": "ok"})
 
 
