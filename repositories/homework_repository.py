@@ -350,7 +350,7 @@ async def submit_student_answers(
 
     `answers` format: {question_number: {"text": str|None, "file_id": str|None, "media_type": str}}
     media_type: "text" | "video" | "video_note" | "audio" | "voice" | "photo" | "document".
-    "video"/"video_note" → Drive + chat; "audio"/"voice" → Drive + lead Files; "photo" → Drive + lead Files; "document" → generic note.
+    "video"/"video_note" → Drive + chat; "audio"/"voice" → Drive + lead Files; "photo" → Drive + lead Files; "document" → Drive + chat (file).
     """
     loop = asyncio.get_running_loop()
 
@@ -443,6 +443,24 @@ async def submit_student_answers(
                 {
                     "q_num": q_num,
                     "type": "image",
+                    "uuid": file_uuid,
+                    "version_uuid": version_uuid,
+                    "filename": filename,
+                    "file_size": file_size,
+                    "download_url": download_url,
+                }
+            )
+        elif media_type == "document":
+            file_uuid, version_uuid, file_size, filename, download_url = await _upload_answer_document(
+                bot, file_id, q_num,
+                original_filename=data.get("file_name"),
+                mime_type=data.get("mime_type"),
+            )
+            content = file_id or ""
+            answer_info.append(
+                {
+                    "q_num": q_num,
+                    "type": "document",
                     "uuid": file_uuid,
                     "version_uuid": version_uuid,
                     "filename": filename,
@@ -562,6 +580,31 @@ async def submit_student_answers(
                     _create_note,
                     f"Ответ на Д/З № {q_num} (фото): не удалось загрузить",
                 )
+        elif info["type"] == "document":
+            dl_url = info.get("download_url")
+            if dl_url and contact_id:
+                sent = await send_media_to_chat(
+                    media_url=dl_url,
+                    contact_id=contact_id,
+                    filename=info["filename"],
+                    media_type="file",
+                    lead_id=int(homework.lead_id),
+                    contact_name=contact_name,
+                    file_size=info.get("file_size", 0),
+                    text=f"Ответ на Д/З № {q_num} (файл)",
+                )
+                if not sent:
+                    await loop.run_in_executor(
+                        None,
+                        _create_note,
+                        f"Ответ на Д/З № {q_num} (файл): {dl_url}",
+                    )
+            else:
+                await loop.run_in_executor(
+                    None,
+                    _create_note,
+                    f"Ответ на Д/З № {q_num} (файл): не удалось загрузить",
+                )
         else:
             await loop.run_in_executor(
                 None,
@@ -629,6 +672,30 @@ async def _upload_answer_audio(
         return file_uuid, version_uuid, len(file_bytes), filename, download_url
     except Exception as e:
         logger.error(f"Failed to upload audio for question {q_num}: {e}", exc_info=True)
+        return None, None, 0, filename, None
+
+
+async def _upload_answer_document(
+    bot: Bot,
+    file_id: str | None,
+    q_num: int,
+    original_filename: str | None = None,
+    mime_type: str | None = None,
+) -> tuple[str | None, str | None, int, str, str | None]:
+    """Возвращает (file_uuid, version_uuid, file_size, filename, download_url)."""
+    filename = original_filename or f"hw_{q_num}_{(file_id or 'unknown')[:8]}.bin"
+    content_type = mime_type or "application/octet-stream"
+    if not file_id:
+        return None, None, 0, filename, None
+    try:
+        tg_file = await bot.get_file(file_id)
+        file_bytes = await tg_file.download_as_bytearray()
+        file_uuid, version_uuid, _, download_url = await upload_file(
+            bytes(file_bytes), filename, content_type
+        )
+        return file_uuid, version_uuid, len(file_bytes), filename, download_url
+    except Exception as e:
+        logger.error(f"Failed to upload document for question {q_num}: {e}", exc_info=True)
         return None, None, 0, filename, None
 
 

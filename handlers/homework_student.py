@@ -147,6 +147,9 @@ def _store_answer(q_num: int, message: Message, context: ContextTypes.DEFAULT_TY
         "file_id": file_id,
         "media_type": media_type,
     }
+    if message.document:
+        answers[q_num]["file_name"] = message.document.file_name
+        answers[q_num]["mime_type"] = message.document.mime_type
 
 
 def _next_question_state(current_q: int, context: ContextTypes.DEFAULT_TYPE) -> int:
