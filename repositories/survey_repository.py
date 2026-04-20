@@ -247,15 +247,26 @@ def find_survey_lead(contact: Contact, survey_id: int) -> Lead | None:
     normalized_survey_id = _normalize_survey_id(survey_id)
     if normalized_survey_id is None:
         return None
-    for lead in contact.leads:
-        if not lead.pipeline or str(lead.pipeline.id) != pid:
+    for lead in _iter_contact_leads(contact):
+        with amo_crm_rate_limiter.limit():
+            lead_pipeline = lead.pipeline
+        if not lead_pipeline or str(lead_pipeline.id) != pid:
             continue
-        sid = str(lead.status.id) if lead.status else None
+        with amo_crm_rate_limiter.limit():
+            lead_status = lead.status
+        sid = str(lead_status.id) if lead_status else None
         if sid not in EXCLUDED_LEAD_STATUSES:
             lead_survey_id = _normalize_survey_id(getattr(lead, "survey_id", None))
             if lead_survey_id is not None and lead_survey_id == normalized_survey_id:
                 return lead
     return None
+
+
+def _iter_contact_leads(contact: Contact):
+    """Итерация по лидам контакта с rate-limiting для каждого API-запроса."""
+    for lead_ref in contact.leads._data or []:
+        with amo_crm_rate_limiter.limit():
+            yield contact.leads._manager.get(lead_ref["id"])
 
 
 def _create_contact(tg_id: int, username: str | None) -> Contact:

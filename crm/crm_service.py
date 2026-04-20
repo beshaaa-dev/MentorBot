@@ -86,17 +86,26 @@ def get_first_lead(crm_user: Contact) -> Lead | None:
     """
     if not crm_user.leads:
         return None
-    return next(
-        (
-            lead
-            for lead in crm_user.leads
-            if lead.pipeline
-            and str(lead.pipeline.id) == str(CRM_PIPELINE)
-            and lead.status
-            and str(lead.status.id) in VALID_LEAD_STATUSES
-        ),
-        None,
-    )
+    for lead in _iter_contact_leads(crm_user):
+        with amo_crm_rate_limiter.limit():
+            lead_pipeline = lead.pipeline
+        if not lead_pipeline or str(lead_pipeline.id) != str(CRM_PIPELINE):
+            continue
+        with amo_crm_rate_limiter.limit():
+            lead_status = lead.status
+        if lead_status and str(lead_status.id) in VALID_LEAD_STATUSES:
+            return lead
+    return None
+
+
+def _iter_contact_leads(contact: Contact):
+    """Итерация по лидам контакта с rate-limiting для каждого API-запроса."""
+    lead_data = contact.leads._data
+    if not lead_data:
+        return
+    for lead_ref in lead_data:
+        with amo_crm_rate_limiter.limit():
+            yield contact.leads._manager.get(lead_ref["id"])
 
 
 def is_test_lead(lead: Lead) -> bool:
