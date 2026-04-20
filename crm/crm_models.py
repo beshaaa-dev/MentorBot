@@ -51,6 +51,9 @@ class Lead(_Lead):
     qualities_to_change = custom_field.TextCustomField(
         "Какие качества или привычки ты хотел(а) бы изменить в себе?"
     )
+    why_this_mentor = custom_field.TextCustomField(
+        "Почему вы хотите в группу именно к этому наставнику?", field_id=550469
+    )
     # Homework fields (pipeline 10726418)
     hw_question_1 = custom_field.TextCustomField("Д/З №1", field_id=560085)
     hw_question_2 = custom_field.TextCustomField("Д/З №2", field_id=560087)

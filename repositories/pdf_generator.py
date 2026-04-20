@@ -140,6 +140,10 @@ def create_anketa_pdf(lead: Lead | None) -> bytes | None:
         ("age", "Возраст"),
         ("city", "Город проживания"),
         ("current_study", "Где ты сейчас учишься?"),
+        (
+            "why_this_mentor",
+            "Почему вы хотите в группу именно к этому наставнику?",
+        ),
         ("most_important_now", "Что для тебя сейчас важнее всего из этого?"),
         (
             "direction_2_3_years",
