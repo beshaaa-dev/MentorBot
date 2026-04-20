@@ -16,6 +16,7 @@ from logger import setup_logger
 from rate_limiter import amo_crm_rate_limiter
 from async_rate_limiter import async_amo_crm_rate_limiter
 from thread_safe_token_manager import ThreadSafeTokenManager
+import asyncio
 import aiohttp
 
 logger = setup_logger(__name__)
@@ -392,27 +393,43 @@ async def upload_video(
                 "Content-Range": f"bytes {offset}-{offset + chunk_len - 1}/{total_size}",
             }
 
-            async with aiohttp.ClientSession() as session:
-                async with async_amo_crm_rate_limiter.limit():
-                    async with session.post(
-                        upload_url,
-                        headers=part_headers,
-                        data=chunk,
-                        timeout=aiohttp.ClientTimeout(total=30),
-                    ) as upload_response:
-                        text = await upload_response.text()
+            upload_data = {}
+            max_retries = 3
+            for attempt in range(1, max_retries + 1):
+                try:
+                    async with aiohttp.ClientSession() as session:
+                        async with async_amo_crm_rate_limiter.limit():
+                            async with session.post(
+                                upload_url,
+                                headers=part_headers,
+                                data=chunk,
+                                timeout=aiohttp.ClientTimeout(total=120),
+                            ) as upload_response:
+                                text = await upload_response.text()
 
-                        if upload_response.status not in (200, 201, 202):
-                            logger.error(
-                                f"[upload_video] Failed to upload file part {part_num}: {upload_response.status} - {text}"
-                            )
-                            return None, None
+                                if upload_response.status not in (200, 201, 202):
+                                    logger.error(
+                                        f"[upload_video] Failed to upload file part {part_num}: {upload_response.status} - {text}"
+                                    )
+                                    return None, None
 
-                        upload_data = (
-                            await upload_response.json()
-                            if upload_response.content_type == "application/json"
-                            else {}
+                                upload_data = (
+                                    await upload_response.json()
+                                    if upload_response.content_type == "application/json"
+                                    else {}
+                                )
+                    break
+                except (asyncio.TimeoutError, aiohttp.ClientError) as e:
+                    if attempt < max_retries:
+                        logger.warning(
+                            f"[upload_video] Part {part_num} attempt {attempt}/{max_retries} failed: {e}. Retrying..."
                         )
+                        await asyncio.sleep(2 * attempt)
+                    else:
+                        logger.error(
+                            f"[upload_video] Part {part_num} failed after {max_retries} attempts: {e}"
+                        )
+                        return None, None
 
             # Check if this is the last part (contains uuid)
             if "uuid" in upload_data:
