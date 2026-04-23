@@ -109,6 +109,14 @@ def process_homework_edit_from_mentor(lead_id: str) -> tuple[Homework, int, str]
     return homework, student_tg_id, edit_reason
 
 
+def _append_lead_tag(lead: Lead, tag: str) -> None:
+    """Добавляет тег к лиду, если он ещё не установлен."""
+    for t in lead.tags:
+        if getattr(t, "name", None) == tag:
+            return
+    lead.tags.append(tag)
+
+
 def save_homework_from_webhook(lead_id: str) -> tuple[Homework, int]:
     """
     Fetch the CRM lead, resolve student + mentor, and persist a Homework record.
@@ -124,12 +132,40 @@ def save_homework_from_webhook(lead_id: str) -> tuple[Homework, int]:
     if not lead:
         raise ValueError(f"CRM lead {lead_id} not found")
 
-    student_tg_id, mentor_tg_nickname = _extract_student_and_mentor(lead)
+    student = None
+    student_tg_id = None
+    mentor_tg_nickname = None
 
-    student = find_by_tg_id(student_tg_id)
+    try:
+        student_tg_id, mentor_tg_nickname = _extract_student_and_mentor(lead)
+        student = find_by_tg_id(student_tg_id)
+    except ValueError:
+        logger.warning("save_homework_from_webhook: tg_id lookup failed for lead_id=%s, trying tg_nickname", lead_id)
+
     if not student:
+        # Фоллбэк: поиск по telegram_nickname (поле 536049)
+        for contact in lead.contacts:
+            nickname = getattr(contact, "telegram_nickname", None)
+            if nickname:
+                nickname = nickname.lstrip("@")
+                student = find_by_tg_nickname(nickname)
+                if student and student.tg_id:
+                    student_tg_id = student.tg_id
+                    mentor_tg_nickname = getattr(lead, "mentor_tg_nickname", None)
+                    logger.info("save_homework_from_webhook: resolved student by tg_nickname=@%s for lead_id=%s", nickname, lead_id)
+                    break
+                student = None
+
+    if not student:
+        _append_lead_tag(lead, "Ошибка бот")
+        with amo_crm_rate_limiter.limit():
+            lead.notes.objects.create(
+                text="Не получилось отправить домашку из-за отсутствующих тг айди и ника",
+                note_type=COMMON_TYPE,
+            )
+            lead.save()
         raise ValueError(
-            f"Student with tg_id={student_tg_id} not found in DB for lead {lead_id}"
+            f"Student not found by tg_id or tg_nickname for lead {lead_id}"
         )
 
     mentor_id: int | None = None
