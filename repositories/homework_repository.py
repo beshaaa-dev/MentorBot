@@ -7,12 +7,13 @@ from telegram import Bot
 from config import CRM_HOMEWORK_PIPELINE, CRM_HW_SUBMITTED_STATUS
 from crm.crm_chat_service import send_media_to_chat, send_video_to_chat
 from crm.crm_service import (
+    get_crm_contact_by_id,
     get_crm_lead,
     update_lead_status_in_pipeline,
     upload_file,
     upload_video,
 )
-from crm.crm_models import Lead
+from crm.crm_models import Contact, Lead
 from database.homework_service import (
     create_homework as _create_homework,
     get_homework_by_id as _get_homework_by_id,
@@ -29,6 +30,17 @@ from rate_limiter import amo_crm_rate_limiter
 from timezone_utils import now_moscow
 
 logger = setup_logger(__name__)
+
+
+def _fetch_lead_contacts(lead: Lead) -> list[Contact]:
+    """Загружает контакты лида поштучно через rate limiter, минуя lead.contacts."""
+    contact_refs = (lead._data.get("_embedded") or {}).get("contacts") or []
+    contacts = []
+    for ref in contact_refs:
+        contact = get_crm_contact_by_id(ref["id"])
+        if contact is not None:
+            contacts.append(contact)
+    return contacts
 
 
 def process_homework_edit(lead_id: str) -> tuple[Homework, int, str]:
@@ -154,7 +166,7 @@ def save_homework_from_webhook(lead_id: str) -> tuple[Homework, int]:
 
     if not student:
         # Фоллбэк: поиск по telegram_nickname (поле 536049)
-        for contact in lead.contacts:
+        for contact in _fetch_lead_contacts(lead):
             nickname = getattr(contact, "telegram_nickname", None)
             if nickname:
                 nickname = nickname.lstrip("@")
@@ -303,7 +315,7 @@ def _extract_student_and_mentor(lead: Lead) -> tuple[int, str | None]:
     if not contact_refs:
         raise ValueError(f"Lead {lead.id} has no embedded contacts")
 
-    for contact in lead.contacts:
+    for contact in _fetch_lead_contacts(lead):
         raw_tg_id = contact.telegram_id
         if raw_tg_id:
             try:
@@ -319,7 +331,7 @@ def _extract_student_and_mentor(lead: Lead) -> tuple[int, str | None]:
 
 def _sync_users_from_lead(lead: Lead) -> None:
     """Обновляет данные всех пользователей из CRM-контактов лида."""
-    for contact in lead.contacts:
+    for contact in _fetch_lead_contacts(lead):
         raw_tg_id = contact.telegram_id
         if raw_tg_id:
             try:
@@ -675,7 +687,7 @@ async def submit_student_answers(
 
 
 def _get_contact_info(lead) -> tuple[int | None, str]:
-    for contact in lead.contacts:
+    for contact in _fetch_lead_contacts(lead):
         if contact.telegram_id:
             return contact.id, getattr(contact, "name", "") or ""
     return None, ""
