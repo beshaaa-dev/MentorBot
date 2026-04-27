@@ -585,6 +585,10 @@ async def submit_student_answers(
                         f"Ответ на Д/З № {q_num} (видео): {video_url}",
                     )
             else:
+                logger.warning(
+                    f"[submit_student_answers] hw={hw_id} q={q_num} видео: "
+                    f"video_url={'есть' if video_url else 'нет'}, contact_id={contact_id}"
+                )
                 await loop.run_in_executor(
                     None,
                     _create_note,
@@ -610,6 +614,10 @@ async def submit_student_answers(
                         f"Ответ на Д/З № {q_num} (аудио): {dl_url}",
                     )
             else:
+                logger.warning(
+                    f"[submit_student_answers] hw={hw_id} q={q_num} аудио: "
+                    f"dl_url={'есть' if dl_url else 'нет'}, contact_id={contact_id}"
+                )
                 await loop.run_in_executor(
                     None,
                     _create_note,
@@ -635,6 +643,10 @@ async def submit_student_answers(
                         f"Ответ на Д/З № {q_num} (фото): {dl_url}",
                     )
             else:
+                logger.warning(
+                    f"[submit_student_answers] hw={hw_id} q={q_num} фото: "
+                    f"dl_url={'есть' if dl_url else 'нет'}, contact_id={contact_id}"
+                )
                 await loop.run_in_executor(
                     None,
                     _create_note,
@@ -660,6 +672,10 @@ async def submit_student_answers(
                         f"Ответ на Д/З № {q_num} (файл): {dl_url}",
                     )
             else:
+                logger.warning(
+                    f"[submit_student_answers] hw={hw_id} q={q_num} файл: "
+                    f"dl_url={'есть' if dl_url else 'нет'}, contact_id={contact_id}"
+                )
                 await loop.run_in_executor(
                     None,
                     _create_note,
@@ -690,6 +706,7 @@ def _get_contact_info(lead) -> tuple[int | None, str]:
     for contact in _fetch_lead_contacts(lead):
         if contact.telegram_id:
             return contact.id, getattr(contact, "name", "") or ""
+    logger.warning(f"[_get_contact_info] Не найден контакт с telegram_id для сделки {getattr(lead, 'id', '?')}")
     return None, ""
 
 
@@ -700,6 +717,7 @@ async def _upload_answer_media(
 ) -> tuple[str | None, int, str]:
     filename = f"hw_{q_num}_{(file_id or 'unknown')[:8]}.mp4"
     if not file_id:
+        logger.warning(f"[_upload_answer_media] file_id отсутствует для вопроса {q_num}")
         return None, 0, filename
     try:
         tg_file = await bot.get_file(file_id)
