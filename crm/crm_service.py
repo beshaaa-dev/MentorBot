@@ -1,6 +1,8 @@
+import time
 import requests
 from amocrm.v2 import Pipeline, tokens
 from amocrm.v2.entity.note import COMMON_TYPE
+from amocrm.v2 import interaction as _amo_interaction
 from amocrm.v2.interaction import _session as _amo_session
 from .crm_models import Contact, Lead
 import config
@@ -32,8 +34,35 @@ def _amo_response_hook(response, *args, **kwargs):
     )
 
 
+# TODO: Remove this patch once the AmoCRM Drive upload bug is fixed and
+# force_refresh_access_token() is no longer called during normal operation.
+# Root cause: force_refresh_access_token() invalidates the old access token on
+# AmoCRM's side before the new token is saved locally (~126 ms window). Any
+# concurrent synchronous API call that lands in this window gets a 401.
+# The patch retries such calls up to 3 times with a 1 s sleep, which is enough
+# for the async refresh to complete and write the new token to storage.
+def _patch_amo_interaction():
+    _orig_request = _amo_interaction.BaseInteraction.request
+
+    def _retrying_request(self, method, path, **kwargs):
+        for attempt in range(3):
+            try:
+                return _orig_request(self, method, path, **kwargs)
+            except _amo_interaction.exceptions.UnAuthorizedException:
+                if attempt == 2:
+                    raise
+                logger.warning(
+                    "UnAuthorizedException on attempt %d, waiting for token refresh...",
+                    attempt + 1,
+                )
+                time.sleep(1.0)
+
+    _amo_interaction.BaseInteraction.request = _retrying_request
+
+
 def init_amo_crm_integration():
     """Initialize AmoCRM token manager and handle token setup."""
+    _patch_amo_interaction()
     # _amo_session.hooks["response"].append(_amo_response_hook)
     tokens.default_token_manager(
         client_id=config.CRM_CLIENT_ID,
