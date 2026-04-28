@@ -63,6 +63,15 @@ class MentorHomeworkNotification(Base):
     chat_id = Column(Integer, nullable=False)
 
 
+class MentorTaskNotification(Base):
+    __tablename__ = "mentor_task_notifications"
+
+    id = Column(Integer, primary_key=True, nullable=False)
+    mentor_id = Column(Integer, nullable=False, unique=True)
+    message_id = Column(Integer, nullable=False)
+    chat_id = Column(Integer, nullable=False)
+
+
 class UserRole(str, Enum):
     MENTOR = "mentor"
     STUDENT = "student"

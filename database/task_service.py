@@ -1,5 +1,5 @@
 from database.db_helper import get_db
-from database.models import Task, TaskStatus, TaskMessage
+from database.models import Task, TaskStatus, TaskMessage, MentorTaskNotification
 from logger import setup_logger
 from timezone_utils import now_moscow
 from sqlalchemy.orm import joinedload
@@ -205,4 +205,45 @@ def get_postponed_tasks(mentor_id: int) -> list[Task]:
             return tasks
         except Exception as e:
             logger.error(f"Error getting postponed tasks for mentor {mentor_id}: {e}")
+            raise
+
+
+def get_mentor_task_notification(mentor_id: int) -> MentorTaskNotification | None:
+    """Возвращает запись последнего уведомления о задании для данного ментора."""
+    with get_db() as db:
+        try:
+            return (
+                db.query(MentorTaskNotification)
+                .filter(MentorTaskNotification.mentor_id == mentor_id)
+                .first()
+            )
+        except Exception as e:
+            logger.error(f"Error getting mentor task notification for mentor_id={mentor_id}: {e}")
+            raise
+
+
+def upsert_mentor_task_notification(mentor_id: int, message_id: int, chat_id: int) -> MentorTaskNotification:
+    """Создаёт или обновляет запись уведомления ментора о новом задании."""
+    with get_db() as db:
+        try:
+            notification = (
+                db.query(MentorTaskNotification)
+                .filter(MentorTaskNotification.mentor_id == mentor_id)
+                .first()
+            )
+            if notification:
+                notification.message_id = message_id
+                notification.chat_id = chat_id
+            else:
+                notification = MentorTaskNotification(
+                    mentor_id=mentor_id,
+                    message_id=message_id,
+                    chat_id=chat_id,
+                )
+                db.add(notification)
+            db.commit()
+            db.refresh(notification)
+            return notification
+        except Exception:
+            db.rollback()
             raise

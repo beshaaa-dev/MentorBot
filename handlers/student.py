@@ -25,6 +25,7 @@ from repositories.task_repository import (
     TaskMessageData,
 )
 from database.user_service import get_by_id
+from database.task_service import get_mentor_task_notification, upsert_mentor_task_notification
 from keyboards import (
     get_confirmation_keyboard,
     get_task_review_keyboard,
@@ -513,11 +514,27 @@ async def finalize_task_submission(
             mentor = get_by_id(task.mentor_id)
             if mentor and mentor.tg_id:
                 try:
+                    old_notification = get_mentor_task_notification(mentor.id)
+                    if old_notification:
+                        try:
+                            await context.bot.delete_message(
+                                chat_id=old_notification.chat_id,
+                                message_id=old_notification.message_id,
+                            )
+                        except Exception:
+                            pass
+
                     keyboard = get_check_task_keyboard(task.id)
-                    await context.bot.send_message(
+                    sent = await context.bot.send_message(
                         chat_id=mentor.tg_id,
                         text=MENTOR_NEW_TASK_NOTIFICATION,
                         reply_markup=keyboard,
+                    )
+
+                    upsert_mentor_task_notification(
+                        mentor_id=mentor.id,
+                        message_id=sent.message_id,
+                        chat_id=mentor.tg_id,
                     )
                     logger.info(
                         f"Sent task notification to mentor {mentor.id} (tg_id: {mentor.tg_id})"
