@@ -1,3 +1,5 @@
+import asyncio
+
 from telegram import Update, ReplyKeyboardRemove
 from telegram.ext import (
     ContextTypes,
@@ -18,6 +20,7 @@ from repositories.user_repository import (
     TestDetails,
 )
 from database.homework_service import get_pending_homework_by_student_id
+from crm.crm_service import get_crm_lead
 from database.models import Homework, HomeworkStatus, User, UserRole
 from repositories.task_repository import (
     create_task,
@@ -174,9 +177,17 @@ async def send_homework_start_message(
             reply_markup=get_edit_homework_keyboard(homework.id),
         )
     elif homework.status == HomeworkStatus.EDIT:
+        edit_reason = None
+        try:
+            loop = asyncio.get_running_loop()
+            lead = await loop.run_in_executor(None, get_crm_lead, homework.lead_id)
+            if lead:
+                edit_reason = getattr(lead, "hw_edit_reason", None)
+        except Exception as e:
+            logger.warning(f"Failed to fetch edit_reason from CRM for hw={homework.id}: {e}")
         text = (
-            HW_EDIT_NOTIFICATION.format(reason=homework.edit_reason)
-            if homework.edit_reason
+            HW_EDIT_NOTIFICATION.format(reason=edit_reason)
+            if edit_reason
             else HW_EDIT_NOTIFICATION.split("\n\n")[0]
         )
         await update.message.reply_text(
