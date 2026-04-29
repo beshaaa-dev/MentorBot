@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from database.test_service import save_test_result as _save_test_result
-from crm.crm_service import get_crm_lead, update_lead_status_by_lead, send_note, get_crm_user_by_id
+from crm.crm_service import get_crm_lead, update_lead_status_by_lead, send_note
 from crm.crm_models import Contact
 from config import CRM_TEST_IS_IN_PROGRESS_STATUS, CRM_VISIT_CARD_STATUS
 from logger import setup_logger
@@ -92,14 +92,9 @@ def send_test_results_to_crm(
         raise
 
 
-def update_contact_test_scores(contact_id: int, scores: TestScores) -> None:
+def update_contact_test_scores(contact: Contact, scores: TestScores) -> None:
     """Обновляет поля контакта с результатами теста в CRM."""
     try:
-        contact = get_crm_user_by_id(contact_id)
-        if not contact:
-            logger.error(f"Contact {contact_id} not found in CRM")
-            return
-        
         contact.honesty = str(scores.block1_score)
         contact.motivation = str(scores.block2_score)
         contact.responsibility = str(scores.block3_score)
@@ -116,7 +111,7 @@ def update_contact_test_scores(contact_id: int, scores: TestScores) -> None:
         with amo_crm_rate_limiter.limit():
             contact.save()
         
-        logger.info(f"Updated contact {contact_id} with test scores: total={scores.total_score}")
+        logger.info(f"Updated contact {contact.id} with test scores: total={scores.total_score}")
     except Exception as e:
         logger.error(f"Failed to update contact test scores: {e}")
         raise

@@ -66,7 +66,6 @@ def create_user(
     first_name: str | None = None,
     last_name: str | None = None,
     created_at: datetime = datetime.utcnow(),
-    crm_id: str | None = None,
     registered_at: datetime | None = None,
 ) -> User:
     """
@@ -79,7 +78,6 @@ def create_user(
         first_name: User's first name (optional)
         last_name: User's last name (optional)
         created_at: Creation timestamp (optional, default is current UTC time)
-        crm_id: AmoCRM contact ID (optional)
         registered_at: Registration timestamp (optional)
 
     Returns:
@@ -96,7 +94,6 @@ def create_user(
                 role=role,
                 first_name=first_name,
                 last_name=last_name,
-                crm_id=crm_id,
                 created_at=created_at,
                 registered_at=registered_at,
             )
@@ -116,7 +113,6 @@ def update_user(
     role: UserRole | None = None,
     first_name: str | None = None,
     last_name: str | None = None,
-    crm_id: str | None = None,
     registered_at: datetime | None = None,
 ) -> User | None:
     """
@@ -129,7 +125,6 @@ def update_user(
         role: User role (MENTOR or STUDENT) (optional)
         first_name: User's first name (optional)
         last_name: User's last name (optional)
-        crm_id: AmoCRM contact ID (optional)
         registered_at: Registration timestamp (optional)
 
     Returns:
@@ -154,8 +149,6 @@ def update_user(
                 user.first_name = first_name
             if last_name is not None:
                 user.last_name = last_name
-            if crm_id is not None:
-                user.crm_id = crm_id
             if registered_at is not None:
                 user.registered_at = registered_at
 

@@ -99,8 +99,6 @@ class User(Base):
     first_name = Column(String, nullable=True)
     # Фамилия пользователя
     last_name = Column(String, nullable=True)
-    # ID контакта в AmoCRM
-    crm_id = Column[str](String, nullable=True)
     # Дата создания пользователя
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     # Дата первого получения данных о пользователе в AmoCRM

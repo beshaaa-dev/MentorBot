@@ -3,7 +3,7 @@ Visit Card Service - Business logic for visit card video processing
 """
 from datetime import datetime
 
-from crm.crm_service import upload_video, update_lead_status_by_lead, get_crm_lead
+from crm.crm_service import upload_video, update_lead_status_by_lead, get_crm_lead, resolve_crm_contact
 from crm.crm_chat_service import send_video_to_chat
 from config import CRM_VISIT_CARD_IS_SENT_STATUS
 from database.user_service import find_by_tg_id
@@ -33,15 +33,20 @@ async def process_visit_card_video(
         VisitCardProcessingError: При ошибке обработки визитки
     """
     user = find_by_tg_id(telegram_user_id)
-    if not user or not user.crm_id:
-        logger.warning(f"[process_visit_card_video] User not found or no crm_id for tg_id={telegram_user_id}")
+    if not user:
+        logger.warning(f"[process_visit_card_video] User not found for tg_id={telegram_user_id}")
         raise VisitCardProcessingError("Пользователь не найден в системе")
 
-    visit_card = get_visit_card(user.crm_id)
+    crm_contact = resolve_crm_contact(user.tg_id, user.tg_nickname)
+    if not crm_contact:
+        logger.warning(f"[process_visit_card_video] CRM contact not found for tg_id={telegram_user_id}")
+        raise VisitCardProcessingError("Пользователь не найден в системе")
+
+    visit_card = get_visit_card(user)
     lead_id = visit_card.lead_id if visit_card else None
 
     if not lead_id:
-        logger.warning(f"[process_visit_card_video] No lead_id found for crm_id={user.crm_id}")
+        logger.warning(f"[process_visit_card_video] No lead_id found for tg_id={telegram_user_id}")
         raise VisitCardProcessingError("Не найдена сделка для визитки")
 
     current_date = datetime.now().strftime("%Y-%m-%d")
@@ -63,7 +68,7 @@ async def process_visit_card_video(
 
     chat_success = await send_video_to_chat(
         video_url=video_url,
-        contact_id=int(user.crm_id),
+        contact_id=int(crm_contact.id),
         filename=filename,
         lead_id=int(lead_id),
         contact_name=contact_name,
@@ -71,10 +76,10 @@ async def process_visit_card_video(
     )
 
     if not chat_success:
-        logger.error(f"[process_visit_card_video] Failed to send video to chat: contact={user.crm_id}, lead={lead_id}")
+        logger.error(f"[process_visit_card_video] Failed to send video to chat: contact={crm_contact.id}, lead={lead_id}")
         raise VisitCardProcessingError("Ошибка отправки видео в чат AMoCRM")
 
     logger.info(
-        f"[process_visit_card_video] OK contact={user.crm_id} lead={lead_id} "
+        f"[process_visit_card_video] OK contact={crm_contact.id} lead={lead_id} "
         f"size_mb={len(file_bytes) / 1024 / 1024:.2f}"
     )

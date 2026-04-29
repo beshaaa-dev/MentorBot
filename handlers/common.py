@@ -39,8 +39,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         if user.role == UserRole.MENTOR:
             await handle_mentor(user, update, context)
             return ConversationHandler.END  # Mentor flow uses standalone handlers
-        elif user.role == UserRole.STUDENT and user.crm_id:
-            return await handle_student(user, update, context)
         else:
             await update.message.reply_text(
                 FINDING_USER, reply_markup=ReplyKeyboardRemove()

@@ -168,10 +168,33 @@ def get_crm_user_by_tg_id(tg_id: int | str | None) -> Contact | None:
     for contact in contacts:
         contact_tg_id = contact.telegram_id
         if contact_tg_id and str(contact_tg_id).strip() == tg_id_str:
-            if get_first_lead(contact):
-                return contact
+            return contact
 
     return None
+
+
+def get_crm_user_by_tg_nickname(tg_nickname: str | None) -> Contact | None:
+    if not tg_nickname:
+        return None
+
+    with amo_crm_rate_limiter.limit():
+        contacts = Contact.objects.filter(query=tg_nickname)
+
+    nickname_str = tg_nickname.lstrip("@").strip().lower()
+
+    for contact in contacts:
+        contact_nickname = contact.telegram_nickname
+        if contact_nickname and contact_nickname.lstrip("@").strip().lower() == nickname_str:
+            return contact
+
+    return None
+
+
+def resolve_crm_contact(tg_id: int | None, tg_nickname: str | None) -> Contact | None:
+    contact = get_crm_user_by_tg_id(tg_id)
+    if contact:
+        return contact
+    return get_crm_user_by_tg_nickname(tg_nickname)
 
 
 def get_crm_user_by_id(id: int) -> Contact | None:

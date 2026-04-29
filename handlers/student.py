@@ -100,19 +100,19 @@ async def handle_student(
     )
 
     # Проверяем есть ли задание на прохождение теста
-    test = get_test(user.crm_id)
+    test = get_test(user)
     if test:
         from handlers.test import start_test
 
         return await start_test(user, test, update, context)
 
     # Проверяем есть ли задание на отправку видеовизитки
-    visit_card = get_visit_card(user.crm_id)
+    visit_card = get_visit_card(user)
     if visit_card:
         return await send_visit_card_message(visit_card, update, context)
 
     # Проверяем есть ли задание от ментора
-    task = get_task(user.crm_id)
+    task = get_task(user)
     if task:
         return await send_task_message(task, update, context)
 

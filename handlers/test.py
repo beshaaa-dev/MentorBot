@@ -15,6 +15,7 @@ from repositories.test_repository import (
     update_contact_test_scores,
     TestScores,
 )
+from crm.crm_service import resolve_crm_contact
 
 logger = setup_logger(__name__)
 
@@ -403,7 +404,11 @@ async def calculate_and_send_results(
         logger.error(f"Failed to send test results to CRM: {e}")
 
     try:
-        update_contact_test_scores(int(user.crm_id), scores)
+        crm_contact = resolve_crm_contact(user.tg_id, user.tg_nickname)
+        if crm_contact:
+            update_contact_test_scores(crm_contact, scores)
+        else:
+            logger.warning(f"CRM contact not found for user id={user.id}, skipping score update")
     except Exception as e:
         logger.error(f"Failed to update contact test scores: {e}")
 

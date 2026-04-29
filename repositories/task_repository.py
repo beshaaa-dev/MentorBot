@@ -14,7 +14,7 @@ from database.models import Task, TaskStatus
 from logger import setup_logger
 from crm.crm_service import (
     get_crm_lead,
-    get_crm_user_by_id,
+    resolve_crm_contact,
     get_first_lead,
     update_lead_status_by_lead,
     send_note,
@@ -85,40 +85,33 @@ def create_task(student_tg_id: int, task_messages: list[TaskMessageData]) -> Tas
             f"The student must register with the bot first."
         )
 
-    if not student.crm_id:
-        raise ValueError(
-            f"Cannot create task: student has no linked CRM account. "
-            f"Telegram ID: {student_tg_id}, DB ID: {student.id}. "
-            f"The student's CRM ID must be set before submitting tasks."
-        )
-
-    crm_user = get_crm_user_by_id(student.crm_id)
+    crm_user = resolve_crm_contact(student.tg_id, student.tg_nickname)
     if not crm_user:
         raise ValueError(
-            f"Cannot create task: CRM user not found. "
-            f"Student Telegram ID: {student_tg_id}, CRM ID: {student.crm_id}."
+            f"Cannot create task: CRM contact not found. "
+            f"Student Telegram ID: {student_tg_id}, DB ID: {student.id}."
         )
 
     lead = get_first_lead(crm_user)
     if not lead:
         raise ValueError(
             f"Cannot create task: CRM lead not found. "
-            f"Student Telegram ID: {student_tg_id}, CRM ID: {student.crm_id}. "
-            f"The lead may have been deleted or the CRM ID is incorrect."
+            f"Student Telegram ID: {student_tg_id}, DB ID: {student.id}. "
+            f"The lead may have been deleted or the student has no active lead."
         )
 
     mentor_tg_nickname = lead.mentor_tg_nickname
     if not mentor_tg_nickname:
         raise ValueError(
             f"Cannot create task: no mentor assigned in CRM. "
-            f"Student Telegram ID: {student_tg_id}, CRM ID: {student.crm_id}, Lead ID: {lead.id}. "
+            f"Student Telegram ID: {student_tg_id}, Lead ID: {lead.id}. "
             f"A mentor must be assigned to this lead in the CRM system."
         )
     mentor_tg_nickname = mentor_tg_nickname.lstrip("@")
     if not mentor_tg_nickname:
         raise ValueError(
             f"Cannot create task: mentor nickname is invalid (empty after removing '@'). "
-            f"Student Telegram ID: {student_tg_id}, CRM ID: {student.crm_id}, Lead ID: {lead.id}. "
+            f"Student Telegram ID: {student_tg_id}, Lead ID: {lead.id}. "
             f"Please update the mentor's Telegram nickname in the CRM."
         )
 

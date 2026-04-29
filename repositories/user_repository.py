@@ -10,8 +10,7 @@ from database.models import User, UserRole
 from logger import setup_logger
 from config import DEFAULT_STUDENT_ANKETA_FILENAME
 from crm.crm_service import (
-    get_crm_user_by_tg_id as _get_crm_user_by_tg_id,
-    get_crm_user_by_id as _get_crm_user_by_id,
+    resolve_crm_contact as _resolve_crm_contact,
     get_first_lead,
     get_crm_lead,
     is_test_lead,
@@ -50,23 +49,18 @@ class TestDetails:
 
 
 def get_crm_user(user: User) -> User | None:
-    if not user.tg_id:
-        logger.debug(f"Skip CRM sync for user id={user.id}: missing tg_id")
-        return None
-
-    crm_user = _get_crm_user_by_tg_id(user.tg_id)
+    crm_user = _resolve_crm_contact(user.tg_id, user.tg_nickname)
 
     if not crm_user:
         return None
 
     updated_user = _update_user(
         user.id,
-        crm_id=crm_user.id,
         first_name=crm_user.first_name,
         last_name=crm_user.last_name,
         registered_at=now_moscow(),
     )
-    logger.info(f"Updated user with id={user.id}, crm_id={crm_user.id}")
+    logger.info(f"Updated user with id={user.id} from CRM contact id={crm_user.id}")
 
     return updated_user
 
@@ -130,8 +124,8 @@ def create_mentor_if_needed(mentor_tg_nickname: str | None):
     )
 
 
-def get_task(user_crm_id: str) -> TaskDetails | None:
-    crm_user = _get_crm_user_by_id(user_crm_id)
+def get_task(user: User) -> TaskDetails | None:
+    crm_user = _resolve_crm_contact(user.tg_id, user.tg_nickname)
 
     if not crm_user:
         return None
@@ -141,7 +135,6 @@ def get_task(user_crm_id: str) -> TaskDetails | None:
     if not first_lead or not is_task_lead(first_lead):
         return None
 
-    # Создаем ментора если он еще не существует в БД
     mentor_tg_nickname = first_lead.mentor_tg_nickname if first_lead else None
     create_mentor_if_needed(mentor_tg_nickname)
 
@@ -184,9 +177,8 @@ def _build_pdf_filename(student_full_name: str) -> str:
     return f"Анкета {sanitized}.pdf"
 
 
-def get_test(user_crm_id: str) -> TestDetails | None:
-    """Get test details for a student by CRM ID."""
-    crm_user = _get_crm_user_by_id(user_crm_id)
+def get_test(user: User) -> TestDetails | None:
+    crm_user = _resolve_crm_contact(user.tg_id, user.tg_nickname)
 
     if not crm_user:
         return None
@@ -199,9 +191,8 @@ def get_test(user_crm_id: str) -> TestDetails | None:
     return TestDetails(lead_id=first_lead.id)
 
 
-def get_visit_card(user_crm_id: str) -> VisitCardDetails | None:
-    """Get visit card details for a student by CRM ID."""
-    crm_user = _get_crm_user_by_id(user_crm_id)
+def get_visit_card(user: User) -> VisitCardDetails | None:
+    crm_user = _resolve_crm_contact(user.tg_id, user.tg_nickname)
 
     if not crm_user:
         return None
