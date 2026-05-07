@@ -91,15 +91,23 @@ async def send_video_to_chat(
         
         url = f"https://amojo.amocrm.ru{path}"
 
-        logger.info(f"[send_video_to_chat] Step 1: creating chat for contact_id={contact_id}")
+        logger.info(
+            f"[send_video_to_chat] Step 1 REQUEST: POST {url}\n"
+            f"Body: {chat_request_body}"
+        )
         async with aiohttp.ClientSession() as session:
             async with async_amo_crm_rate_limiter.limit():
                 async with session.post(url, headers=headers, data=chat_request_body, timeout=aiohttp.ClientTimeout(total=30)) as response:
                     resp_text = await response.text()
 
+                    logger.info(
+                        f"[send_video_to_chat] Step 1 RESPONSE: status={response.status}\n"
+                        f"Body: {resp_text}"
+                    )
+
                     if response.status not in (200, 201):
                         logger.error(
-                            f"[send_video_to_chat] Failed to create chat: {response.status} {resp_text}"
+                            f"[send_video_to_chat] Failed to create chat: {response.status}"
                         )
                         return False
 
@@ -126,19 +134,28 @@ async def send_video_to_chat(
             "Content-Type": "application/json",
         }
         attach_body = [{"contact_id": contact_id, "chat_id": chat_id}]
+        attach_body_json = json.dumps(attach_body)
 
-        logger.info(f"[send_video_to_chat] Step 2: attaching chat_id={chat_id} to contact_id={contact_id}")
+        logger.info(
+            f"[send_video_to_chat] Step 2 REQUEST: POST {attach_url}\n"
+            f"Body: {attach_body_json}"
+        )
         async with aiohttp.ClientSession() as session:
             async with async_amo_crm_rate_limiter.limit():
                 async with session.post(attach_url, headers=attach_headers, json=attach_body, timeout=aiohttp.ClientTimeout(total=30)) as attach_response:
                     resp_text = await attach_response.text()
 
+                    logger.info(
+                        f"[send_video_to_chat] Step 2 RESPONSE: status={attach_response.status}\n"
+                        f"Body: {resp_text}"
+                    )
+
                     if attach_response.status not in (200, 201):
                         logger.warning(
-                            f"[send_video_to_chat] Failed to attach chat: {attach_response.status} {resp_text}"
+                            f"[send_video_to_chat] Failed to attach chat: {attach_response.status}"
                         )
                     else:
-                        logger.info(f"[send_video_to_chat] Step 2 OK: chat attached, status={attach_response.status}")
+                        logger.info(f"[send_video_to_chat] Step 2 OK: chat attached")
 
         # Step 3: Send video message
         timestamp = int(time.time())
@@ -150,7 +167,7 @@ async def send_video_to_chat(
             "id": sender_id,
             "name": contact_name,
         }
-        
+
         payload = {
             "timestamp": timestamp,
             "msec_timestamp": msec_timestamp,
@@ -166,7 +183,7 @@ async def send_video_to_chat(
             },
             "silent": False,
         }
-        
+
         if lead_id:
             payload["source"] = {"external_id": str(lead_id)}
 
@@ -174,13 +191,13 @@ async def send_video_to_chat(
             "event_type": "new_message",
             "payload": payload
         }
-        
+
         video_request_body = json.dumps(video_body, separators=(',', ':'))
-        
+
         # Create signature for video message
         date = formatdate(timeval=None, localtime=False, usegmt=True)
         path = f"/v2/origin/custom/{scope_id}"
-        
+
         content_md5 = hashlib.md5(video_request_body.encode()).hexdigest()
         signature_string = "\n".join([method.upper(), content_md5, "application/json", date, path])
         signature = hmac.new(channel_secret.encode(), signature_string.encode(), hashlib.sha1).hexdigest()
@@ -191,21 +208,29 @@ async def send_video_to_chat(
             "Content-MD5": content_md5.lower(),
             "X-Signature": signature.lower(),
         }
-        
+
         url = f"https://amojo.amocrm.ru{path}"
 
-        logger.info(f"[send_video_to_chat] Step 3: sending video message to chat_id={chat_id}, lead_id={lead_id}, filename={filename}")
+        logger.info(
+            f"[send_video_to_chat] Step 3 REQUEST: POST {url}\n"
+            f"Body: {video_request_body}"
+        )
         async with aiohttp.ClientSession() as session:
             async with async_amo_crm_rate_limiter.limit():
                 async with session.post(url, headers=headers, data=video_request_body, timeout=aiohttp.ClientTimeout(total=30)) as response:
                     resp_text = await response.text()
 
+                    logger.info(
+                        f"[send_video_to_chat] Step 3 RESPONSE: status={response.status}\n"
+                        f"Body: {resp_text}"
+                    )
+
                     if response.status in (200, 201):
                         total_time = time.time() - start_time
-                        logger.info(f"[send_video_to_chat] Step 3 OK: video sent in {total_time:.2f}s, status={response.status}")
+                        logger.info(f"[send_video_to_chat] OK: video sent in {total_time:.2f}s")
                         return True
                     logger.error(
-                        f"[send_video_to_chat] Failed to send video: HTTP {response.status} {resp_text}"
+                        f"[send_video_to_chat] Failed to send video: HTTP {response.status}"
                     )
                     return False
 
@@ -288,14 +313,23 @@ async def send_media_to_chat(
 
         url = f"https://amojo.amocrm.ru{path}"
 
+        logger.info(
+            f"[send_media_to_chat] Step 1 REQUEST: POST {url}\n"
+            f"Body: {chat_request_body}"
+        )
         async with aiohttp.ClientSession() as session:
             async with async_amo_crm_rate_limiter.limit():
                 async with session.post(url, headers=headers, data=chat_request_body, timeout=aiohttp.ClientTimeout(total=30)) as response:
                     resp_text = await response.text()
 
+                    logger.info(
+                        f"[send_media_to_chat] Step 1 RESPONSE: status={response.status}\n"
+                        f"Body: {resp_text}"
+                    )
+
                     if response.status not in (200, 201):
                         logger.error(
-                            f"[send_media_to_chat] Failed to create chat: {response.status} {resp_text}"
+                            f"[send_media_to_chat] Failed to create chat: {response.status}"
                         )
                         return False
 
@@ -305,6 +339,8 @@ async def send_media_to_chat(
         if not chat_id:
             logger.error(f"[send_media_to_chat] No chat ID in response: {result}")
             return False
+
+        logger.info(f"[send_media_to_chat] Step 1 OK: chat_id={chat_id}")
 
         # Step 2: Привязка чата к контакту
         from crm.crm_service import get_access_token
@@ -320,16 +356,28 @@ async def send_media_to_chat(
             "Content-Type": "application/json",
         }
         attach_body = [{"contact_id": contact_id, "chat_id": chat_id}]
+        attach_body_json = json.dumps(attach_body)
 
+        logger.info(
+            f"[send_media_to_chat] Step 2 REQUEST: POST {attach_url}\n"
+            f"Body: {attach_body_json}"
+        )
         async with aiohttp.ClientSession() as session:
             async with async_amo_crm_rate_limiter.limit():
                 async with session.post(attach_url, headers=attach_headers, json=attach_body, timeout=aiohttp.ClientTimeout(total=30)) as attach_response:
                     resp_text = await attach_response.text()
 
+                    logger.info(
+                        f"[send_media_to_chat] Step 2 RESPONSE: status={attach_response.status}\n"
+                        f"Body: {resp_text}"
+                    )
+
                     if attach_response.status not in (200, 201):
                         logger.warning(
-                            f"[send_media_to_chat] Failed to attach chat: {attach_response.status} {resp_text}"
+                            f"[send_media_to_chat] Failed to attach chat: {attach_response.status}"
                         )
+                    else:
+                        logger.info(f"[send_media_to_chat] Step 2 OK: chat attached")
 
         # Step 3: Отправка медиа-сообщения
         timestamp = int(time.time())
@@ -384,15 +432,26 @@ async def send_media_to_chat(
 
         url = f"https://amojo.amocrm.ru{path}"
 
+        logger.info(
+            f"[send_media_to_chat] Step 3 REQUEST: POST {url}\n"
+            f"Body: {msg_request_body}"
+        )
         async with aiohttp.ClientSession() as session:
             async with async_amo_crm_rate_limiter.limit():
                 async with session.post(url, headers=headers, data=msg_request_body, timeout=aiohttp.ClientTimeout(total=30)) as response:
                     resp_text = await response.text()
 
+                    logger.info(
+                        f"[send_media_to_chat] Step 3 RESPONSE: status={response.status}\n"
+                        f"Body: {resp_text}"
+                    )
+
                     if response.status in (200, 201):
+                        total_time = time.time() - start_time
+                        logger.info(f"[send_media_to_chat] OK: {media_type} sent in {total_time:.2f}s")
                         return True
                     logger.error(
-                        f"[send_media_to_chat] Failed to send {media_type}: HTTP {response.status} {resp_text}"
+                        f"[send_media_to_chat] Failed to send {media_type}: HTTP {response.status}"
                     )
                     return False
 
