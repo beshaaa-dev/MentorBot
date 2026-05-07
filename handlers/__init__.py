@@ -36,12 +36,12 @@ from handlers.survey_questions import survey_questions_handler, submit_survey_ha
 from handlers.chat_events import (
     chat_message_handler,
     chat_member_handler,
-    bot_added_handler,
+    my_chat_member_handler,
 )
 
 handlers = [
     # Chat event handlers (must be early to track group messages before other handlers)
-    bot_added_handler,
+    my_chat_member_handler,
     chat_member_handler,
     chat_message_handler,
     # Broadcast system handlers (need to be early for callbacks)

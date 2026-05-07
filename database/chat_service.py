@@ -3,6 +3,7 @@ from database.db_helper import get_db
 from database.models import Chat, ChatMember
 from logger import setup_logger
 from sqlalchemy import and_
+from sqlalchemy.exc import IntegrityError
 
 logger = setup_logger(__name__)
 
@@ -13,10 +14,8 @@ def get_or_create_chat(chat_id: int, chat_title: str | None = None) -> Chat:
         try:
             chat = db.query(Chat).filter(Chat.chat_id == chat_id).first()
             if chat:
-                # Update title if provided and different
                 if chat_title and chat.chat_title != chat_title:
                     chat.chat_title = chat_title
-                # Mark as active (bot is in chat)
                 chat.is_active = True
                 db.commit()
                 db.refresh(chat)
@@ -27,6 +26,12 @@ def get_or_create_chat(chat_id: int, chat_title: str | None = None) -> Chat:
             db.commit()
             db.refresh(chat)
             return chat
+        except IntegrityError:
+            db.rollback()
+            chat = db.query(Chat).filter(Chat.chat_id == chat_id).first()
+            if chat:
+                return chat
+            raise
         except Exception as e:
             db.rollback()
             logger.error(f"Error getting/creating chat {chat_id}: {e}")
@@ -46,11 +51,15 @@ def get_or_create_chat_member(
     first_name: str | None = None,
     last_name: str | None = None,
     is_admin: bool = False,
+    update_admin: bool = True,
 ) -> ChatMember:
-    """Get existing chat member or create new one."""
+    """Get existing chat member or create new one.
+
+    update_admin=False preserves the existing is_admin value (use when the
+    Telegram admin-status check failed transiently).
+    """
     with get_db() as db:
         try:
-            # First get the Chat record
             chat = db.query(Chat).filter(Chat.chat_id == chat_id).first()
             if not chat:
                 raise ValueError(f"Chat with telegram_id {chat_id} not found")
@@ -67,7 +76,6 @@ def get_or_create_chat_member(
             )
 
             if member:
-                # Update existing member
                 member.is_active = True
                 if username is not None:
                     member.username = username
@@ -75,13 +83,13 @@ def get_or_create_chat_member(
                     member.first_name = first_name
                 if last_name is not None:
                     member.last_name = last_name
-                member.is_admin = is_admin
-                member.admin_status_updated_at = datetime.utcnow()
+                if update_admin:
+                    member.is_admin = is_admin
+                    member.admin_status_updated_at = datetime.utcnow()
                 db.commit()
                 db.refresh(member)
                 return member
 
-            # Create new member
             member = ChatMember(
                 chat_id=chat.id,
                 user_tg_id=user_tg_id,
@@ -95,6 +103,23 @@ def get_or_create_chat_member(
             db.commit()
             db.refresh(member)
             return member
+        except IntegrityError:
+            db.rollback()
+            chat = db.query(Chat).filter(Chat.chat_id == chat_id).first()
+            if chat:
+                member = (
+                    db.query(ChatMember)
+                    .filter(
+                        and_(
+                            ChatMember.chat_id == chat.id,
+                            ChatMember.user_tg_id == user_tg_id,
+                        )
+                    )
+                    .first()
+                )
+                if member:
+                    return member
+            raise
         except Exception as e:
             db.rollback()
             logger.error(

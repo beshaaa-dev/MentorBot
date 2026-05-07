@@ -15,29 +15,6 @@ from telegram.constants import ChatMemberStatus
 logger = setup_logger(__name__)
 
 
-async def handle_bot_added_to_chat(
-    update: Update, context: ContextTypes.DEFAULT_TYPE
-) -> None:
-    """Handle when bot is added to a group chat."""
-    if not update.message or not update.message.chat:
-        return
-
-    chat = update.message.chat
-    if chat.type not in ("group", "supergroup"):
-        return
-
-    # Check if this is a service message about bot being added
-    if update.message.new_chat_members:
-        bot_id = context.bot.id
-        if any(member.id == bot_id for member in update.message.new_chat_members):
-            try:
-                chat_title = chat.title if hasattr(chat, "title") else None
-                get_or_create_chat(chat_id=chat.id, chat_title=chat_title)
-                logger.info(f"Bot added to chat {chat.id} ({chat_title})")
-                # Per spec: bot does nothing when added (no message sent)
-            except Exception as e:
-                logger.error(f"Error handling bot added to chat {chat.id}: {e}")
-
 
 async def handle_user_message_in_chat(
     update: Update, context: ContextTypes.DEFAULT_TYPE
@@ -47,9 +24,6 @@ async def handle_user_message_in_chat(
         return
 
     chat = update.message.chat
-    if chat.type not in ("group", "supergroup"):
-        return
-
     user = update.effective_user
     if not user:
         return
@@ -63,14 +37,15 @@ async def handle_user_message_in_chat(
         chat_title = chat.title if hasattr(chat, "title") else None
         get_or_create_chat(chat_id=chat.id, chat_title=chat_title)
 
-        # Check if user is admin
         is_admin = False
+        admin_check_succeeded = False
         try:
             chat_member = await context.bot.get_chat_member(chat.id, user.id)
             is_admin = chat_member.status in (
                 ChatMemberStatus.ADMINISTRATOR,
                 ChatMemberStatus.OWNER,
             )
+            admin_check_succeeded = True
         except Exception as e:
             error_msg = str(e)
             if (
@@ -86,7 +61,6 @@ async def handle_user_message_in_chat(
                 f"Could not check admin status for user {user.id} in chat {chat.id}: {e}"
             )
 
-        # Register/update chat member
         get_or_create_chat_member(
             chat_id=chat.id,
             user_tg_id=user.id,
@@ -94,6 +68,7 @@ async def handle_user_message_in_chat(
             first_name=user.first_name,
             last_name=user.last_name,
             is_admin=is_admin,
+            update_admin=admin_check_succeeded,
         )
         logger.debug(f"Registered/updated chat member {user.id} in chat {chat.id}")
     except Exception as e:
@@ -165,31 +140,49 @@ async def handle_chat_member_update(
             )
             logger.info(f"User {user.id} joined/reactivated in chat {chat.id}")
 
-        # Handle admin status change
-        elif old_status != new_status:
-            was_admin = old_status in (
-                ChatMemberStatus.ADMINISTRATOR,
-                ChatMemberStatus.OWNER,
-            )
-            is_admin = new_status in (
-                ChatMemberStatus.ADMINISTRATOR,
-                ChatMemberStatus.OWNER,
-            )
-            if was_admin != is_admin:
-                update_chat_member_admin_status(
-                    chat_id=chat.id, user_tg_id=user.id, is_admin=is_admin
-                )
-                logger.info(
-                    f"Admin status changed for user {user.id} in chat {chat.id}: {is_admin}"
-                )
+        # Handle restricted status (user restricted by admin)
+        elif new_status == ChatMemberStatus.RESTRICTED:
+            deactivate_chat_member(chat_id=chat.id, user_tg_id=user.id)
+            logger.info(f"User {user.id} restricted in chat {chat.id}, marked inactive")
 
     except Exception as e:
         logger.error(f"Error handling chat member update in chat {chat.id}: {e}")
 
 
+async def handle_my_chat_member_update(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> None:
+    """Handle changes to the bot's own membership status in a chat."""
+    if not update.my_chat_member:
+        return
+
+    chat = update.my_chat_member.chat
+    if chat.type not in ("group", "supergroup"):
+        return
+
+    new_status = update.my_chat_member.new_chat_member.status
+    chat_title = chat.title if hasattr(chat, "title") else None
+
+    try:
+        if new_status in (ChatMemberStatus.LEFT, ChatMemberStatus.BANNED):
+            from database.chat_service import deactivate_chat
+
+            deactivate_chat(chat.id)
+            logger.info(f"Bot removed from chat {chat.id} ({chat_title}), marked inactive")
+        elif new_status in (
+            ChatMemberStatus.MEMBER,
+            ChatMemberStatus.ADMINISTRATOR,
+            ChatMemberStatus.OWNER,
+        ):
+            get_or_create_chat(chat_id=chat.id, chat_title=chat_title)
+            logger.info(f"Bot added/re-added to chat {chat.id} ({chat_title})")
+    except Exception as e:
+        logger.error(f"Error handling bot membership change in chat {chat.id}: {e}")
+
+
 # Handler registrations
 chat_message_handler = MessageHandler(
-    (filters.ChatType.GROUP | filters.ChatType.SUPERGROUP) & ~filters.COMMAND,
+    filters.ChatType.GROUP | filters.ChatType.SUPERGROUP,
     handle_user_message_in_chat,
 )
 
@@ -198,9 +191,8 @@ chat_member_handler = ChatMemberHandler(
     chat_member_types=ChatMemberHandler.CHAT_MEMBER,
 )
 
-# Handler for bot being added (service message)
-bot_added_handler = MessageHandler(
-    (filters.ChatType.GROUP | filters.ChatType.SUPERGROUP)
-    & filters.StatusUpdate.NEW_CHAT_MEMBERS,
-    handle_bot_added_to_chat,
+my_chat_member_handler = ChatMemberHandler(
+    handle_my_chat_member_update,
+    chat_member_types=ChatMemberHandler.MY_CHAT_MEMBER,
 )
+

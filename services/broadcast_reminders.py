@@ -5,6 +5,7 @@ from database.broadcast_service import (
     get_broadcast_by_id,
     get_incomplete_responses_without_reminder,
     get_incomplete_responses,
+    get_all_broadcasts_with_responses,
     mark_reminder_sent,
 )
 from database.models import BroadcastType
@@ -202,8 +203,6 @@ def schedule_reminders(broadcast_id: int, sent_at: datetime, job_queue) -> None:
 async def restore_reminder_jobs(context) -> None:
     """Restore reminder jobs for sent broadcasts after bot restart."""
     try:
-        from database.broadcast_service import get_all_broadcasts_with_responses
-        
         # Get all broadcasts that have been sent
         broadcasts = get_all_broadcasts_with_responses()
         
@@ -225,7 +224,11 @@ async def restore_reminder_jobs(context) -> None:
             # Skip if not a survey (only surveys get reminders)
             if broadcast.broadcast_type != BroadcastType.SURVEY:
                 continue
-            
+
+            # Skip if all responses are already completed
+            if not get_incomplete_responses(broadcast.id):
+                continue
+
             # Calculate reminder times
             user_reminder_time = broadcast.sent_at + timedelta(days=3)
             curator_notification_time = broadcast.sent_at + timedelta(days=3, hours=2)

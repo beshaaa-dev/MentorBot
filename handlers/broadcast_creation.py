@@ -67,9 +67,13 @@ async def get_admin_chats_for_user(
                 title = chat_title or f"Чат {chat_id}"
                 admin_chats.append((chat_id, title))
         except Exception as e:
+            error_msg = str(e).lower()
             logger.warning(f"Could not check admin status in chat {chat_id}: {e}")
-            # If we can't access chat, it might be removed - deactivate it
-            deactivate_chat(chat_id)
+            if any(
+                phrase in error_msg
+                for phrase in ("bot was kicked", "forbidden", "chat not found", "bot is not a member")
+            ):
+                deactivate_chat(chat_id)
             continue
 
     return admin_chats
@@ -518,11 +522,7 @@ async def handle_confirmation(
         message_content = context.user_data.get("message_content")
 
         # Create broadcast
-        status = (
-            BroadcastStatus.SCHEDULED
-            if not send_immediately
-            else BroadcastStatus.SCHEDULED
-        )
+        status = BroadcastStatus.SCHEDULED
         broadcast = create_broadcast(
             curator_tg_id=user.id,
             scheduled_time=scheduled_time if not send_immediately else None,
@@ -614,7 +614,11 @@ async def cancel_survey_creation(
     update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> int:
     """Cancel survey creation."""
-    await update.message.reply_text(SURVEY_CANCELLED)
+    if update.callback_query:
+        await update.callback_query.answer()
+        await update.callback_query.edit_message_text(SURVEY_CANCELLED)
+    elif update.message:
+        await update.message.reply_text(SURVEY_CANCELLED)
     context.user_data.clear()
     return ConversationHandler.END
 

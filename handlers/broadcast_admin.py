@@ -33,13 +33,17 @@ async def check_user_is_admin_in_any_chat(
                     logger.info(f"User {user_tg_id} is admin in chat {chat_id}")
                     return True
             except Exception as e:
+                error_msg = str(e).lower()
                 logger.warning(
                     f"Could not check admin status in chat {chat_id}: {e}"
                 )
-                # If we can't access chat, it might be removed - deactivate it
-                from database.chat_service import deactivate_chat
+                if any(
+                    phrase in error_msg
+                    for phrase in ("bot was kicked", "forbidden", "chat not found", "bot is not a member")
+                ):
+                    from database.chat_service import deactivate_chat
 
-                deactivate_chat(chat_id)
+                    deactivate_chat(chat_id)
                 continue
 
         return False

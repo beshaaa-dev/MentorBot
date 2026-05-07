@@ -1,3 +1,4 @@
+import asyncio
 from datetime import datetime
 from logger import setup_logger
 from database.broadcast_service import (
@@ -9,6 +10,7 @@ from database.broadcast_service import (
 from database.chat_service import (
     get_chat_by_telegram_id,
     get_active_chat_members,
+    deactivate_chat_member,
     update_chat_member_admin_status,
     get_all_chat_members,
     get_chat_by_db_id,
@@ -41,6 +43,33 @@ async def refresh_admin_status_for_chat(chat_id: int, context) -> None:
         logger.warning(f"Error refreshing admin status for chat {chat_id}: {e}")
 
 
+async def reconcile_chat_members(telegram_chat_id: int, context) -> None:
+    """Call getChatMember for every active DB member and deactivate any who have left."""
+    members = get_active_chat_members(telegram_chat_id, exclude_admins=False)
+
+    for member in members:
+        try:
+            result = await context.bot.get_chat_member(telegram_chat_id, member.user_tg_id)
+            status = result.status
+
+            if status in (ChatMemberStatus.LEFT, ChatMemberStatus.BANNED):
+                deactivate_chat_member(telegram_chat_id, member.user_tg_id)
+                logger.info(
+                    f"Reconciled: deactivated member {member.user_tg_id} in chat {telegram_chat_id}"
+                )
+            else:
+                is_admin = status in (ChatMemberStatus.ADMINISTRATOR, ChatMemberStatus.OWNER)
+                if member.is_admin != is_admin:
+                    update_chat_member_admin_status(telegram_chat_id, member.user_tg_id, is_admin)
+
+        except Exception as e:
+            logger.warning(
+                f"Could not reconcile member {member.user_tg_id} in chat {telegram_chat_id}: {e}"
+            )
+
+        await asyncio.sleep(0.05)
+
+
 async def send_broadcast_to_chats(broadcast_id: int, context) -> dict[str, int]:
     """Send broadcast to all members of target chats."""
     broadcast = get_broadcast_by_id(broadcast_id)
@@ -67,6 +96,9 @@ async def send_broadcast_to_chats(broadcast_id: int, context) -> dict[str, int]:
         try:
             # Refresh admin status before sending
             await refresh_admin_status_for_chat(telegram_chat_id, context)
+
+            # Verify each member is still in the chat
+            await reconcile_chat_members(telegram_chat_id, context)
 
             # Get active non-admin members
             members = get_active_chat_members(telegram_chat_id, exclude_admins=True)
