@@ -91,6 +91,7 @@ async def send_video_to_chat(
         
         url = f"https://amojo.amocrm.ru{path}"
 
+        logger.info(f"[send_video_to_chat] Step 1: creating chat for contact_id={contact_id}")
         async with aiohttp.ClientSession() as session:
             async with async_amo_crm_rate_limiter.limit():
                 async with session.post(url, headers=headers, data=chat_request_body, timeout=aiohttp.ClientTimeout(total=30)) as response:
@@ -101,13 +102,15 @@ async def send_video_to_chat(
                             f"[send_video_to_chat] Failed to create chat: {response.status} {resp_text}"
                         )
                         return False
-                    
+
                     result = json.loads(resp_text)
                     chat_id = result.get("id")
-        
+
         if not chat_id:
             logger.error(f"[send_video_to_chat] No chat ID in response: {result}")
             return False
+
+        logger.info(f"[send_video_to_chat] Step 1 OK: chat_id={chat_id}")
 
         # Step 2: Attach chat to contact
         from crm.crm_service import get_access_token
@@ -124,6 +127,7 @@ async def send_video_to_chat(
         }
         attach_body = [{"contact_id": contact_id, "chat_id": chat_id}]
 
+        logger.info(f"[send_video_to_chat] Step 2: attaching chat_id={chat_id} to contact_id={contact_id}")
         async with aiohttp.ClientSession() as session:
             async with async_amo_crm_rate_limiter.limit():
                 async with session.post(attach_url, headers=attach_headers, json=attach_body, timeout=aiohttp.ClientTimeout(total=30)) as attach_response:
@@ -133,6 +137,8 @@ async def send_video_to_chat(
                         logger.warning(
                             f"[send_video_to_chat] Failed to attach chat: {attach_response.status} {resp_text}"
                         )
+                    else:
+                        logger.info(f"[send_video_to_chat] Step 2 OK: chat attached, status={attach_response.status}")
 
         # Step 3: Send video message
         timestamp = int(time.time())
@@ -188,18 +194,21 @@ async def send_video_to_chat(
         
         url = f"https://amojo.amocrm.ru{path}"
 
+        logger.info(f"[send_video_to_chat] Step 3: sending video message to chat_id={chat_id}, lead_id={lead_id}, filename={filename}")
         async with aiohttp.ClientSession() as session:
             async with async_amo_crm_rate_limiter.limit():
                 async with session.post(url, headers=headers, data=video_request_body, timeout=aiohttp.ClientTimeout(total=30)) as response:
                     resp_text = await response.text()
 
                     if response.status in (200, 201):
+                        total_time = time.time() - start_time
+                        logger.info(f"[send_video_to_chat] Step 3 OK: video sent in {total_time:.2f}s, status={response.status}")
                         return True
                     logger.error(
                         f"[send_video_to_chat] Failed to send video: HTTP {response.status} {resp_text}"
                     )
                     return False
-            
+
     except Exception as e:
         total_time = time.time() - start_time
         logger.error(f"[send_video_to_chat] Exception occurred after {total_time:.2f}s: {e}", exc_info=True)
