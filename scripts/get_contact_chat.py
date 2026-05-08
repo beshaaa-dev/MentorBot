@@ -8,10 +8,12 @@ Defaults to the chat_id hardcoded below if no argument is given.
 """
 import sys
 import json
+from pathlib import Path
 import requests
 from dotenv import load_dotenv
 
-load_dotenv()
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
 import config
 from amocrm.v2 import tokens
