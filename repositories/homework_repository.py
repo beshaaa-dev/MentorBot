@@ -9,7 +9,6 @@ from crm.crm_chat_service import send_media_to_chat, send_video_to_chat
 from crm.crm_service import (
     get_crm_contact_by_id,
     get_crm_lead,
-    resolve_crm_contact,
     update_lead_status_in_pipeline,
     upload_file,
     upload_video,
@@ -25,7 +24,7 @@ from database.homework_service import (
     get_earliest_pending_mentor_homework as _get_earliest_pending_mentor_homework,
 )
 from database.models import Homework, HomeworkStatus
-from database.user_service import find_by_tg_id, find_by_tg_nickname, get_by_id, update_user
+from database.user_service import find_by_tg_id, find_by_tg_nickname, update_user
 from logger import setup_logger
 from rate_limiter import amo_crm_rate_limiter
 from timezone_utils import now_moscow
@@ -549,7 +548,7 @@ async def submit_student_answers(
     lead.hw_completion_date = completion_ts
     lead.hw_deadline_missed = "Да" if missed_deadline else "Нет"
 
-    contact_id, contact_name = await loop.run_in_executor(None, _get_contact_info, lead, homework.student_id)
+    contact_id, contact_name = await loop.run_in_executor(None, _get_contact_info, lead)
 
     def _save_lead():
         with amo_crm_rate_limiter.limit():
@@ -703,17 +702,10 @@ async def submit_student_answers(
     logger.info(f"Homework {hw_id} submitted successfully")
 
 
-def _get_contact_info(lead, student_id: int | None = None) -> tuple[int | None, str]:
-    # Приоритет: поиск через resolve_crm_contact по данным студента из БД
-    if student_id:
-        user = get_by_id(student_id)
-        if user:
-            contact = resolve_crm_contact(user.tg_id, user.tg_nickname)
-            if contact:
-                return contact.id, getattr(contact, "name", "") or ""
-    for contact in _fetch_lead_contacts(lead):
-        if contact.telegram_id:
-            return contact.id, getattr(contact, "name", "") or ""
+def _get_contact_info(lead) -> tuple[int | None, str]:
+    contacts = _fetch_lead_contacts(lead)
+    if contacts:
+        return contacts[0].id, getattr(contacts[0], "name", "") or ""
     logger.warning(f"[_get_contact_info] Не найден контакт для сделки {getattr(lead, 'id', '?')}")
     return None, ""
 
