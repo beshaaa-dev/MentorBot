@@ -23,7 +23,7 @@ from database.homework_service import (
     upsert_homework_answers as _upsert_homework_answers,
     get_earliest_pending_mentor_homework as _get_earliest_pending_mentor_homework,
 )
-from database.models import Homework, HomeworkStatus
+from database.models import Homework, HomeworkStatus, User
 from database.user_service import find_by_tg_id, find_by_tg_nickname, update_user
 from logger import setup_logger
 from rate_limiter import amo_crm_rate_limiter
@@ -174,6 +174,7 @@ def save_homework_from_webhook(lead_id: str) -> tuple[Homework, int]:
                 if student and student.tg_id:
                     student_tg_id = student.tg_id
                     mentor_tg_nickname = getattr(lead, "mentor_tg_nickname", None)
+                    _sync_contact_from_user(contact, student)
                     logger.info("save_homework_from_webhook: resolved student by tg_nickname=@%s for lead_id=%s", nickname, lead_id)
                     break
                 student = None
@@ -323,7 +324,10 @@ def _extract_student_and_mentor(lead: Lead) -> tuple[int, str | None]:
             except ValueError:
                 continue
             mentor_nickname = getattr(lead, "mentor_tg_nickname", None)
-            _sync_user_from_contact(tg_id, contact)
+            user = find_by_tg_id(tg_id)
+            if user:
+                _sync_contact_from_user(contact, user)
+            _sync_user_from_contact(tg_id, contact, user=user)
             return tg_id, mentor_nickname
 
     raise ValueError(f"No contact with telegram_id found on lead {lead.id}")
@@ -341,10 +345,11 @@ def _sync_users_from_lead(lead: Lead) -> None:
                 pass
 
 
-def _sync_user_from_contact(tg_id: int, contact) -> None:
+def _sync_user_from_contact(tg_id: int, contact, *, user: User | None = None) -> None:
     """Обновляет имя и tg_nickname пользователя в БД из данных CRM-контакта."""
     try:
-        user = find_by_tg_id(tg_id)
+        if user is None:
+            user = find_by_tg_id(tg_id)
         if not user:
             return
 
@@ -368,6 +373,39 @@ def _sync_user_from_contact(tg_id: int, contact) -> None:
             logger.info(f"Synced user tg_id={tg_id} from CRM contact: {update_kwargs}")
     except Exception as e:
         logger.warning(f"Failed to sync user tg_id={tg_id} from CRM contact: {e}")
+
+
+def _sync_contact_from_user(contact: Contact, user: User) -> None:
+    """Update CRM contact's telegram_id and telegram_nickname if missing or stale."""
+    try:
+        updates: dict[str, str] = {}
+
+        crm_tg_id = getattr(contact, "telegram_id", None)
+        if not crm_tg_id and user.tg_id:
+            contact.telegram_id = str(user.tg_id)
+            updates["telegram_id"] = str(user.tg_id)
+
+        db_nickname = user.tg_nickname
+        if db_nickname:
+            crm_nickname = getattr(contact, "telegram_nickname", None)
+            crm_norm = (crm_nickname or "").lstrip("@").strip().lower()
+            db_norm = db_nickname.lstrip("@").strip().lower()
+            if crm_norm != db_norm:
+                contact.telegram_nickname = db_nickname
+                updates["telegram_nickname"] = db_nickname
+
+        if updates:
+            for field in (contact._data.get("custom_fields_values") or []):
+                field.pop("is_masked", None)
+            with amo_crm_rate_limiter.limit():
+                contact.save()
+            logger.info(
+                f"Synced CRM contact {contact.id} from DB user tg_id={user.tg_id}: {updates}"
+            )
+    except Exception as e:
+        logger.warning(
+            f"Failed to sync CRM contact {contact.id} from DB user tg_id={user.tg_id}: {e}"
+        )
 
 
 def read_questions(lead: Lead) -> list[str]:
