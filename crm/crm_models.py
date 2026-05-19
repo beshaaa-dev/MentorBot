@@ -71,9 +71,9 @@ class Lead(_Lead):
         "Время сдачи Д/З", field_id=560203
     )
     hw_deadline_missed = custom_field.TextCustomField("Просрочено", field_id=560205)
-    hw_edit_reason = custom_field.TextCustomField("Причина возврата", field_id=560207)
+    hw_edit_reason = custom_field.TextCustomField("Причина возврата. Куратор", field_id=560207)
     hw_edit_reason_mentor = custom_field.TextCustomField(
-        "Причина возврата. Ментор", field_id=560533
+        "Причина возврата. Наставник", field_id=560533
     )
     hw_rating = custom_field.NumericCustomField("Оценка наставника", field_id=560359)
     hw_feedback = custom_field.TextCustomField("Фидбек ментора", field_id=560361)
