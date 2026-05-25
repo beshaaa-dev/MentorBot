@@ -15,6 +15,7 @@ from repositories.user_repository import (
     get_task,
     get_visit_card,
     get_test,
+    get_crm_user,
     TaskDetails,
     VisitCardDetails,
     TestDetails,
@@ -27,7 +28,7 @@ from repositories.task_repository import (
     mark_task_as_failed,
     TaskMessageData,
 )
-from database.user_service import get_by_id
+from database.user_service import get_by_id, find_by_tg_id
 from database.task_service import get_mentor_task_notification, upsert_mentor_task_notification
 from keyboards import (
     get_confirmation_keyboard,
@@ -37,6 +38,8 @@ from keyboards import (
 )
 from messages import (
     GREETING_WITH_NAME_TEMPLATE,
+    STUDENT_MENU_INFO,
+    CHECK_TASKS_BUTTON,
     STUDENT_NO_TASK,
     TASK,
     TASK_DEADLINE,
@@ -63,7 +66,7 @@ from messages import (
     HW_NEW_ASSIGNMENT,
     HW_EDIT_NOTIFICATION,
 )
-from keyboards import get_check_task_keyboard
+from keyboards import get_check_task_keyboard, get_student_menu_keyboard
 from handlers.utils import (
     send_error_message,
     delete_user_message,
@@ -74,6 +77,7 @@ from handlers.utils import (
 logger = setup_logger(__name__)
 
 # Conversation states (for student flow only)
+WAITING_FOR_STUDENT_MENU = 0
 WAITING_FOR_FIRST_TASK_ANSWER = 1
 WAITING_FOR_FIRST_TASK_CONFIRMATION = 2
 WAITING_FOR_SECOND_TASK_ANSWER = 3
@@ -92,6 +96,16 @@ from handlers.test import handle_question_answer, handle_case_answer
 
 
 async def handle_student(
+    first_name: str, update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> int:
+    await update.message.reply_text(
+        STUDENT_MENU_INFO.format(name=first_name),
+        reply_markup=get_student_menu_keyboard(),
+    )
+    return WAITING_FOR_STUDENT_MENU
+
+
+async def _process_student_tasks(
     user, update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> int:
     await update.message.reply_text(
@@ -123,6 +137,26 @@ async def handle_student(
 
     # Задание не найдено
     return await send_task_message(None, update, context)
+
+
+async def handle_check_tasks_button(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> int:
+    await delete_user_message(update.message)
+
+    db_user = find_by_tg_id(update.effective_user.id)
+    if not db_user:
+        await send_error_message(update)
+        return ConversationHandler.END
+
+    user = get_crm_user(db_user)
+    if not user:
+        await update.message.reply_text(
+            STUDENT_NO_TASK, reply_markup=ReplyKeyboardRemove()
+        )
+        return ConversationHandler.END
+
+    return await _process_student_tasks(user, update, context)
 
 
 async def send_task_message(
@@ -738,6 +772,12 @@ def create_student_conversation_handler(
             start_handler,
         ],
         states={
+            WAITING_FOR_STUDENT_MENU: [
+                MessageHandler(
+                    filters.TEXT & ~filters.COMMAND & filters.Regex(f"^{CHECK_TASKS_BUTTON}$"),
+                    handle_check_tasks_button,
+                ),
+            ],
             WAITING_FOR_FIRST_TASK_ANSWER: [
                 MessageHandler(~filters.COMMAND, receive_first_task_answer),
             ],

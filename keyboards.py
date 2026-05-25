@@ -37,6 +37,7 @@ from messages import (
     MENTOR_HW_CHECK_HISTORY_BUTTON,
     MENTOR_HW_NAV_PREV,
     MENTOR_HW_NAV_NEXT,
+    CHECK_TASKS_BUTTON,
 )
 
 
@@ -101,6 +102,13 @@ def get_mentor_menu_keyboard() -> ReplyKeyboardMarkup:
             KeyboardButton(APPROVED_STUDENTS_BUTTON),
             KeyboardButton(DISAPPROVED_STUDENTS_BUTTON),
         ],
+    ]
+    return ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=True)
+
+
+def get_student_menu_keyboard() -> ReplyKeyboardMarkup:
+    keyboard = [
+        [KeyboardButton(CHECK_TASKS_BUTTON)],
     ]
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=True)
 

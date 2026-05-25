@@ -1,4 +1,4 @@
-from telegram import Update, ReplyKeyboardRemove
+from telegram import Update
 from telegram.ext import (
     ContextTypes,
     ConversationHandler,
@@ -7,11 +7,9 @@ from telegram.ext import (
     filters,
 )
 from logger import setup_logger
-from repositories.user_repository import create_student_if_needed, get_crm_user
+from repositories.user_repository import create_student_if_needed
 from database.models import UserRole
 from messages import (
-    FINDING_USER,
-    WELCOME,
     SUPPORT_MESSAGE,
     UNKNOWN_MESSAGE,
 )
@@ -40,17 +38,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
             await handle_mentor(user, update, context)
             return ConversationHandler.END  # Mentor flow uses standalone handlers
         else:
-            await update.message.reply_text(
-                FINDING_USER, reply_markup=ReplyKeyboardRemove()
-            )
-            user = get_crm_user(user)
-            if user:
-                return await handle_student(user, update, context)
-
-            await update.message.reply_text(
-                WELCOME, reply_markup=ReplyKeyboardRemove()
-            )
-            return ConversationHandler.END
+            return await handle_student(update.effective_user.first_name, update, context)
     except Exception as e:
         logger.error(f"Error creating user: {e}")
         await send_error_message(update)
