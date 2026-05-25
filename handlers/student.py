@@ -21,7 +21,7 @@ from repositories.user_repository import (
     TestDetails,
 )
 from database.homework_service import get_pending_homework_by_student_id
-from crm.crm_service import get_crm_lead
+from crm.crm_service import get_crm_lead, resolve_crm_contact, get_contact_referral_link
 from database.models import Homework, HomeworkStatus, User, UserRole
 from repositories.task_repository import (
     create_task,
@@ -65,6 +65,9 @@ from messages import (
     CONFIRM_ALL_BUTTON,
     HW_NEW_ASSIGNMENT,
     HW_EDIT_NOTIFICATION,
+    INVITE_FRIEND_BUTTON,
+    INVITE_FRIEND_LINK_MESSAGE,
+    INVITE_FRIEND_NO_LINK,
 )
 from keyboards import get_check_task_keyboard, get_student_menu_keyboard
 from handlers.utils import (
@@ -157,6 +160,40 @@ async def handle_check_tasks_button(
         return ConversationHandler.END
 
     return await _process_student_tasks(user, update, context)
+
+
+async def handle_invite_friend_button(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> int:
+    await delete_user_message(update.message)
+
+    db_user = find_by_tg_id(update.effective_user.id)
+    if not db_user:
+        await send_error_message(update)
+        return ConversationHandler.END
+
+    loop = asyncio.get_event_loop()
+    contact = await loop.run_in_executor(
+        None, resolve_crm_contact, db_user.tg_id, db_user.tg_nickname
+    )
+
+    referral_link = None
+    if contact:
+        referral_link = await loop.run_in_executor(
+            None, get_contact_referral_link, contact
+        )
+
+    text = (
+        INVITE_FRIEND_LINK_MESSAGE.format(link=referral_link)
+        if referral_link
+        else INVITE_FRIEND_NO_LINK
+    )
+    await update.message.reply_text(
+        text,
+        parse_mode="HTML",
+        reply_markup=get_student_menu_keyboard(),
+    )
+    return WAITING_FOR_STUDENT_MENU
 
 
 async def send_task_message(
@@ -776,6 +813,10 @@ def create_student_conversation_handler(
                 MessageHandler(
                     filters.TEXT & ~filters.COMMAND & filters.Regex(f"^{CHECK_TASKS_BUTTON}$"),
                     handle_check_tasks_button,
+                ),
+                MessageHandler(
+                    filters.TEXT & ~filters.COMMAND & filters.Regex(f"^{INVITE_FRIEND_BUTTON}$"),
+                    handle_invite_friend_button,
                 ),
             ],
             WAITING_FOR_FIRST_TASK_ANSWER: [

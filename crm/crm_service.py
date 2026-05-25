@@ -205,6 +205,11 @@ def resolve_crm_contact(tg_id: int | None, tg_nickname: str | None) -> Contact |
     return get_crm_user_by_tg_nickname(tg_nickname)
 
 
+def get_contact_referral_link(contact: Contact) -> str | None:
+    with amo_crm_rate_limiter.limit():
+        return contact.referral_link or None
+
+
 def get_crm_user_by_id(id: int) -> Contact | None:
     with amo_crm_rate_limiter.limit():
         contacts = Contact.objects.filter(query=id)

@@ -15,6 +15,7 @@ class Contact(_Contact):
     case1 = custom_field.NumericCustomField("Кейс 1")
     case2 = custom_field.NumericCustomField("Кейс 2")
     total_score = custom_field.NumericCustomField("Общий бал")
+    referral_link = custom_field.TextCustomField("Рефералка", field_id=563780)
 
 
 class Lead(_Lead):
