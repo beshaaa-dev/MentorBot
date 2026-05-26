@@ -175,9 +175,19 @@ async def ask_next_question(update: Update, context: ContextTypes.DEFAULT_TYPE) 
 
         message_text = f"*Вопрос {question_num + 1} из 30*\n\n{question_text}"
 
-        await update.effective_chat.send_message(
-            message_text, reply_markup=reply_markup, parse_mode="Markdown"
-        )
+        if update.callback_query:
+            try:
+                await update.callback_query.edit_message_text(
+                    message_text, reply_markup=reply_markup, parse_mode="Markdown"
+                )
+            except Exception:
+                await update.effective_chat.send_message(
+                    message_text, reply_markup=reply_markup, parse_mode="Markdown"
+                )
+        else:
+            await update.effective_chat.send_message(
+                message_text, reply_markup=reply_markup, parse_mode="Markdown"
+            )
 
         return ASKING_QUESTION
     else:
@@ -246,9 +256,19 @@ async def ask_case(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         options_text = "\n".join(case["options"])
         message_text = f"*{case['title']}*\n\n{case['description']}\n\n{options_text}"
 
-        await update.effective_chat.send_message(
-            message_text, reply_markup=reply_markup, parse_mode="Markdown"
-        )
+        if update.callback_query:
+            try:
+                await update.callback_query.edit_message_text(
+                    message_text, reply_markup=reply_markup, parse_mode="Markdown"
+                )
+            except Exception:
+                await update.effective_chat.send_message(
+                    message_text, reply_markup=reply_markup, parse_mode="Markdown"
+                )
+        else:
+            await update.effective_chat.send_message(
+                message_text, reply_markup=reply_markup, parse_mode="Markdown"
+            )
 
         return ASKING_CASE
     else:
