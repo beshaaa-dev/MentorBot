@@ -41,7 +41,7 @@ from keyboards import (
     STUDENT_INVITE_FRIEND_CB,
 )
 from messages import (
-    GREETING_WITH_NAME_TEMPLATE,
+    TASK_CHECKING,
     STUDENT_MENU_INFO,
     STUDENT_NO_TASK,
     TASK,
@@ -113,7 +113,7 @@ async def _process_student_tasks(
     user, update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> int:
     await update.effective_chat.send_message(
-        GREETING_WITH_NAME_TEMPLATE.format(name=user.first_name),
+        TASK_CHECKING,
     )
 
     # Проверяем есть ли задание на прохождение теста
