@@ -35,11 +35,14 @@ from keyboards import (
     get_task_review_keyboard,
     get_start_homework_keyboard,
     get_edit_homework_keyboard,
+    get_check_task_keyboard,
+    get_student_menu_keyboard,
+    STUDENT_CHECK_TASKS_CB,
+    STUDENT_INVITE_FRIEND_CB,
 )
 from messages import (
     GREETING_WITH_NAME_TEMPLATE,
     STUDENT_MENU_INFO,
-    CHECK_TASKS_BUTTON,
     STUDENT_NO_TASK,
     TASK,
     TASK_DEADLINE,
@@ -65,11 +68,9 @@ from messages import (
     CONFIRM_ALL_BUTTON,
     HW_NEW_ASSIGNMENT,
     HW_EDIT_NOTIFICATION,
-    INVITE_FRIEND_BUTTON,
     INVITE_FRIEND_LINK_MESSAGE,
     INVITE_FRIEND_NO_LINK,
 )
-from keyboards import get_check_task_keyboard, get_student_menu_keyboard
 from handlers.utils import (
     send_error_message,
     delete_user_message,
@@ -111,9 +112,8 @@ async def handle_student(
 async def _process_student_tasks(
     user, update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> int:
-    await update.message.reply_text(
+    await update.effective_chat.send_message(
         GREETING_WITH_NAME_TEMPLATE.format(name=user.first_name),
-        reply_markup=ReplyKeyboardRemove(),
     )
 
     # Проверяем есть ли задание на прохождение теста
@@ -145,7 +145,8 @@ async def _process_student_tasks(
 async def handle_check_tasks_button(
     update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> int:
-    await delete_user_message(update.message)
+    await update.callback_query.answer()
+    await update.callback_query.message.delete()
 
     db_user = find_by_tg_id(update.effective_user.id)
     if not db_user:
@@ -154,9 +155,7 @@ async def handle_check_tasks_button(
 
     user = get_crm_user(db_user)
     if not user:
-        await update.message.reply_text(
-            STUDENT_NO_TASK, reply_markup=ReplyKeyboardRemove()
-        )
+        await update.effective_chat.send_message(STUDENT_NO_TASK)
         return ConversationHandler.END
 
     return await _process_student_tasks(user, update, context)
@@ -165,14 +164,15 @@ async def handle_check_tasks_button(
 async def handle_invite_friend_button(
     update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> int:
-    await delete_user_message(update.message)
+    await update.callback_query.answer()
+    await update.callback_query.message.delete()
 
     db_user = find_by_tg_id(update.effective_user.id)
     if not db_user:
         await send_error_message(update)
         return ConversationHandler.END
 
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     contact = await loop.run_in_executor(
         None, resolve_crm_contact, db_user.tg_id, db_user.tg_nickname
     )
@@ -188,9 +188,9 @@ async def handle_invite_friend_button(
         if referral_link
         else INVITE_FRIEND_NO_LINK
     )
-    await update.message.reply_text(
-        text,
-        parse_mode="HTML",
+    await update.effective_chat.send_message(text, parse_mode="HTML")
+    await update.effective_chat.send_message(
+        STUDENT_MENU_INFO.format(name=db_user.first_name or ""),
         reply_markup=get_student_menu_keyboard(),
     )
     return WAITING_FOR_STUDENT_MENU
@@ -200,9 +200,7 @@ async def send_task_message(
     task: TaskDetails | None, update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> int:
     if not task:
-        await update.message.reply_text(
-            STUDENT_NO_TASK, reply_markup=ReplyKeyboardRemove()
-        )
+        await update.effective_chat.send_message(STUDENT_NO_TASK)
         context.user_data.clear()
         return ConversationHandler.END
 
@@ -227,10 +225,8 @@ async def send_task_message(
         TASK_DEADLINE.format(deadline=task.deadline) if task.deadline else ""
     )
     message = TASK.format(text=task.first_task) + deadline_block
-    await update.message.reply_text(message, reply_markup=ReplyKeyboardRemove())
-    await update.message.reply_text(
-        REQUEST_TASK_ANSWER, reply_markup=ReplyKeyboardRemove()
-    )
+    await update.effective_chat.send_message(message)
+    await update.effective_chat.send_message(REQUEST_TASK_ANSWER)
     return WAITING_FOR_FIRST_TASK_ANSWER
 
 
@@ -243,7 +239,7 @@ async def send_homework_start_message(
             if homework.edit_reason_from_mentor
             else HW_EDIT_NOTIFICATION.split("\n\n")[0]
         )
-        await update.message.reply_text(
+        await update.effective_chat.send_message(
             text,
             reply_markup=get_edit_homework_keyboard(homework.id),
         )
@@ -261,12 +257,12 @@ async def send_homework_start_message(
             if edit_reason
             else HW_EDIT_NOTIFICATION.split("\n\n")[0]
         )
-        await update.message.reply_text(
+        await update.effective_chat.send_message(
             text,
             reply_markup=get_edit_homework_keyboard(homework.id),
         )
     else:
-        await update.message.reply_text(
+        await update.effective_chat.send_message(
             HW_NEW_ASSIGNMENT,
             reply_markup=get_start_homework_keyboard(homework.id),
         )
@@ -661,19 +657,13 @@ async def send_visit_card_message(
 ) -> int:
     """Send visit card task to student and prompt for video."""
     if not visit_card:
-        await update.message.reply_text(
-            STUDENT_NO_TASK, reply_markup=ReplyKeyboardRemove()
-        )
+        await update.effective_chat.send_message(STUDENT_NO_TASK)
         context.user_data.clear()
         return ConversationHandler.END
 
     message = VISIT_CARD_TASK.format(text=visit_card.text)
-    await update.message.reply_text(
-        message, parse_mode="Markdown", reply_markup=ReplyKeyboardRemove()
-    )
-    await update.message.reply_text(
-        REQUEST_VISIT_CARD_VIDEO, reply_markup=ReplyKeyboardRemove()
-    )
+    await update.effective_chat.send_message(message, parse_mode="Markdown")
+    await update.effective_chat.send_message(REQUEST_VISIT_CARD_VIDEO)
     return WAITING_FOR_VISIT_CARD_VIDEO
 
 
@@ -810,14 +800,8 @@ def create_student_conversation_handler(
         ],
         states={
             WAITING_FOR_STUDENT_MENU: [
-                MessageHandler(
-                    filters.TEXT & ~filters.COMMAND & filters.Regex(f"^{CHECK_TASKS_BUTTON}$"),
-                    handle_check_tasks_button,
-                ),
-                MessageHandler(
-                    filters.TEXT & ~filters.COMMAND & filters.Regex(f"^{INVITE_FRIEND_BUTTON}$"),
-                    handle_invite_friend_button,
-                ),
+                CallbackQueryHandler(handle_check_tasks_button, pattern=f"^{STUDENT_CHECK_TASKS_CB}$"),
+                CallbackQueryHandler(handle_invite_friend_button, pattern=f"^{STUDENT_INVITE_FRIEND_CB}$"),
             ],
             WAITING_FOR_FIRST_TASK_ANSWER: [
                 MessageHandler(~filters.COMMAND, receive_first_task_answer),

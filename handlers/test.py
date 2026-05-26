@@ -152,7 +152,7 @@ async def start_test(
     except Exception as e:
         logger.error(f"Failed to update lead status: {e}")
 
-    await update.message.reply_text(TEST_TASK_TEXT, parse_mode="Markdown")
+    await update.effective_chat.send_message(TEST_TASK_TEXT, parse_mode="Markdown")
 
     return await ask_next_question(update, context)
 

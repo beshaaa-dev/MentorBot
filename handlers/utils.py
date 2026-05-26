@@ -9,7 +9,7 @@ logger = setup_logger(__name__)
 
 async def send_error_message(update: Update):
     reply_markup = get_support_keyboard()
-    await update.message.reply_text(ERROR_MESSAGE, reply_markup=reply_markup)
+    await update.effective_chat.send_message(ERROR_MESSAGE, reply_markup=reply_markup)
 
 
 async def delete_user_message(message: Message | None) -> None:

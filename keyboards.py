@@ -41,6 +41,9 @@ from messages import (
     INVITE_FRIEND_BUTTON,
 )
 
+STUDENT_CHECK_TASKS_CB = "student_check_tasks"
+STUDENT_INVITE_FRIEND_CB = "student_invite_friend"
+
 
 def get_support_keyboard() -> InlineKeyboardMarkup:
     keyboard = [[InlineKeyboardButton(SUPPORT_BUTTON_TEXT, url=SUPPORT_CONTACT_LINK)]]
@@ -107,12 +110,12 @@ def get_mentor_menu_keyboard() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=True)
 
 
-def get_student_menu_keyboard() -> ReplyKeyboardMarkup:
+def get_student_menu_keyboard() -> InlineKeyboardMarkup:
     keyboard = [
-        [KeyboardButton(CHECK_TASKS_BUTTON)],
-        [KeyboardButton(INVITE_FRIEND_BUTTON)],
+        [InlineKeyboardButton(CHECK_TASKS_BUTTON, callback_data=STUDENT_CHECK_TASKS_CB)],
+        [InlineKeyboardButton(INVITE_FRIEND_BUTTON, callback_data=STUDENT_INVITE_FRIEND_CB)],
     ]
-    return ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=True)
+    return InlineKeyboardMarkup(keyboard)
 
 
 def get_decided_task_navigation_keyboard(
