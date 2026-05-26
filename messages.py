@@ -2,7 +2,7 @@ from config import SUPPORT_CONTACT_LINK
 
 ERROR_MESSAGE = "Что-то пошло не так. Введите команду /start и попробуйте еще раз. Если ошибка повторится, то обратитесь в поддержку."
 SUPPORT_BUTTON_TEXT = "Написать в поддержку"
-TASK_CHECKING = "Проверяем задание..."
+TASK_CHECKING = "Проверяем задание..."/
 MENTOR_GREETING_TEMPLATE = "Привет! Проверяем новые работы студентов"
 CHECK_TASKS_BUTTON = "Проверить задания"
 INVITE_FRIEND_BUTTON = "Пригласить друга"
