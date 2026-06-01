@@ -49,21 +49,42 @@ logger = setup_logger(__name__)
 # concurrent synchronous API call that lands in this window gets a 401.
 # The patch retries such calls up to 3 times with a 1 s sleep, which is enough
 # for the async refresh to complete and write the new token to storage.
+_TRANSIENT_STATUS_CODES = {502, 503, 504}
+_MAX_RETRY_ATTEMPTS = 4
+_RETRY_BACKOFF = [1.0, 2.0, 5.0]  # seconds between attempts 1→2, 2→3, 3→4
+
+
+def _is_transient_amo_error(exc: Exception) -> bool:
+    msg = str(exc)
+    return any(f"Wrong status {code}" in msg for code in _TRANSIENT_STATUS_CODES)
+
+
 def _patch_amo_interaction():
     _orig_request = _amo_interaction.BaseInteraction.request
 
     def _retrying_request(self, method, path, **kwargs):
-        for attempt in range(3):
+        for attempt in range(_MAX_RETRY_ATTEMPTS):
             try:
                 return _orig_request(self, method, path, **kwargs)
             except _amo_interaction.exceptions.UnAuthorizedException:
-                if attempt == 2:
+                if attempt == _MAX_RETRY_ATTEMPTS - 1:
                     raise
                 logger.warning(
                     "UnAuthorizedException on attempt %d, waiting for token refresh...",
                     attempt + 1,
                 )
                 time.sleep(1.0)
+            except _amo_interaction.exceptions.AmoApiException as exc:
+                if not _is_transient_amo_error(exc) or attempt == _MAX_RETRY_ATTEMPTS - 1:
+                    raise
+                delay = _RETRY_BACKOFF[attempt]
+                logger.warning(
+                    "Transient CRM error on attempt %d (%s), retrying in %.0fs...",
+                    attempt + 1,
+                    exc,
+                    delay,
+                )
+                time.sleep(delay)
 
     _amo_interaction.BaseInteraction.request = _retrying_request
 
