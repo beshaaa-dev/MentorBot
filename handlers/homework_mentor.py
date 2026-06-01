@@ -39,6 +39,7 @@ from keyboards import (
     get_hw_edit_reason_skip_keyboard,
     get_mentor_homework_menu_keyboard,
     get_hw_navigation_keyboard,
+    get_mentor_menu_keyboard,
 )
 from messages import (
     ERROR_MESSAGE,
@@ -57,6 +58,7 @@ from messages import (
     MENTOR_HW_NAV_PREV,
     MENTOR_HW_NAV_NEXT,
     MENTOR_HW_MENU_INFO,
+    MENU_INFO,
 )
 from logger import setup_logger
 
@@ -992,9 +994,15 @@ async def handle_hw_to_menu_message(
     update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> None:
     """Обработка кнопки 'В меню' из навигации по Д/З."""
-    if HW_POSTPONED_STATE_KEY not in context.user_data and HW_HISTORY_STATE_KEY not in context.user_data:
-        return
     await delete_user_message(update.message)
+    if HW_POSTPONED_STATE_KEY not in context.user_data and HW_HISTORY_STATE_KEY not in context.user_data:
+        context.user_data.clear()
+        await update.message.reply_text(
+            MENU_INFO,
+            reply_markup=get_mentor_menu_keyboard(),
+            parse_mode="Markdown",
+        )
+        return
     await _delete_hw_messages(update.effective_chat.id, context)
     context.user_data.pop(HW_POSTPONED_STATE_KEY, None)
     context.user_data.pop(HW_HISTORY_STATE_KEY, None)
