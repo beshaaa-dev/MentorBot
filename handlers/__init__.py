@@ -27,11 +27,11 @@ from handlers.mentor import (
     mentor_postponed_tasks_handler,
     mentor_postponed_nav_handler,
 )
-from handlers.broadcast_admin import (
+from handlers.broadcast import (
     admin_command_handler,
     admin_menu_callback_handler,
+    survey_creation_handler,
 )
-from handlers.broadcast_creation import survey_creation_handler
 from handlers.survey_questions import survey_questions_handler, submit_survey_handler
 from handlers.chat_events import (
     chat_message_handler,

@@ -10,6 +10,7 @@ from telegram.ext import (
     filters,
 )
 from logger import setup_logger
+from handlers.broadcast.admin import get_admin_chats_for_user
 from database.broadcast_service import create_broadcast, add_chat_to_broadcast
 from database.models import BroadcastStatus, BroadcastType
 from timezone_utils import now_moscow, MOSCOW_TZ
@@ -48,35 +49,6 @@ CONFIRM = 6
 # Pagination settings
 CHATS_PER_PAGE = 10
 PAGINATION_THRESHOLD = 20  # Enable pagination if more than this many chats
-
-
-async def get_admin_chats_for_user(
-    user_tg_id: int, context: ContextTypes.DEFAULT_TYPE
-) -> list[tuple[int, str]]:
-    """Get list of (chat_id, chat_title) where user is admin."""
-    from database.chat_service import get_all_chats, deactivate_chat
-
-    chats = get_all_chats(active_only=True)
-    admin_chats = []
-
-    for chat_id, chat_title in chats:
-        try:
-            administrators = await context.bot.get_chat_administrators(chat_id)
-            admin_ids = {admin.user.id for admin in administrators}
-            if user_tg_id in admin_ids:
-                title = chat_title or f"Чат {chat_id}"
-                admin_chats.append((chat_id, title))
-        except Exception as e:
-            error_msg = str(e).lower()
-            logger.warning(f"Could not check admin status in chat {chat_id}: {e}")
-            if any(
-                phrase in error_msg
-                for phrase in ("bot was kicked", "forbidden", "chat not found", "bot is not a member")
-            ):
-                deactivate_chat(chat_id)
-            continue
-
-    return admin_chats
 
 
 def create_chat_selection_keyboard(
@@ -177,7 +149,6 @@ async def start_survey_creation(
         return ConversationHandler.END
 
     try:
-        # Get chats where user is admin
         admin_chats = await get_admin_chats_for_user(user.id, context)
 
         if not admin_chats:
@@ -186,7 +157,6 @@ async def start_survey_creation(
             )
             return ConversationHandler.END
 
-        # Store chats in context
         context.user_data["available_chats"] = {
             cid: title for cid, title in admin_chats
         }
@@ -194,7 +164,6 @@ async def start_survey_creation(
         context.user_data["current_page"] = 0
         context.user_data["use_pagination"] = len(admin_chats) > PAGINATION_THRESHOLD
 
-        # Show chat selection
         use_pagination = context.user_data["use_pagination"]
         keyboard = create_chat_selection_keyboard(
             admin_chats, [], page=0, use_pagination=use_pagination
@@ -233,7 +202,6 @@ async def handle_chat_selection(
             await query.answer("Выберите хотя бы один чат!", show_alert=True)
             return SELECT_CHATS
 
-        # Move to broadcast type selection
         keyboard = create_broadcast_type_keyboard()
         await query.edit_message_text(
             SELECT_BROADCAST_TYPE_MESSAGE, reply_markup=keyboard
@@ -246,11 +214,9 @@ async def handle_chat_selection(
         return ConversationHandler.END
 
     elif callback_data == "page_info":
-        # Just info button, do nothing
         return SELECT_CHATS
 
     elif callback_data.startswith("page_"):
-        # Handle pagination
         page = int(callback_data.split("_")[-1])
         context.user_data["current_page"] = page
 
@@ -270,7 +236,6 @@ async def handle_chat_selection(
         return SELECT_CHATS
 
     elif callback_data.startswith("chat_select_"):
-        # Toggle chat selection
         chat_id = int(callback_data.split("_")[-1])
         selected = context.user_data.get("selected_chats", [])
 
@@ -281,7 +246,6 @@ async def handle_chat_selection(
 
         context.user_data["selected_chats"] = selected
 
-        # Update keyboard with current selection
         available = context.user_data.get("available_chats", {})
         chats = [(cid, available[cid]) for cid in available.keys()]
         current_page = context.user_data.get("current_page", 0)
@@ -317,7 +281,6 @@ async def handle_broadcast_type_selection(
     elif callback_data == "broadcast_type_survey":
         context.user_data["broadcast_type"] = BroadcastType.SURVEY
         context.user_data["message_content"] = None
-        # Move to timing selection
         keyboard = create_timing_keyboard()
         await query.edit_message_text(SELECT_TIMING_MESSAGE, reply_markup=keyboard)
         return SELECT_TIMING
@@ -339,7 +302,6 @@ async def handle_message_content_input(
 
     text = update.message.text.strip()
 
-    # Validate message content
     if not text:
         await update.message.reply_text(MESSAGE_CONTENT_EMPTY_ERROR)
         return ENTER_MESSAGE_CONTENT
@@ -350,7 +312,6 @@ async def handle_message_content_input(
 
     context.user_data["message_content"] = text
 
-    # Move to timing selection
     keyboard = create_timing_keyboard()
     await update.message.reply_text(SELECT_TIMING_MESSAGE, reply_markup=keyboard)
     return SELECT_TIMING
@@ -396,14 +357,11 @@ def validate_datetime(text: str) -> datetime | None:
 
     try:
         day, month, year, hour, minute = map(int, match.groups())
-        # Create datetime in Moscow timezone
         dt_moscow = datetime(year, month, day, hour, minute, tzinfo=MOSCOW_TZ)
 
-        # Check if in future
         if dt_moscow <= now_moscow():
             return None
 
-        # Convert to UTC and store as naive datetime
         dt_utc = dt_moscow.astimezone(timezone.utc).replace(tzinfo=None)
         return dt_utc
     except ValueError:
@@ -422,7 +380,6 @@ async def handle_datetime_input(
     dt = validate_datetime(text)
 
     if dt is None:
-        # Check if it's format error or past date
         pattern = r"^(\d{2})\.(\d{2})\.(\d{4})\s+(\d{2}):(\d{2})$"
         if not re.match(pattern, text):
             await update.message.reply_text(INVALID_DATETIME_FORMAT)
@@ -444,11 +401,9 @@ async def show_confirmation(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     broadcast_type = context.user_data.get("broadcast_type", BroadcastType.SURVEY)
     message_content = context.user_data.get("message_content")
 
-    # Build chats list
     chat_titles = [available_chats.get(cid, f"Чат {cid}") for cid in selected_chat_ids]
     chats_list = "\n".join(f"• {title}" for title in chat_titles)
 
-    # Build send time text
     if send_immediately:
         send_time = "Сейчас"
     else:
@@ -456,7 +411,6 @@ async def show_confirmation(update: Update, context: ContextTypes.DEFAULT_TYPE) 
 
         send_time = format_moscow(scheduled_time, "%d.%m.%Y %H:%M")
 
-    # Build broadcast type text
     if broadcast_type == BroadcastType.MESSAGE:
         broadcast_type_text = (
             "📨 Тип: Сообщение\n"
@@ -473,7 +427,6 @@ async def show_confirmation(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         f"💬 Чаты:\n{chats_list}"
     )
 
-    # Create inline keyboard with confirm/cancel buttons
     keyboard = [
         [
             InlineKeyboardButton("Да, отправить", callback_data="confirm_broadcast"),
@@ -521,7 +474,6 @@ async def handle_confirmation(
         broadcast_type = context.user_data.get("broadcast_type", BroadcastType.SURVEY)
         message_content = context.user_data.get("message_content")
 
-        # Create broadcast
         status = BroadcastStatus.SCHEDULED
         broadcast = create_broadcast(
             curator_tg_id=user.id,
@@ -531,7 +483,6 @@ async def handle_confirmation(
             message_content=message_content,
         )
 
-        # Add chats to broadcast
         from database.chat_service import get_chat_by_telegram_id
 
         for telegram_chat_id in selected_chat_ids:
@@ -539,7 +490,6 @@ async def handle_confirmation(
             if chat:
                 add_chat_to_broadcast(broadcast.id, chat.id)
 
-        # Send immediately or schedule
         if send_immediately:
             from services.broadcast_sender import send_broadcast_to_chats
 
@@ -548,7 +498,6 @@ async def handle_confirmation(
                 f"Рассылка отправлена! Успешно: {stats['sent']}, ошибок: {stats['failed']}"
             )
         else:
-            # Schedule broadcast
             from services.broadcast_scheduler import schedule_broadcast
 
             schedule_broadcast(
@@ -561,13 +510,10 @@ async def handle_confirmation(
                 f"Рассылка запланирована на {send_time_str} (МСК)."
             )
 
-        # For surveys: update CRM lead status.
-        # This runs in a thread to avoid blocking the event loop.
         if broadcast_type == BroadcastType.SURVEY:
             from database.chat_service import get_active_chat_members
             from repositories.survey_repository import update_survey_lead_by_conducting
 
-            # Use the admin-selected scheduled_time if provided; otherwise use current time.
             survey_date = scheduled_time if scheduled_time else datetime.utcnow()
 
             def _update_all_members_for_selected_chats() -> None:

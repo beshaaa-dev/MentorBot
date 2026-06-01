@@ -7,6 +7,7 @@ from logger import setup_logger
 from database.chat_service import (
     get_or_create_chat,
     get_or_create_chat_member,
+    get_chat_member_by_user_tg_id,
     deactivate_chat_member,
     update_chat_member_admin_status,
 )
@@ -35,41 +36,56 @@ async def handle_user_message_in_chat(
     try:
         # Ensure chat exists
         chat_title = chat.title if hasattr(chat, "title") else None
-        get_or_create_chat(chat_id=chat.id, chat_title=chat_title)
+        db_chat = get_or_create_chat(chat_id=chat.id, chat_title=chat_title)
 
-        is_admin = False
-        admin_check_succeeded = False
-        try:
-            chat_member = await context.bot.get_chat_member(chat.id, user.id)
-            is_admin = chat_member.status in (
-                ChatMemberStatus.ADMINISTRATOR,
-                ChatMemberStatus.OWNER,
+        existing_member = get_chat_member_by_user_tg_id(db_chat.id, user.id)
+
+        if existing_member:
+            # Already known — trust admin status from chat_member updates, just refresh profile
+            get_or_create_chat_member(
+                chat_id=chat.id,
+                user_tg_id=user.id,
+                username=user.username,
+                first_name=user.first_name,
+                last_name=user.last_name,
+                update_admin=False,
             )
-            admin_check_succeeded = True
-        except Exception as e:
-            error_msg = str(e)
-            if (
-                "bot was kicked" in error_msg.lower()
-                or "forbidden" in error_msg.lower()
-            ):
-                from database.chat_service import deactivate_chat
+        else:
+            # First time seeing this user — one-time admin check
+            is_admin = False
+            admin_check_succeeded = False
+            try:
+                tg_member = await context.bot.get_chat_member(chat.id, user.id)
+                is_admin = tg_member.status in (
+                    ChatMemberStatus.ADMINISTRATOR,
+                    ChatMemberStatus.OWNER,
+                )
+                admin_check_succeeded = True
+            except Exception as e:
+                error_msg = str(e)
+                if (
+                    "bot was kicked" in error_msg.lower()
+                    or "forbidden" in error_msg.lower()
+                ):
+                    from database.chat_service import deactivate_chat
 
-                deactivate_chat(chat.id)
-                logger.info(f"Bot was kicked from chat {chat.id}, marked as inactive")
-                return
-            logger.warning(
-                f"Could not check admin status for user {user.id} in chat {chat.id}: {e}"
+                    deactivate_chat(chat.id)
+                    logger.info(f"Bot was kicked from chat {chat.id}, marked as inactive")
+                    return
+                logger.warning(
+                    f"Could not check admin status for user {user.id} in chat {chat.id}: {e}"
+                )
+
+            get_or_create_chat_member(
+                chat_id=chat.id,
+                user_tg_id=user.id,
+                username=user.username,
+                first_name=user.first_name,
+                last_name=user.last_name,
+                is_admin=is_admin,
+                update_admin=admin_check_succeeded,
             )
 
-        get_or_create_chat_member(
-            chat_id=chat.id,
-            user_tg_id=user.id,
-            username=user.username,
-            first_name=user.first_name,
-            last_name=user.last_name,
-            is_admin=is_admin,
-            update_admin=admin_check_succeeded,
-        )
         logger.debug(f"Registered/updated chat member {user.id} in chat {chat.id}")
     except Exception as e:
         logger.error(f"Error handling user message in chat {chat.id}: {e}")
@@ -109,16 +125,15 @@ async def handle_chat_member_update(
                 "left" if new_status == ChatMemberStatus.LEFT else "kicked/banned from"
             )
             logger.info(f"User {user.id} {status_text} chat {chat.id}")
-            if new_status == ChatMemberStatus.LEFT:
-                was_not_admin = old_status not in (
-                    ChatMemberStatus.ADMINISTRATOR,
-                    ChatMemberStatus.OWNER,
+            was_not_admin = old_status not in (
+                ChatMemberStatus.ADMINISTRATOR,
+                ChatMemberStatus.OWNER,
+            )
+            if was_not_admin:
+                loop = asyncio.get_running_loop()
+                await loop.run_in_executor(
+                    None, handle_kicked_member, user.id, user.username
                 )
-                if was_not_admin:
-                    loop = asyncio.get_running_loop()
-                    await loop.run_in_executor(
-                        None, handle_kicked_member, user.id, user.username
-                    )
 
         # Handle user joined
         elif new_status in (
@@ -140,10 +155,6 @@ async def handle_chat_member_update(
             )
             logger.info(f"User {user.id} joined/reactivated in chat {chat.id}")
 
-        # Handle restricted status (user restricted by admin)
-        elif new_status == ChatMemberStatus.RESTRICTED:
-            deactivate_chat_member(chat_id=chat.id, user_tg_id=user.id)
-            logger.info(f"User {user.id} restricted in chat {chat.id}, marked inactive")
 
     except Exception as e:
         logger.error(f"Error handling chat member update in chat {chat.id}: {e}")

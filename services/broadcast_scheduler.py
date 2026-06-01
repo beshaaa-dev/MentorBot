@@ -139,9 +139,14 @@ async def restore_scheduled_jobs(context) -> None:
             if broadcast.scheduled_time <= now_utc:
                 logger.warning(
                     f"Broadcast {broadcast.id} scheduled time {broadcast.scheduled_time} is in the past, "
-                    f"skipping"
+                    f"sending immediately"
                 )
-                skipped_count += 1
+                try:
+                    await send_broadcast_to_chats(broadcast.id, context)
+                    restored_count += 1
+                except Exception as e:
+                    logger.error(f"Error sending past-due broadcast {broadcast.id}: {e}")
+                    skipped_count += 1
                 continue
             
             # Restore the job

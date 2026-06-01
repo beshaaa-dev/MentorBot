@@ -1,8 +1,7 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, CommandHandler, CallbackQueryHandler, filters
 from logger import setup_logger
-from database.chat_service import get_all_chats
 from messages import (
     ADMIN_MENU_TITLE,
     SEND_BROADCAST_BUTTON,
@@ -14,39 +13,47 @@ from keyboards import get_support_keyboard
 
 logger = setup_logger(__name__)
 
+_admin_chats_cache: dict[int, tuple[list[tuple[int, str]], datetime]] = {}
+_ADMIN_CACHE_TTL = timedelta(minutes=5)
+
+
+async def get_admin_chats_for_user(
+    user_tg_id: int, context: ContextTypes.DEFAULT_TYPE
+) -> list[tuple[int, str]]:
+    """Return (chat_id, chat_title) pairs where user is admin. Cached for 5 minutes."""
+    from database.chat_service import get_all_chats, deactivate_chat
+
+    cached = _admin_chats_cache.get(user_tg_id)
+    if cached and cached[1] > datetime.utcnow():
+        return cached[0]
+
+    chats = get_all_chats(active_only=True)
+    admin_chats: list[tuple[int, str]] = []
+
+    for chat_id, chat_title in chats:
+        try:
+            administrators = await context.bot.get_chat_administrators(chat_id)
+            if user_tg_id in {admin.user.id for admin in administrators}:
+                admin_chats.append((chat_id, chat_title or f"Чат {chat_id}"))
+        except Exception as e:
+            error_msg = str(e).lower()
+            logger.warning(f"Could not check admin status in chat {chat_id}: {e}")
+            if any(
+                phrase in error_msg
+                for phrase in ("bot was kicked", "forbidden", "chat not found", "bot is not a member")
+            ):
+                deactivate_chat(chat_id)
+
+    _admin_chats_cache[user_tg_id] = (admin_chats, datetime.utcnow() + _ADMIN_CACHE_TTL)
+    return admin_chats
+
 
 async def check_user_is_admin_in_any_chat(
     user_tg_id: int, context: ContextTypes.DEFAULT_TYPE
 ) -> bool:
     """Check if user is admin in at least one active chat where bot is a member."""
     try:
-        chats = get_all_chats(active_only=True)
-        if not chats:
-            logger.warning("No active chats found in database")
-            return False
-
-        for chat_id, _ in chats:
-            try:
-                administrators = await context.bot.get_chat_administrators(chat_id)
-                admin_ids = {admin.user.id for admin in administrators}
-                if user_tg_id in admin_ids:
-                    logger.info(f"User {user_tg_id} is admin in chat {chat_id}")
-                    return True
-            except Exception as e:
-                error_msg = str(e).lower()
-                logger.warning(
-                    f"Could not check admin status in chat {chat_id}: {e}"
-                )
-                if any(
-                    phrase in error_msg
-                    for phrase in ("bot was kicked", "forbidden", "chat not found", "bot is not a member")
-                ):
-                    from database.chat_service import deactivate_chat
-
-                    deactivate_chat(chat_id)
-                continue
-
-        return False
+        return bool(await get_admin_chats_for_user(user_tg_id, context))
     except Exception as e:
         logger.error(f"Error checking admin rights for user {user_tg_id}: {e}")
         return False
@@ -78,14 +85,12 @@ async def handle_admin_command(
         return
 
     try:
-        # Check if user is admin in any chat
         is_admin = await check_user_is_admin_in_any_chat(user.id, context)
 
         if not is_admin:
             logger.warning(f"User {user.id} is not admin in any chat, access denied")
             return
 
-        # Show admin menu
         await update.message.reply_text(
             ADMIN_MENU_TITLE, reply_markup=get_admin_menu_keyboard(), parse_mode="Markdown"
         )
@@ -113,7 +118,6 @@ async def handle_admin_menu_callback(
         return
 
     try:
-        # Verify user is still admin
         is_admin = await check_user_is_admin_in_any_chat(user.id, context)
         if not is_admin:
             return
@@ -121,7 +125,6 @@ async def handle_admin_menu_callback(
         callback_data = query.data
 
         if callback_data == "admin_scheduled_broadcasts":
-            # Show scheduled broadcasts
             try:
                 from database.broadcast_service import get_scheduled_broadcasts
                 from timezone_utils import format_moscow
@@ -170,7 +173,6 @@ async def handle_admin_menu_callback(
                 )
 
         elif callback_data.startswith("cancel_broadcast_"):
-            # Cancel scheduled broadcast
             try:
                 broadcast_id = int(callback_data.split("_")[-1])
                 from services.broadcast_scheduler import cancel_scheduled_broadcast
@@ -187,13 +189,11 @@ async def handle_admin_menu_callback(
                 await query.answer("Ошибка при отмене рассылки.", show_alert=True)
 
         elif callback_data == "admin_back_to_menu":
-            # Return to admin menu
             await query.edit_message_text(
                 ADMIN_MENU_TITLE, reply_markup=get_admin_menu_keyboard()
             )
 
         elif callback_data == "admin_export_data":
-            # Generate and send XLSX export
             try:
                 from services.broadcast_export import generate_survey_export
                 from telegram import InputFile

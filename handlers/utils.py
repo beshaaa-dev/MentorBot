@@ -6,7 +6,6 @@ import json
 
 logger = setup_logger(__name__)
 
-
 async def send_error_message(update: Update):
     reply_markup = get_support_keyboard()
     await update.effective_chat.send_message(ERROR_MESSAGE, reply_markup=reply_markup)

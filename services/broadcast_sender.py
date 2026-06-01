@@ -17,6 +17,7 @@ from database.chat_service import (
 )
 from database.models import BroadcastStatus, BroadcastType
 from telegram.constants import ChatMemberStatus
+from telegram.error import BadRequest
 from messages import SURVEY_INTRODUCTION
 
 logger = setup_logger(__name__)
@@ -62,6 +63,17 @@ async def reconcile_chat_members(telegram_chat_id: int, context) -> None:
                 if member.is_admin != is_admin:
                     update_chat_member_admin_status(telegram_chat_id, member.user_tg_id, is_admin)
 
+        except BadRequest as e:
+            msg = str(e).lower()
+            if "user not found" in msg or "participant not found" in msg or "member not found" in msg:
+                deactivate_chat_member(telegram_chat_id, member.user_tg_id)
+                logger.info(
+                    f"Reconciled: deactivated missing member {member.user_tg_id} in chat {telegram_chat_id}"
+                )
+            else:
+                logger.warning(
+                    f"Could not reconcile member {member.user_tg_id} in chat {telegram_chat_id}: {e}"
+                )
         except Exception as e:
             logger.warning(
                 f"Could not reconcile member {member.user_tg_id} in chat {telegram_chat_id}: {e}"
