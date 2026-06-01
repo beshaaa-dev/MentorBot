@@ -2,6 +2,7 @@ import re
 import asyncio
 from datetime import datetime, timezone
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.error import BadRequest
 from telegram.ext import (
     ContextTypes,
     ConversationHandler,
@@ -466,6 +467,12 @@ async def handle_confirmation(
     user = update.effective_user
     if not user:
         return ConversationHandler.END
+
+    # Strip buttons immediately so a double-tap can't create a duplicate broadcast.
+    try:
+        await query.edit_message_reply_markup(reply_markup=None)
+    except BadRequest:
+        return CONFIRM
 
     try:
         selected_chat_ids = context.user_data.get("selected_chats", [])
