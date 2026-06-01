@@ -143,7 +143,6 @@ async def handle_check_new_task_button(
         )
         return
 
-    await delete_task_messages(update.effective_chat.id, context)
     context.user_data.clear()
     await _send_earliest_task(update.effective_chat.id, mentor.id, context, update)
 
@@ -617,13 +616,16 @@ async def handle_check_task_callback(
 # ================================
 
 
-
 async def handle_approve_disapprove_callback(
     update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> None:
     """Обработка экшенов 'Одобрить' и 'Отклонить'"""
     query = update.callback_query
     await query.answer()
+    try:
+        await query.edit_message_reply_markup(reply_markup=None)
+    except Exception:
+        pass
 
     # Extract action and task_id from callback_data (format: "approve_{task_id}" or "disapprove_{task_id}")
     try:
@@ -632,10 +634,6 @@ async def handle_approve_disapprove_callback(
         task_id = int(parts[1])
     except (ValueError, IndexError):
         logger.error(f"Invalid callback data: {query.data}")
-        try:
-            await query.edit_message_reply_markup(reply_markup=None)
-        except Exception:
-            pass
         await query.message.reply_text(
             ERROR_MESSAGE, reply_markup=ReplyKeyboardRemove()
         )
@@ -645,10 +643,6 @@ async def handle_approve_disapprove_callback(
     user = find_by_tg_id(query.from_user.id)
     if not user or user.role != UserRole.MENTOR:
         logger.warning("Approve/disapprove callback by non-mentor user")
-        try:
-            await query.edit_message_reply_markup(reply_markup=None)
-        except Exception:
-            pass
         await query.message.reply_text(
             ERROR_MESSAGE, reply_markup=ReplyKeyboardRemove()
         )
@@ -669,10 +663,6 @@ async def handle_approve_disapprove_callback(
         logger.info(f"Updated task {task_id} to action {action} via callback")
     except TaskStatusChangeNotAllowedError as e:
         logger.info(f"Task status change is not allowed for task_id={task_id}: {e}")
-        try:
-            await query.edit_message_reply_markup(reply_markup=None)
-        except Exception:
-            pass
         await query.message.reply_text(
             TASK_STATUS_CHANGE_NOT_ALLOWED,
             reply_markup=get_mentor_menu_keyboard(),
@@ -680,10 +670,6 @@ async def handle_approve_disapprove_callback(
         return
     except Exception as e:
         logger.error(f"Error updating task status: {e}")
-        try:
-            await query.edit_message_reply_markup(reply_markup=None)
-        except Exception:
-            pass
         await query.message.reply_text(
             ERROR_MESSAGE, reply_markup=ReplyKeyboardRemove()
         )
@@ -691,35 +677,24 @@ async def handle_approve_disapprove_callback(
 
     if not task:
         logger.error(f"update_task_status returned None for task_id={task_id}")
-        try:
-            await query.edit_message_reply_markup(reply_markup=None)
-        except Exception:
-            pass
         await query.message.reply_text(ERROR_MESSAGE, reply_markup=get_mentor_menu_keyboard())
         return
 
-    if HISTORY_STATE_KEY in context.user_data or POSTPONED_STATE_KEY in context.user_data:
+    await delete_task_messages(query.message.chat_id, context)
+
+    next_task = get_earliest_task(user.id)
+    if next_task:
         try:
-            await query.edit_message_text(
-                _build_task_info_text(task), parse_mode="Markdown", reply_markup=None
-            )
+            await send_task(query.message.chat_id, next_task, context=context)
         except Exception as e:
-            logger.warning(f"Could not edit task message after decision: {e}")
+            logger.error(f"Error sending next earliest task: {e}")
+            await send_error_message(update)
     else:
-        await delete_task_messages(query.message.chat_id, context)
-        next_task = get_earliest_task(user.id)
-        if next_task:
-            try:
-                await send_task(query.message.chat_id, next_task, context=context)
-            except Exception as e:
-                logger.error(f"Error sending next earliest task: {e}")
-                await send_error_message(update)
-        else:
-            await context.bot.send_message(
-                query.message.chat_id,
-                MENTOR_NO_TASK,
-                reply_markup=get_mentor_menu_keyboard(),
-            )
+        await context.bot.send_message(
+            query.message.chat_id,
+            MENTOR_NO_TASK,
+            reply_markup=get_mentor_menu_keyboard(),
+        )
 
 
 async def handle_postpone_callback(
@@ -728,16 +703,16 @@ async def handle_postpone_callback(
     """Обработчик экшена 'Сомневаюсь'"""
     query = update.callback_query
     await query.answer()
+    try:
+        await query.edit_message_reply_markup(reply_markup=None)
+    except Exception:
+        pass
 
     # Extract task_id from callback_data (format: "postpone_{task_id}")
     try:
         task_id = int(query.data.split("_")[-1])
     except (ValueError, IndexError):
         logger.error(f"Invalid callback data: {query.data}")
-        try:
-            await query.edit_message_reply_markup(reply_markup=None)
-        except Exception:
-            pass
         await query.message.reply_text(
             ERROR_MESSAGE, reply_markup=ReplyKeyboardRemove()
         )
@@ -747,10 +722,6 @@ async def handle_postpone_callback(
     user = find_by_tg_id(query.from_user.id)
     if not user or user.role != UserRole.MENTOR:
         logger.warning("Check later callback by non-mentor user")
-        try:
-            await query.edit_message_reply_markup(reply_markup=None)
-        except Exception:
-            pass
         await query.message.reply_text(
             ERROR_MESSAGE, reply_markup=ReplyKeyboardRemove()
         )
@@ -762,10 +733,6 @@ async def handle_postpone_callback(
         logger.info(f"Updated task {task_id} to status POSTPONED via callback")
     except Exception as e:
         logger.error(f"Error updating task status to POSTPONED: {e}")
-        try:
-            await query.edit_message_reply_markup(reply_markup=None)
-        except Exception:
-            pass
         await query.message.reply_text(
             ERROR_MESSAGE, reply_markup=ReplyKeyboardRemove()
         )
@@ -773,16 +740,13 @@ async def handle_postpone_callback(
 
     if not task:
         logger.error("Error updating task status to POSTPONED")
-        try:
-            await query.edit_message_reply_markup(reply_markup=None)
-        except Exception:
-            pass
         await query.message.reply_text(
             ERROR_MESSAGE, reply_markup=ReplyKeyboardRemove()
         )
         return
 
     await delete_task_messages(query.message.chat_id, context)
+
     next_task = get_earliest_task(user.id)
     if next_task:
         try:
