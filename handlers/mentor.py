@@ -153,6 +153,7 @@ async def handle_to_menu_message(
 ) -> None:
     """Обработка экшена 'В меню'"""
     await delete_user_message(update.message)
+    await delete_task_messages(update.effective_chat.id, context)
     context.user_data.clear()
     await update.message.reply_text(
         MENU_INFO,
@@ -253,7 +254,7 @@ async def _send_task_payload(
     return msg_ids
 
 
-async def _delete_task_messages(chat_id: int, context: ContextTypes.DEFAULT_TYPE) -> None:
+async def delete_task_messages(chat_id: int, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Delete all tracked task messages from the mentor chat.
 
     Collects IDs from the main-queue store (_KEY_TASK_MSG_IDS), the history
@@ -679,7 +680,7 @@ async def handle_approve_disapprove_callback(
         await query.message.reply_text(ERROR_MESSAGE, reply_markup=get_mentor_menu_keyboard())
         return
 
-    await _delete_task_messages(query.message.chat_id, context)
+    await delete_task_messages(query.message.chat_id, context)
 
     next_task = get_earliest_task(user.id)
     if next_task:
@@ -744,7 +745,7 @@ async def handle_postpone_callback(
         )
         return
 
-    await _delete_task_messages(query.message.chat_id, context)
+    await delete_task_messages(query.message.chat_id, context)
 
     next_task = get_earliest_task(user.id)
     if next_task:

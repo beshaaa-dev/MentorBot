@@ -32,6 +32,7 @@ from database.models import Homework, HomeworkStatus, UserRole
 from database.user_service import find_by_tg_id, get_by_id
 from handlers.homework_student import _send_answer_content
 from handlers.utils import delete_user_message
+from handlers.mentor import delete_task_messages
 from keyboards import (
     get_hw_mentor_decision_keyboard,
     get_hw_rating_with_skip_keyboard,
@@ -996,6 +997,7 @@ async def handle_hw_to_menu_message(
     """Обработка кнопки 'В меню' из навигации по Д/З."""
     await delete_user_message(update.message)
     if HW_POSTPONED_STATE_KEY not in context.user_data and HW_HISTORY_STATE_KEY not in context.user_data:
+        await delete_task_messages(update.effective_chat.id, context)
         context.user_data.clear()
         await update.message.reply_text(
             MENU_INFO,
