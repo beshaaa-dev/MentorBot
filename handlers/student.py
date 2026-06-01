@@ -326,6 +326,7 @@ async def receive_first_task_answer(
 
     if file_id:
         context.user_data["task_answers"]["1"] = file_id
+        context.user_data.setdefault("task_answer_messages", {})["1"] = update.message
         reply_markup = get_confirmation_keyboard()
         sent = await update.message.reply_text(TASK_ANSWER_RECEIVED, reply_markup=reply_markup)
         context.user_data["task_answer_received_message"] = sent
@@ -345,6 +346,7 @@ async def receive_second_task_answer(
 
     if file_id:
         context.user_data["task_answers"]["2"] = file_id
+        context.user_data.setdefault("task_answer_messages", {})["2"] = update.message
         reply_markup = get_confirmation_keyboard()
         sent = await update.message.reply_text(TASK_ANSWER_RECEIVED, reply_markup=reply_markup)
         context.user_data["task_answer_received_message"] = sent
@@ -364,6 +366,7 @@ async def receive_third_task_answer(
 
     if file_id:
         context.user_data["task_answers"]["3"] = file_id
+        context.user_data.setdefault("task_answer_messages", {})["3"] = update.message
         reply_markup = get_confirmation_keyboard()
         sent = await update.message.reply_text(TASK_ANSWER_RECEIVED, reply_markup=reply_markup)
         context.user_data["task_answer_received_message"] = sent
@@ -502,6 +505,9 @@ async def show_review_screen(update: Update, context: ContextTypes.DEFAULT_TYPE)
     task_details = context.user_data.get("task_details", {})
     chat_id = update.effective_chat.id
     review_messages: list[tuple[int, int]] = []
+
+    for msg in context.user_data.pop("task_answer_messages", {}).values():
+        review_messages.append((msg.chat_id, msg.message_id))
 
     header = await update.message.reply_text(
         TASK_ANSWERS_REVIEW_HEADER, reply_markup=ReplyKeyboardRemove()
