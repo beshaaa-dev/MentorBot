@@ -326,7 +326,6 @@ async def receive_first_task_answer(
 
     if file_id:
         context.user_data["task_answers"]["1"] = file_id
-        context.user_data.setdefault("task_answer_messages", {})["1"] = update.message
         reply_markup = get_confirmation_keyboard()
         sent = await update.message.reply_text(TASK_ANSWER_RECEIVED, reply_markup=reply_markup)
         context.user_data["task_answer_received_message"] = sent
@@ -346,7 +345,6 @@ async def receive_second_task_answer(
 
     if file_id:
         context.user_data["task_answers"]["2"] = file_id
-        context.user_data.setdefault("task_answer_messages", {})["2"] = update.message
         reply_markup = get_confirmation_keyboard()
         sent = await update.message.reply_text(TASK_ANSWER_RECEIVED, reply_markup=reply_markup)
         context.user_data["task_answer_received_message"] = sent
@@ -366,7 +364,6 @@ async def receive_third_task_answer(
 
     if file_id:
         context.user_data["task_answers"]["3"] = file_id
-        context.user_data.setdefault("task_answer_messages", {})["3"] = update.message
         reply_markup = get_confirmation_keyboard()
         sent = await update.message.reply_text(TASK_ANSWER_RECEIVED, reply_markup=reply_markup)
         context.user_data["task_answer_received_message"] = sent
@@ -504,41 +501,31 @@ async def show_review_screen(update: Update, context: ContextTypes.DEFAULT_TYPE)
     task_answers = context.user_data.get("task_answers", {})
     task_details = context.user_data.get("task_details", {})
     chat_id = update.effective_chat.id
-    review_messages: list[tuple[int, int]] = []
 
-    for msg in context.user_data.pop("task_answer_messages", {}).values():
-        review_messages.append((msg.chat_id, msg.message_id))
-
-    header = await update.message.reply_text(
+    await update.message.reply_text(
         TASK_ANSWERS_REVIEW_HEADER, reply_markup=ReplyKeyboardRemove()
     )
-    review_messages.append((chat_id, header.message_id))
 
     # Send actual task messages in order
     if "1" in task_answers and task_answers.get("1"):
-        msg = await send_media_to_chat(context.bot, chat_id, task_answers["1"])
-        review_messages.append((chat_id, msg.message_id))
+        await send_media_to_chat(context.bot, chat_id, task_answers["1"])
 
     if (
         "2" in task_answers
         and task_answers.get("2")
         and task_details.get("second_task")
     ):
-        msg = await send_media_to_chat(context.bot, chat_id, task_answers["2"])
-        review_messages.append((chat_id, msg.message_id))
+        await send_media_to_chat(context.bot, chat_id, task_answers["2"])
 
     if "3" in task_answers and task_answers.get("3") and task_details.get("third_task"):
-        msg = await send_media_to_chat(context.bot, chat_id, task_answers["3"])
-        review_messages.append((chat_id, msg.message_id))
+        await send_media_to_chat(context.bot, chat_id, task_answers["3"])
 
     keyboard = get_task_review_keyboard(
         has_task_2=bool(task_details.get("second_task")),
         has_task_3=bool(task_details.get("third_task")),
     )
 
-    question = await update.message.reply_text(TASK_ANSWERS_REVIEW_QUESTION, reply_markup=keyboard)
-    review_messages.append((chat_id, question.message_id))
-    context.user_data["task_review_screen_messages"] = review_messages
+    await update.message.reply_text(TASK_ANSWERS_REVIEW_QUESTION, reply_markup=keyboard)
     return WAITING_FOR_REVIEW
 
 
@@ -548,11 +535,6 @@ async def handle_review_selection(
     """Handle review screen selection (change or confirm)."""
     text = update.message.text
     await delete_user_message(update.message)
-    for cid, mid in context.user_data.pop("task_review_screen_messages", []):
-        try:
-            await context.bot.delete_message(chat_id=cid, message_id=mid)
-        except Exception:
-            pass
     task_details = context.user_data.get("task_details", {})
     task_answers = context.user_data.get("task_answers", {})
 
