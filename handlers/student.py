@@ -525,7 +525,8 @@ async def show_review_screen(update: Update, context: ContextTypes.DEFAULT_TYPE)
         has_task_3=bool(task_details.get("third_task")),
     )
 
-    await update.message.reply_text(TASK_ANSWERS_REVIEW_QUESTION, reply_markup=keyboard)
+    sent = await update.message.reply_text(TASK_ANSWERS_REVIEW_QUESTION, reply_markup=keyboard)
+    context.user_data["task_answers_review_message"] = sent
     return WAITING_FOR_REVIEW
 
 
@@ -535,6 +536,7 @@ async def handle_review_selection(
     """Handle review screen selection (change or confirm)."""
     text = update.message.text
     await delete_user_message(update.message)
+    await delete_user_message(context.user_data.pop("task_answers_review_message", None))
     task_details = context.user_data.get("task_details", {})
     task_answers = context.user_data.get("task_answers", {})
 
