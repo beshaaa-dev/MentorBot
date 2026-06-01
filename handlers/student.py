@@ -327,7 +327,8 @@ async def receive_first_task_answer(
     if file_id:
         context.user_data["task_answers"]["1"] = file_id
         reply_markup = get_confirmation_keyboard()
-        await update.message.reply_text(TASK_ANSWER_RECEIVED, reply_markup=reply_markup)
+        sent = await update.message.reply_text(TASK_ANSWER_RECEIVED, reply_markup=reply_markup)
+        context.user_data["task_answer_received_message"] = sent
         return WAITING_FOR_FIRST_TASK_CONFIRMATION
     else:
         await update.message.reply_text(
@@ -345,7 +346,8 @@ async def receive_second_task_answer(
     if file_id:
         context.user_data["task_answers"]["2"] = file_id
         reply_markup = get_confirmation_keyboard()
-        await update.message.reply_text(TASK_ANSWER_RECEIVED, reply_markup=reply_markup)
+        sent = await update.message.reply_text(TASK_ANSWER_RECEIVED, reply_markup=reply_markup)
+        context.user_data["task_answer_received_message"] = sent
         return WAITING_FOR_SECOND_TASK_CONFIRMATION
     else:
         await update.message.reply_text(
@@ -363,7 +365,8 @@ async def receive_third_task_answer(
     if file_id:
         context.user_data["task_answers"]["3"] = file_id
         reply_markup = get_confirmation_keyboard()
-        await update.message.reply_text(TASK_ANSWER_RECEIVED, reply_markup=reply_markup)
+        sent = await update.message.reply_text(TASK_ANSWER_RECEIVED, reply_markup=reply_markup)
+        context.user_data["task_answer_received_message"] = sent
         return WAITING_FOR_THIRD_TASK_CONFIRMATION
     else:
         await update.message.reply_text(
@@ -376,6 +379,7 @@ async def confirm_first_task(update: Update, context: ContextTypes.DEFAULT_TYPE)
     """Handle first task confirmation."""
     text = update.message.text
     await delete_user_message(update.message)
+    await delete_user_message(context.user_data.pop("task_answer_received_message", None))
 
     if text == CONFIRM_BUTTON:
         task_details = context.user_data.get("task_details", {})
@@ -425,6 +429,7 @@ async def confirm_second_task(
     """Handle second task confirmation."""
     text = update.message.text
     await delete_user_message(update.message)
+    await delete_user_message(context.user_data.pop("task_answer_received_message", None))
 
     if text == CONFIRM_BUTTON:
         task_details = context.user_data.get("task_details", {})
@@ -472,6 +477,7 @@ async def confirm_third_task(update: Update, context: ContextTypes.DEFAULT_TYPE)
     """Handle third task confirmation."""
     text = update.message.text
     await delete_user_message(update.message)
+    await delete_user_message(context.user_data.pop("task_answer_received_message", None))
 
     if text == CONFIRM_BUTTON:
         # All tasks done or changing, go to review
