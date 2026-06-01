@@ -70,6 +70,7 @@ logger = setup_logger(__name__)
 
 HISTORY_STATE_KEY = "history_state"
 POSTPONED_STATE_KEY = "postponed_state"
+_KEY_TASK_MSG_IDS = "task_msg_ids"
 HISTORY_NAV_LEFT = "Назад"
 HISTORY_NAV_RIGHT = "Вперёд"
 POSTPONED_NAV_LEFT = "Предыдущая заявка"
@@ -168,7 +169,7 @@ async def send_task(
     """Send a task to a mentor with action buttons that include a Back option."""
     pdf_data = get_student_anketa_pdf(student_id=task.student_id, lead_id=task.lead_id)
 
-    await _send_task_payload(
+    payload_ids = await _send_task_payload(
         chat_id=chat_id,
         task=task,
         context=context,
@@ -176,7 +177,7 @@ async def send_task(
         reply_markup=get_mentor_menu_keyboard(),
     )
 
-    await _send_task_info_message(
+    info_msg = await _send_task_info_message(
         chat_id=chat_id,
         task=task,
         context=context,
@@ -187,6 +188,7 @@ async def send_task(
             in (TaskStatus.APPROVED, TaskStatus.DISAPPROVED),
         ),
     )
+    context.user_data[_KEY_TASK_MSG_IDS] = payload_ids + [info_msg.message_id]
 
 
 async def _send_task_info_message(
@@ -195,10 +197,10 @@ async def _send_task_info_message(
     context: ContextTypes.DEFAULT_TYPE,
     student_name: str | None = None,
     reply_markup=None,
-) -> None:
+) -> Message:
     """Send textual information about the task before attachments."""
     text = _build_task_info_text(task, student_name=student_name)
-    await context.bot.send_message(
+    return await context.bot.send_message(
         chat_id=chat_id,
         text=text,
         parse_mode="Markdown",
@@ -212,38 +214,66 @@ async def _send_task_payload(
     context: ContextTypes.DEFAULT_TYPE,
     pdf_data: tuple[str, bytes | None, str | None] | None = None,
     reply_markup=None,
-) -> None:
+) -> list[int]:
     if pdf_data is None:
         pdf_data = get_student_anketa_pdf(
             student_id=task.student_id, lead_id=task.lead_id
         )
 
     pdf_filename, pdf_bytes, _ = pdf_data
+    msg_ids: list[int] = []
 
     # Only send PDF document if it has content
     if pdf_bytes is not None:
         pdf_file = InputFile(BytesIO(pdf_bytes), filename=pdf_filename)
-        await context.bot.send_document(
+        doc_msg = await context.bot.send_document(
             chat_id=chat_id,
             document=pdf_file,
         )
+        msg_ids.append(doc_msg.message_id)
 
     # Send all task messages, ordered by task_number
     task_messages = sorted(task.task_messages, key=lambda tm: tm.task_number)
 
     if not task_messages:
         logger.warning(f"Task {task.id} has no task_messages")
-        return
+        return msg_ids
 
     # Send all messages, add reply_markup only to the last one
     for i, task_message in enumerate(task_messages):
         is_last = i == len(task_messages) - 1
-        await send_media_to_chat(
+        media_msg = await send_media_to_chat(
             context.bot,
             chat_id,
             task_message.file_id,
             reply_markup=reply_markup if is_last else None,
         )
+        msg_ids.append(media_msg.message_id)
+
+    return msg_ids
+
+
+async def _delete_task_messages(chat_id: int, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Delete all tracked task messages from the mentor chat.
+
+    Collects IDs from the main-queue store (_KEY_TASK_MSG_IDS), the history
+    view (HISTORY_STATE_KEY), and the postponed view (POSTPONED_STATE_KEY) so
+    that approve/disapprove/postpone callbacks always clean up regardless of
+    which view the mentor was looking at.
+    """
+    msg_ids: list[int] = context.user_data.pop(_KEY_TASK_MSG_IDS, [])
+
+    for state_key in (HISTORY_STATE_KEY, POSTPONED_STATE_KEY):
+        state = context.user_data.pop(state_key, None) or {}
+        msg_ids += state.get("payload_msg_ids", [])
+        if mid := state.get("message_id"):
+            msg_ids.append(mid)
+
+    for msg_id in msg_ids:
+        try:
+            await context.bot.delete_message(chat_id=chat_id, message_id=msg_id)
+        except Exception as e:
+            logger.warning(f"Could not delete message {msg_id} in chat {chat_id}: {e}")
 
 
 # ================================
@@ -298,6 +328,17 @@ async def _present_decided_task_view(
     target_task_id: int | None = None,
     cached_task_ids: list[int] | None = None,
 ) -> Message | None:
+    # Delete previous history messages before sending new ones
+    prev_state = context.user_data.get(HISTORY_STATE_KEY) or {}
+    prev_ids = prev_state.get("payload_msg_ids", []) + (
+        [prev_state["message_id"]] if prev_state.get("message_id") else []
+    )
+    for msg_id in prev_ids:
+        try:
+            await context.bot.delete_message(chat_id=chat_id, message_id=msg_id)
+        except Exception as e:
+            logger.warning(f"Could not delete history message {msg_id}: {e}")
+
     decided_context = get_decided_task_context(
         mentor_id, target_task_id, cached_task_ids=cached_task_ids
     )
@@ -308,7 +349,7 @@ async def _present_decided_task_view(
         older_task_id=decided_context.older_task_id,
         newer_task_id=decided_context.newer_task_id,
     )
-    await _send_task_payload(
+    payload_ids = await _send_task_payload(
         chat_id=chat_id,
         task=decided_context.task,
         context=context,
@@ -324,6 +365,7 @@ async def _present_decided_task_view(
     context.user_data[HISTORY_STATE_KEY] = {
         "chat_id": chat_id,
         "message_id": message.message_id,
+        "payload_msg_ids": payload_ids,
         "task_id": decided_context.task.id,
         "cached_task_ids": decided_context.cached_task_ids,
     }
@@ -579,6 +621,10 @@ async def handle_approve_disapprove_callback(
     """Обработка экшенов 'Одобрить' и 'Отклонить'"""
     query = update.callback_query
     await query.answer()
+    try:
+        await query.edit_message_reply_markup(reply_markup=None)
+    except Exception:
+        pass
 
     # Extract action and task_id from callback_data (format: "approve_{task_id}" or "disapprove_{task_id}")
     try:
@@ -628,22 +674,13 @@ async def handle_approve_disapprove_callback(
         )
         return
 
-    # Edit the message to show task info with updated status
-    if task:
-        text = _build_task_info_text(task)
-        try:
-            await query.edit_message_text(
-                text=text,
-                parse_mode="Markdown",
-                reply_markup=get_mentor_task_decision_keyboard(
-                    task.id,
-                    is_check_later_button_hidden=True,
-                ),
-            )
-        except Exception as e:
-            logger.warning(f"Could not edit message: {e}")
+    if not task:
+        logger.error(f"update_task_status returned None for task_id={task_id}")
+        await query.message.reply_text(ERROR_MESSAGE, reply_markup=get_mentor_menu_keyboard())
+        return
 
-    # Check for next earliest task
+    await _delete_task_messages(query.message.chat_id, context)
+
     next_task = get_earliest_task(user.id)
     if next_task:
         try:
@@ -651,6 +688,12 @@ async def handle_approve_disapprove_callback(
         except Exception as e:
             logger.error(f"Error sending next earliest task: {e}")
             await send_error_message(update)
+    else:
+        await context.bot.send_message(
+            query.message.chat_id,
+            MENTOR_NO_TASK,
+            reply_markup=get_mentor_menu_keyboard(),
+        )
 
 
 async def handle_postpone_callback(
@@ -659,6 +702,10 @@ async def handle_postpone_callback(
     """Обработчик экшена 'Сомневаюсь'"""
     query = update.callback_query
     await query.answer()
+    try:
+        await query.edit_message_reply_markup(reply_markup=None)
+    except Exception:
+        pass
 
     # Extract task_id from callback_data (format: "postpone_{task_id}")
     try:
@@ -690,8 +737,6 @@ async def handle_postpone_callback(
         )
         return
 
-    # Edit the message to show task info with updated status
-
     if not task:
         logger.error("Error updating task status to POSTPONED")
         await query.message.reply_text(
@@ -699,20 +744,8 @@ async def handle_postpone_callback(
         )
         return
 
-    text = _build_task_info_text(task)
-    try:
-        await query.edit_message_text(
-            text=text,
-            parse_mode="Markdown",
-            reply_markup=get_mentor_task_decision_keyboard(
-                task.id,
-                is_check_later_button_hidden=True,
-            ),
-        )
-    except Exception as e:
-        logger.warning(f"Could not edit message: {e}")
+    await _delete_task_messages(query.message.chat_id, context)
 
-    # Check for next earliest task
     next_task = get_earliest_task(user.id)
     if next_task:
         try:
@@ -720,6 +753,12 @@ async def handle_postpone_callback(
         except Exception as e:
             logger.error(f"Error sending next earliest task: {e}")
             await send_error_message(update)
+    else:
+        await context.bot.send_message(
+            query.message.chat_id,
+            MENTOR_NO_TASK,
+            reply_markup=get_mentor_menu_keyboard(),
+        )
 
 
 # ================================
@@ -852,6 +891,18 @@ async def _present_postponed_task_view(
     cached_task_ids: list[int] | None = None,
 ) -> Message | None:
     """Present a postponed task with navigation and decision buttons."""
+    # Delete previous postponed-view messages before sending new ones
+    if resend_media:
+        prev_state = context.user_data.get(POSTPONED_STATE_KEY) or {}
+        prev_ids = prev_state.get("payload_msg_ids", []) + (
+            [prev_state["message_id"]] if prev_state.get("message_id") else []
+        )
+        for msg_id in prev_ids:
+            try:
+                await context.bot.delete_message(chat_id=chat_id, message_id=msg_id)
+            except Exception as e:
+                logger.warning(f"Could not delete postponed message {msg_id}: {e}")
+
     postponed_context = get_postponed_task_context(
         mentor_id, target_task_id, cached_task_ids=cached_task_ids
     )
@@ -864,12 +915,15 @@ async def _present_postponed_task_view(
             older_task_id=postponed_context.older_task_id,
             newer_task_id=postponed_context.newer_task_id,
         )
-        await _send_task_payload(
+        payload_ids = await _send_task_payload(
             chat_id=chat_id,
             task=postponed_context.task,
             context=context,
             reply_markup=keyboard,
         )
+    else:
+        existing_state = context.user_data.get(POSTPONED_STATE_KEY) or {}
+        payload_ids = existing_state.get("payload_msg_ids", [])
 
     message = await _send_postponed_task_summary(
         chat_id=chat_id,
@@ -880,6 +934,7 @@ async def _present_postponed_task_view(
     context.user_data[POSTPONED_STATE_KEY] = {
         "chat_id": chat_id,
         "message_id": message.message_id,
+        "payload_msg_ids": payload_ids,
         "task_id": postponed_context.task.id,
         "cached_task_ids": postponed_context.cached_task_ids,
     }
