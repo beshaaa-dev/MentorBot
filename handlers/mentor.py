@@ -851,7 +851,6 @@ async def handle_postponed_tasks_button(
         await _send_postponed_items(
             update=update, context=context, mentor_id=mentor.id
         )
-        context.user_data.pop(POSTPONED_STATE_KEY, None)
     except Exception as e:
         logger.error(f"Error showing postponed items: {e}")
         await update.message.reply_text(
