@@ -14,7 +14,6 @@ import os
 import sys
 
 from crm.crm_service import init_amo_crm_integration
-from thread_safe_token_manager import ThreadSafeTokenManager
 from database.task_service import get_tasks_by_status
 from database.models import TaskStatus
 from database.user_service import find_by_tg_nickname, get_by_id
@@ -85,16 +84,6 @@ def main():
         print(f"ERROR: CRM initialization failed: {exc}", file=sys.stderr)
         sys.exit(1)
 
-    print("Force refreshing CRM token...")
-    try:
-        token_manager = ThreadSafeTokenManager.get_instance()
-        token_manager._force_refresh_token()
-        logger.info("[crm] Token force-refreshed successfully")
-        print("Token refreshed.")
-    except Exception as exc:
-        logger.error(f"[crm] Token force-refresh failed: {exc}", exc_info=True)
-        print(f"ERROR: Token refresh failed: {exc}", file=sys.stderr)
-        sys.exit(1)
 
     logger.info(f"[db] Looking up mentor by nickname='{nickname}'")
     mentor = find_by_tg_nickname(nickname)
