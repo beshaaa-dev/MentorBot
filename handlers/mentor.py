@@ -467,7 +467,6 @@ def _chunk_student_list_messages(header: str, student_names: list[str]) -> list[
 # Mentor: decided tasks history (reply-keyboard navigation)
 # ================================
 
-
 async def handle_history_navigation_message(
     update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> None:
