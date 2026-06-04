@@ -41,14 +41,6 @@ class ThreadSafeTokenManager:
         self._lock = asyncio.Lock()
         self._initialized = True
     
-    @staticmethod
-    def _mask_token(token: str | None) -> str:
-        if not token:
-            return "(empty)"
-        if len(token) <= 12:
-            return token[:4] + "***"
-        return f"{token[:8]}...{token[-4:]}"
-
     def _force_refresh_token(self) -> str:
         """
         Принудительно обновляет access token через refresh token.
@@ -67,9 +59,7 @@ class ThreadSafeTokenManager:
         # Сохраняем новые токены
         self._token_manager._storage.save_tokens(access_token, refresh_token)
 
-        logger.info(
-            f"Access token force refreshed: {self._mask_token(access_token)}"
-        )
+        logger.info("Access token force refreshed successfully")
         return access_token
 
     async def get_access_token(self) -> str:
@@ -77,7 +67,6 @@ class ThreadSafeTokenManager:
         try:
             token = self._token_manager._storage.get_access_token()
             if token and not self._token_manager._is_expire(token):
-                logger.debug(f"Token valid (fast path): {self._mask_token(token)}")
                 return token
         except Exception as e:
             logger.warning(f"Failed to check token (fast path): {e}")
@@ -89,9 +78,7 @@ class ThreadSafeTokenManager:
             try:
                 token = self._token_manager._storage.get_access_token()
                 if token and not self._token_manager._is_expire(token):
-                    logger.debug(
-                        f"Token was refreshed by another coroutine: {self._mask_token(token)}"
-                    )
+                    logger.debug("Token was refreshed by another coroutine")
                     return token
             except Exception as e:
                 logger.warning(f"Failed to check token (locked path): {e}")
@@ -99,7 +86,7 @@ class ThreadSafeTokenManager:
             # Обновляем токен (только одна корутина делает это)
             logger.info("Refreshing access token...")
             token = self._token_manager.get_access_token()
-            logger.info(f"Access token refreshed: {self._mask_token(token)}")
+            logger.info("Access token refreshed successfully")
             return token
 
     async def force_refresh_access_token(self) -> str:
@@ -111,9 +98,7 @@ class ThreadSafeTokenManager:
                 logger.error(f"Force refresh failed: {e}, falling back to standard refresh")
                 # Если принудительное обновление не удалось, используем стандартный метод
                 token = self._token_manager.get_access_token()
-                logger.info(
-                    f"Access token refreshed (fallback): {self._mask_token(token)}"
-                )
+                logger.info("Access token refreshed successfully (fallback)")
                 return token
     
     def init(self, code: str, skip_error: bool = False):
