@@ -144,16 +144,49 @@ def get_first_lead(crm_user: Contact) -> Lead | None:
         First Lead with correct pipeline/status, or None if not found
     """
     if not crm_user.leads:
+        logger.warning(
+            f"get_first_lead: CRM contact id={crm_user.id} has no leads — returning None"
+        )
         return None
+
+    lead_data = crm_user.leads._data or []
+    lead_ids = [ref["id"] for ref in lead_data]
+    logger.info(
+        f"get_first_lead: CRM contact id={crm_user.id} has {len(lead_ids)} lead(s): {lead_ids}; "
+        f"expected pipeline_id={CRM_PIPELINE}, valid_status_ids={VALID_LEAD_STATUSES}"
+    )
+
     for lead in _iter_contact_leads(crm_user):
         with amo_crm_rate_limiter.limit():
             lead_pipeline = lead.pipeline
-        if not lead_pipeline or str(lead_pipeline.id) != str(CRM_PIPELINE):
+        pipeline_id = str(lead_pipeline.id) if lead_pipeline else "None"
+
+        if not lead_pipeline or pipeline_id != str(CRM_PIPELINE):
+            logger.info(
+                f"get_first_lead: lead id={lead.id} skipped — "
+                f"pipeline_id={pipeline_id} != expected {CRM_PIPELINE}"
+            )
             continue
+
         with amo_crm_rate_limiter.limit():
             lead_status = lead.status
-        if lead_status and str(lead_status.id) in VALID_LEAD_STATUSES:
+        status_id = str(lead_status.id) if lead_status else "None"
+
+        if lead_status and status_id in VALID_LEAD_STATUSES:
+            logger.info(
+                f"get_first_lead: lead id={lead.id} matched — "
+                f"pipeline_id={pipeline_id}, status_id={status_id}"
+            )
             return lead
+
+        logger.info(
+            f"get_first_lead: lead id={lead.id} skipped — "
+            f"pipeline_id={pipeline_id}, status_id={status_id} not in valid statuses"
+        )
+
+    logger.warning(
+        f"get_first_lead: no matching lead found for CRM contact id={crm_user.id} — returning None"
+    )
     return None
 
 
