@@ -19,12 +19,6 @@ class Contact(_Contact):
 
 
 class Lead(_Lead):
-    @classmethod
-    def _get_embedded_fields(cls):
-        # AmoCRM returns 402 when the `with=contacts` embed is requested on this account's tariff.
-        # None of the project flows read lead.contacts, so suppress all embedded includes.
-        return []
-
     fio = custom_field.TextCustomField("ФИО")
     age = custom_field.TextCustomField("Возраст")
     city = custom_field.TextCustomField("Город проживания")
