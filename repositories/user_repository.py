@@ -125,20 +125,61 @@ def create_mentor_if_needed(mentor_tg_nickname: str | None):
 
 
 def get_task(user: User) -> TaskDetails | None:
-    crm_user = _resolve_crm_contact(user.tg_id, user.tg_nickname)
+    logger.info(
+        f"get_task: start for user id={user.id}, tg_id={user.tg_id}, tg_nickname={user.tg_nickname!r}"
+    )
 
+    crm_user = _resolve_crm_contact(user.tg_id, user.tg_nickname)
     if not crm_user:
+        logger.warning(
+            f"get_task: CRM contact not found for user id={user.id}, "
+            f"tg_id={user.tg_id}, tg_nickname={user.tg_nickname!r} — returning None"
+        )
         return None
+
+    logger.info(f"get_task: resolved CRM contact id={crm_user.id} for user id={user.id}")
 
     first_lead = get_first_lead(crm_user)
-
-    if not first_lead or not is_task_lead(first_lead):
+    if not first_lead:
+        logger.warning(
+            f"get_task: no lead found in the configured pipeline for CRM contact id={crm_user.id}, "
+            f"user id={user.id} — returning None"
+        )
         return None
 
-    mentor_tg_nickname = first_lead.mentor_tg_nickname if first_lead else None
+    lead_status_id = str(first_lead.status.id) if first_lead.status else "None"
+    logger.info(
+        f"get_task: found lead id={first_lead.id}, status_id={lead_status_id} "
+        f"for CRM contact id={crm_user.id}, user id={user.id}"
+    )
+
+    if not is_task_lead(first_lead):
+        logger.warning(
+            f"get_task: lead id={first_lead.id} has status_id={lead_status_id} which is not a task status — "
+            f"returning None for user id={user.id}"
+        )
+        return None
+
+    mentor_tg_nickname = first_lead.mentor_tg_nickname
+    logger.info(
+        f"get_task: lead id={first_lead.id} is a task lead, mentor_tg_nickname={mentor_tg_nickname!r}"
+    )
     create_mentor_if_needed(mentor_tg_nickname)
 
-    return _build_task_details(first_lead)
+    task_details = _build_task_details(first_lead)
+    if task_details is None:
+        logger.warning(
+            f"get_task: _build_task_details returned None for lead id={first_lead.id} "
+            f"(first_task field is likely empty) — returning None for user id={user.id}"
+        )
+    else:
+        logger.info(
+            f"get_task: successfully built TaskDetails for user id={user.id}, lead id={first_lead.id}, "
+            f"has_second_task={task_details.second_task is not None}, "
+            f"has_third_task={task_details.third_task is not None}, "
+            f"deadline={task_details.deadline!r}"
+        )
+    return task_details
 
 
 def _build_task_details(lead: Lead | None) -> TaskDetails | None:

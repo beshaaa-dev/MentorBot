@@ -92,7 +92,7 @@ def _patch_amo_interaction():
 def init_amo_crm_integration():
     """Initialize AmoCRM token manager and handle token setup."""
     _patch_amo_interaction()
-    _amo_session.hooks["response"].append(_amo_response_hook)
+    # _amo_session.hooks["response"].append(_amo_response_hook)
     tokens.default_token_manager(
         client_id=config.CRM_CLIENT_ID,
         client_secret=config.CRM_CLIENT_SECRET,
