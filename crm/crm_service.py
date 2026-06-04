@@ -105,11 +105,20 @@ def init_amo_crm_integration():
 
     try:
         with amo_crm_rate_limiter.limit():
-            tokens.default_token_manager.get_access_token()
+            access_token = tokens.default_token_manager.get_access_token()
+        _log_token("init_amo_crm_integration", access_token)
         logger.info("AmoCRM token is valid")
     except Exception as e:
         logger.warning(f"Failed to get access token: {e}. Initializing new token...")
         init_amo_crm_token()
+
+
+def _log_token(context: str, token: str | None) -> None:
+    if not token:
+        logger.warning(f"[token:{context}] token is empty")
+        return
+    masked = f"{token[:8]}...{token[-4:]}" if len(token) > 12 else token[:4] + "***"
+    logger.info(f"[token:{context}] {masked} (len={len(token)})")
 
 
 def init_amo_crm_token():
@@ -119,6 +128,8 @@ def init_amo_crm_token():
                 code=config.CRM_AUTH_CODE,
                 skip_error=False,
             )
+        access_token = tokens.default_token_manager.get_access_token()
+        _log_token("init_amo_crm_token", access_token)
     except Exception as e:
         logger.error(f"Failed to initialize AmoCRM token: {e}")
         raise e
