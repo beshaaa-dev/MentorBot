@@ -19,6 +19,11 @@ import sys
 from dataclasses import dataclass
 from datetime import datetime
 
+from dotenv import load_dotenv
+
+# Must run before any import that reads config.py (which calls os.getenv at import time)
+load_dotenv(override=True)
+
 import jwt
 import requests
 
