@@ -24,22 +24,22 @@ import aiohttp
 logger = setup_logger(__name__)
 
 
-# def _amo_response_hook(response, *args, **kwargs):
-#     req = response.request
-#     body = req.body
-#     if isinstance(body, bytes):
-#         try:
-#             body = body.decode("utf-8")
-#         except Exception:
-#             body = repr(body)
-#     logger.info(
-#         "AMoCRM %s %s\nRequest body: %s\nResponse: %d %s",
-#         req.method,
-#         req.url,
-#         body or "(empty)",
-#         response.status_code,
-#         response.text[:3000],
-#     )
+def _amo_response_hook(response, *args, **kwargs):
+    req = response.request
+    body = req.body
+    if isinstance(body, bytes):
+        try:
+            body = body.decode("utf-8")
+        except Exception:
+            body = repr(body)
+    logger.info(
+        "AMoCRM %s %s\nRequest body: %s\nResponse: %d %s",
+        req.method,
+        req.url,
+        body or "(empty)",
+        response.status_code,
+        response.text[:3000],
+    )
 
 
 # TODO: Remove this patch once the AmoCRM Drive upload bug is fixed and
@@ -92,7 +92,7 @@ def _patch_amo_interaction():
 def init_amo_crm_integration():
     """Initialize AmoCRM token manager and handle token setup."""
     _patch_amo_interaction()
-    # _amo_session.hooks["response"].append(_amo_response_hook)
+    _amo_session.hooks["response"].append(_amo_response_hook)
     tokens.default_token_manager(
         client_id=config.CRM_CLIENT_ID,
         client_secret=config.CRM_CLIENT_SECRET,

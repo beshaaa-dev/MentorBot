@@ -7,14 +7,23 @@ CRM_CLIENT_SECRET = os.getenv("CRM_CLIENT_SECRET")
 CRM_AUTH_CODE = os.getenv("CRM_AUTH_CODE")
 CRM_SUBDOMAIN = os.getenv("CRM_SUBDOMAIN")
 CRM_REDIRECT_URL = "https://ya.ru"
+# Пайплайн
 CRM_PIPELINE = 9395722
+# Ожидаем тест
 CRM_TEST_STATUS = 75253982
+# Тест в процессе
 CRM_TEST_IS_IN_PROGRESS_STATUS = 82881498
+# Ожидаем визитку
 CRM_VISIT_CARD_STATUS = 82059746
+# Визитка отправлена
 CRM_VISIT_CARD_IS_SENT_STATUS = 82059750
+# Ожидаем тестовое
 CRM_TASK_STATUS = 76914298
+# Тестовое отправлено наставнику
 CRM_TASK_IS_SENT_STATUS = 76914306
+# Наставник отклонил
 CRM_TASK_IS_DISAPPROVED_STATUS = 81677538
+# Наставник принял
 CRM_TASK_IS_APPROVED_STATUS = 81677542
 
 SUPPORT_CONTACT_LINK = "https://t.me/Pokolenez_bot"
