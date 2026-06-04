@@ -126,10 +126,10 @@ def init_amo_crm_token():
 
 # Валидные статусы лида для начала работы со студентом
 VALID_LEAD_STATUSES = {
-    CRM_TEST_STATUS,
-    CRM_TEST_IS_IN_PROGRESS_STATUS,
-    CRM_TASK_STATUS,
-    CRM_VISIT_CARD_STATUS,
+    str(CRM_TEST_STATUS),
+    str(CRM_TEST_IS_IN_PROGRESS_STATUS),
+    str(CRM_TASK_STATUS),
+    str(CRM_VISIT_CARD_STATUS),
 }
 
 
@@ -144,49 +144,16 @@ def get_first_lead(crm_user: Contact) -> Lead | None:
         First Lead with correct pipeline/status, or None if not found
     """
     if not crm_user.leads:
-        logger.warning(
-            f"get_first_lead: CRM contact id={crm_user.id} has no leads — returning None"
-        )
         return None
-
-    lead_data = crm_user.leads._data or []
-    lead_ids = [ref["id"] for ref in lead_data]
-    logger.info(
-        f"get_first_lead: CRM contact id={crm_user.id} has {len(lead_ids)} lead(s): {lead_ids}; "
-        f"expected pipeline_id={CRM_PIPELINE}, valid_status_ids={VALID_LEAD_STATUSES}"
-    )
-
     for lead in _iter_contact_leads(crm_user):
         with amo_crm_rate_limiter.limit():
             lead_pipeline = lead.pipeline
-        pipeline_id = str(lead_pipeline.id) if lead_pipeline else "None"
-
-        if not lead_pipeline or pipeline_id != str(CRM_PIPELINE):
-            logger.info(
-                f"get_first_lead: lead id={lead.id} skipped — "
-                f"pipeline_id={pipeline_id} != expected {CRM_PIPELINE}"
-            )
+        if not lead_pipeline or str(lead_pipeline.id) != str(CRM_PIPELINE):
             continue
-
         with amo_crm_rate_limiter.limit():
             lead_status = lead.status
-        status_id = str(lead_status.id) if lead_status else "None"
-
-        if lead_status and status_id in VALID_LEAD_STATUSES:
-            logger.info(
-                f"get_first_lead: lead id={lead.id} matched — "
-                f"pipeline_id={pipeline_id}, status_id={status_id}"
-            )
+        if lead_status and str(lead_status.id) in VALID_LEAD_STATUSES:
             return lead
-
-        logger.info(
-            f"get_first_lead: lead id={lead.id} skipped — "
-            f"pipeline_id={pipeline_id}, status_id={status_id} not in valid statuses"
-        )
-
-    logger.warning(
-        f"get_first_lead: no matching lead found for CRM contact id={crm_user.id} — returning None"
-    )
     return None
 
 
@@ -203,19 +170,19 @@ def _iter_contact_leads(contact: Contact):
 def is_test_lead(lead: Lead) -> bool:
     """Check if lead has test status or test in progress status."""
     return lead.status and str(lead.status.id) in {
-        CRM_TEST_STATUS,
-        CRM_TEST_IS_IN_PROGRESS_STATUS,
+        str(CRM_TEST_STATUS),
+        str(CRM_TEST_IS_IN_PROGRESS_STATUS),
     }
 
 
 def is_visit_card_lead(lead: Lead) -> bool:
     """Check if lead has visit card status."""
-    return lead.status and str(lead.status.id) == CRM_VISIT_CARD_STATUS
+    return lead.status and str(lead.status.id) == str(CRM_VISIT_CARD_STATUS)
 
 
 def is_task_lead(lead: Lead) -> bool:
     """Check if lead has task status."""
-    return lead.status and str(lead.status.id) == CRM_TASK_STATUS
+    return lead.status and str(lead.status.id) == str(CRM_TASK_STATUS)
 
 
 def get_crm_user_by_tg_id(tg_id: int | str | None) -> Contact | None:
