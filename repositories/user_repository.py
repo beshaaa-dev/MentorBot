@@ -18,7 +18,7 @@ from crm.crm_service import (
     is_task_lead,
     Lead,
 )
-from datetime import datetime
+from datetime import datetime, timezone
 from timezone_utils import now_moscow
 from crm.crm_service import Contact
 from repositories.pdf_generator import create_anketa_pdf
@@ -210,7 +210,7 @@ def _format_deadline(deadline: str | None) -> str | None:
     if not deadline:
         return None
 
-    date_obj = datetime.fromtimestamp(int(deadline))
+    date_obj = datetime.fromtimestamp(int(deadline), tz=timezone.utc)
 
     from timezone_utils import to_moscow
 
