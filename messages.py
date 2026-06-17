@@ -198,6 +198,9 @@ ADMIN_MENU_TITLE = (
 SEND_BROADCAST_BUTTON = "Отправить рассылку"
 SCHEDULED_BROADCASTS_BUTTON = "Запланированные рассылки"
 EXPORT_DATA_BUTTON = "Выгрузить отчет"
+EXPORT_GENERATING_MESSAGE = "Генерирую файл с данными..."
+EXPORT_DATA_CAPTION = "Выгрузка данных"
+EXPORT_ERROR_MESSAGE = "Ошибка при генерации файла. Попробуйте позже."
 
 # Survey creation flow messages
 SELECT_CHATS_MESSAGE = "Выберите чаты для отправки опроса (можно выбрать несколько):"

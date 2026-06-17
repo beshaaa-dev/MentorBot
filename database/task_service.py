@@ -208,6 +208,16 @@ def get_postponed_tasks(mentor_id: int) -> list[Task]:
             raise
 
 
+def get_all_tasks() -> list[Task]:
+    with get_db() as db:
+        return (
+            db.query(Task)
+            .options(joinedload(Task.task_messages))
+            .order_by(Task.id)
+            .all()
+        )
+
+
 def get_mentor_task_notification(mentor_id: int) -> MentorTaskNotification | None:
     """Возвращает запись последнего уведомления о задании для данного ментора."""
     with get_db() as db:

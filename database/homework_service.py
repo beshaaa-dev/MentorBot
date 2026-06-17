@@ -319,6 +319,11 @@ def get_homeworks_for_mentor_by_status(
             raise
 
 
+def get_all_homeworks() -> list[Homework]:
+    with get_db() as db:
+        return db.query(Homework).order_by(Homework.id).all()
+
+
 def upsert_homework_answers(
     hw_id: int, answers: list[dict]
 ) -> list[HomeworkAnswer]:

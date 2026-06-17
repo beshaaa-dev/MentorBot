@@ -7,6 +7,9 @@ from messages import (
     SEND_BROADCAST_BUTTON,
     SCHEDULED_BROADCASTS_BUTTON,
     EXPORT_DATA_BUTTON,
+    EXPORT_GENERATING_MESSAGE,
+    EXPORT_DATA_CAPTION,
+    EXPORT_ERROR_MESSAGE,
     ERROR_MESSAGE,
 )
 from keyboards import get_support_keyboard
@@ -195,10 +198,10 @@ async def handle_admin_menu_callback(
 
         elif callback_data == "admin_export_data":
             try:
-                from services.broadcast_export import generate_survey_export
+                from services.data_export import generate_survey_export
                 from telegram import InputFile
 
-                await query.message.reply_text("Генерирую файл с данными...")
+                await query.message.reply_text(EXPORT_GENERATING_MESSAGE)
 
                 xlsx_buffer = generate_survey_export()
                 xlsx_file = InputFile(
@@ -209,14 +212,14 @@ async def handle_admin_menu_callback(
                 await context.bot.send_document(
                     chat_id=user.id,
                     document=xlsx_file,
-                    caption="Выгрузка данных опросов",
+                    caption=EXPORT_DATA_CAPTION,
                 )
 
                 logger.info(f"User {user.id} exported survey data")
             except Exception as e:
                 logger.error(f"Error exporting data: {e}")
                 await query.message.reply_text(
-                    "Ошибка при генерации файла. Попробуйте позже."
+                    EXPORT_ERROR_MESSAGE
                 )
 
     except Exception as e:

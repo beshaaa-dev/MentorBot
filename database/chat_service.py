@@ -281,3 +281,20 @@ def get_chat_member_by_user_tg_id(chat_db_id: int, user_tg_id: int) -> ChatMembe
             )
             .first()
         )
+
+
+def get_active_memberships_with_titles() -> list[tuple[int, str | None]]:
+    """Return (user_tg_id, chat_title) for all active chat memberships."""
+    with get_db() as db:
+        return (
+            db.query(ChatMember.user_tg_id, Chat.chat_title)
+            .join(Chat, ChatMember.chat_id == Chat.id)
+            .filter(ChatMember.is_active == True)
+            .all()
+        )
+
+
+def get_all_active_chat_members() -> list[ChatMember]:
+    """Return all active ChatMember rows."""
+    with get_db() as db:
+        return db.query(ChatMember).filter(ChatMember.is_active == True).all()

@@ -106,6 +106,11 @@ def create_user(
             raise
 
 
+def get_all_users() -> list[User]:
+    with get_db() as db:
+        return db.query(User).order_by(User.id).all()
+
+
 def update_user(
     user_id: int,
     tg_id: int | None = None,
