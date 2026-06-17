@@ -206,7 +206,7 @@ async def handle_admin_menu_callback(
                 xlsx_buffer = generate_survey_export()
                 xlsx_file = InputFile(
                     xlsx_buffer,
-                    filename=f"survey_export_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+                    filename=f"data_export_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
                 )
 
                 await context.bot.send_document(

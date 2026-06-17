@@ -5,7 +5,6 @@ from logger import setup_logger
 from database.db_helper import get_db
 from database.models import (
     SurveyAnswer,
-    TaskStatus,
     Broadcast,
     SurveyResponse,
     Chat,
@@ -45,6 +44,9 @@ def _auto_width(ws) -> None:
         ws.column_dimensions[col_letter].width = min(max_length + 2, 50)
 
 
+_ROLE_LABELS = {"mentor": "Наставник", "student": "Участник"}
+
+
 def _build_users_sheet(wb: Workbook, ws, users: list, tasks: list, homeworks: list) -> None:
     user_tg_ids: set[int] = {u.tg_id for u in users if u.tg_id is not None}
 
@@ -76,21 +78,14 @@ def _build_users_sheet(wb: Workbook, ws, users: list, tasks: list, homeworks: li
         "Telegram ID",
         "TG ник",
         "Роль",
+        "Зарегистрирован в боте",
         "Имя",
         "Фамилия",
         "Дата создания",
         "Дата регистрации",
         "Всего задач",
-        "Одобрено",
-        "Отклонено",
-        "Не проверено",
-        "Отложено (задачи)",
         "Всего ДЗ",
-        "Статус последнего ДЗ",
-        "Оценка последнего ДЗ",
-        "Дедлайн последнего ДЗ",
         "Чаты",
-        "Зарегистрирован в боте",
     ]
     _write_headers(ws, headers)
 
@@ -99,31 +94,21 @@ def _build_users_sheet(wb: Workbook, ws, users: list, tasks: list, homeworks: li
     for user in users:
         user_tasks = tasks_by_student.get(user.id, [])
         user_hws = hws_by_student.get(user.id, [])
-
-        last_hw = max(user_hws, key=lambda h: h.updated_at or datetime.min, default=None)
-
         chats_str = ", ".join(chats_by_tg_id.get(user.tg_id, [])) if user.tg_id else ""
 
         row = [
             user.id,
             user.tg_id or "",
             f"@{user.tg_nickname}" if user.tg_nickname else "",
-            user.role.value,
+            _ROLE_LABELS.get(user.role.value, user.role.value),
+            "Да",
             user.first_name or "",
             user.last_name or "",
             format_moscow(user.created_at, "%d.%m.%Y %H:%M") if user.created_at else "",
             format_moscow(user.registered_at, "%d.%m.%Y %H:%M") if user.registered_at else "",
             len(user_tasks),
-            sum(1 for t in user_tasks if t.status == TaskStatus.APPROVED),
-            sum(1 for t in user_tasks if t.status == TaskStatus.DISAPPROVED),
-            sum(1 for t in user_tasks if t.status == TaskStatus.UNCHECKED),
-            sum(1 for t in user_tasks if t.status == TaskStatus.POSTPONED),
             len(user_hws),
-            last_hw.status.value if last_hw else "",
-            last_hw.rating if last_hw and last_hw.rating is not None else "",
-            format_moscow(last_hw.deadline, "%d.%m.%Y %H:%M") if last_hw and last_hw.deadline else "",
             chats_str,
-            "Да",
         ]
         for col_idx, value in enumerate(row, start=1):
             ws.cell(row=row_num, column=col_idx, value=value)
@@ -136,21 +121,14 @@ def _build_users_sheet(wb: Workbook, ws, users: list, tasks: list, homeworks: li
             member.user_tg_id,
             f"@{member.username}" if member.username else "",
             "",
+            "Нет",
             member.first_name or "",
             member.last_name or "",
             "",
             "",
             "",
             "",
-            "",
-            "",
-            "",
-            "",
-            "",
-            "",
-            "",
             chats_str,
-            "Нет",
         ]
         for col_idx, value in enumerate(row, start=1):
             ws.cell(row=row_num, column=col_idx, value=value)
@@ -235,6 +213,7 @@ def _build_survey_sheet(wb: Workbook, users: list) -> None:
         "Название чата",
         "TG ID пользователя",
         "TG ник пользователя",
+        "Зарегистрирован в боте",
         "Имя",
         "Фамилия",
         "Дата окончания опроса",
@@ -242,7 +221,6 @@ def _build_survey_sheet(wb: Workbook, users: list) -> None:
     ]
     for q_key in question_keys:
         headers.append(question_name_map.get(q_key, q_key))
-    headers.append("Зарегистрирован в боте")
     _write_headers(ws, headers)
 
     responses_by_broadcast: dict[int, list] = defaultdict(list)
@@ -285,6 +263,7 @@ def _build_survey_sheet(wb: Workbook, users: list) -> None:
                 chat_title,
                 response.user_tg_id,
                 username or "",
+                "Да" if response.user_tg_id in user_tg_ids else "Нет",
                 first_name or "",
                 last_name or "",
                 format_moscow(response.completed_at, "%d.%m.%Y %H:%M") if response.completed_at else "",
@@ -303,14 +282,20 @@ def _build_survey_sheet(wb: Workbook, users: list) -> None:
                 else:
                     row_data.append("")
 
-            row_data.append("Да" if response.user_tg_id in user_tg_ids else "Нет")
-
             for col_idx, value in enumerate(row_data, start=1):
                 ws.cell(row=row_num, column=col_idx, value=value)
             row_num += 1
 
     _auto_width(ws)
     logger.info(f"Survey sheet: {row_num - 2} rows")
+
+
+_TASK_STATUS_LABELS = {
+    "unchecked": "Не проверено",
+    "approved": "Одобрено",
+    "disapproved": "Отклонено",
+    "postponed": "Отложено",
+}
 
 
 def _build_tasks_sheet(wb: Workbook, users: list, tasks: list) -> None:
@@ -320,15 +305,11 @@ def _build_tasks_sheet(wb: Workbook, users: list, tasks: list) -> None:
 
     headers = [
         "ID задачи",
-        "Lead ID",
+        "ID лида",
         "Статус",
-        "Студент (DB ID)",
-        "Студент (имя)",
-        "Студент (TG ник)",
-        "Ментор (DB ID)",
-        "Ментор (имя)",
-        "Ментор (TG ник)",
-        "Кол-во файлов",
+        "Участник",
+        "TG ник участника",
+        "Наставник",
         "Дата создания",
         "Дата обновления",
     ]
@@ -340,20 +321,15 @@ def _build_tasks_sheet(wb: Workbook, users: list, tasks: list) -> None:
 
         student_name = " ".join(filter(None, [student.first_name, student.last_name])) if student else ""
         student_nick = f"@{student.tg_nickname}" if student and student.tg_nickname else ""
-        mentor_name = " ".join(filter(None, [mentor.first_name, mentor.last_name])) if mentor else ""
         mentor_nick = f"@{mentor.tg_nickname}" if mentor and mentor.tg_nickname else ""
 
         row = [
             task.id,
             task.lead_id,
-            task.status.value,
-            task.student_id,
+            _TASK_STATUS_LABELS.get(task.status.value, task.status.value),
             student_name,
             student_nick,
-            task.mentor_id,
-            mentor_name,
             mentor_nick,
-            len(task.task_messages),
             format_moscow(task.created_at, "%d.%m.%Y %H:%M") if task.created_at else "",
             format_moscow(task.updated_at, "%d.%m.%Y %H:%M") if task.updated_at else "",
         ]
@@ -364,6 +340,18 @@ def _build_tasks_sheet(wb: Workbook, users: list, tasks: list) -> None:
     logger.info(f"Tasks sheet: {len(tasks)} rows")
 
 
+_HW_STATUS_LABELS = {
+    "pending": "Ожидает",
+    "in_progress": "В процессе",
+    "submitted": "Сдано",
+    "pending_mentor": "На проверке",
+    "postponed": "Отложено",
+    "approved": "Одобрено",
+    "edit": "На доработке",
+    "edit_from_mentor": "На доработке (ментор)",
+}
+
+
 def _build_homework_sheet(wb: Workbook, users: list, homeworks: list) -> None:
     ws = wb.create_sheet("Домашние задания")
 
@@ -371,14 +359,11 @@ def _build_homework_sheet(wb: Workbook, users: list, homeworks: list) -> None:
 
     headers = [
         "ID ДЗ",
-        "Lead ID",
+        "ID лида",
         "Статус",
-        "Студент (DB ID)",
-        "Студент (имя)",
-        "Студент (TG ник)",
-        "Ментор (DB ID)",
-        "Ментор (имя)",
-        "Ментор (TG ник)",
+        "Участник",
+        "TG ник участника",
+        "Наставник",
         "Вопрос 1",
         "Вопрос 2",
         "Вопрос 3",
@@ -399,18 +384,14 @@ def _build_homework_sheet(wb: Workbook, users: list, homeworks: list) -> None:
 
         student_name = " ".join(filter(None, [student.first_name, student.last_name])) if student else ""
         student_nick = f"@{student.tg_nickname}" if student and student.tg_nickname else ""
-        mentor_name = " ".join(filter(None, [mentor.first_name, mentor.last_name])) if mentor else ""
         mentor_nick = f"@{mentor.tg_nickname}" if mentor and mentor.tg_nickname else ""
 
         row = [
             hw.id,
             hw.lead_id,
-            hw.status.value,
-            hw.student_id,
+            _HW_STATUS_LABELS.get(hw.status.value, hw.status.value),
             student_name,
             student_nick,
-            hw.mentor_id or "",
-            mentor_name,
             mentor_nick,
             hw.first_hw or "",
             hw.second_hw or "",
