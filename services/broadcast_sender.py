@@ -17,10 +17,24 @@ from database.chat_service import (
 )
 from database.models import BroadcastStatus, BroadcastType
 from telegram.constants import ChatMemberStatus
-from telegram.error import BadRequest
+from telegram.error import BadRequest, RetryAfter
 from messages import SURVEY_INTRODUCTION
 
 logger = setup_logger(__name__)
+
+_SEND_INTERVAL = 0.05  # 20 msg/sec — safely under Telegram's 30/sec global cap
+
+
+async def _send_message_throttled(bot, chat_id: int, **kwargs) -> None:
+    """Send a message, honouring RetryAfter and pacing to avoid flood control."""
+    try:
+        await bot.send_message(chat_id=chat_id, **kwargs)
+    except RetryAfter as e:
+        logger.warning(f"Flood control hit for {chat_id}, retrying after {e.retry_after}s")
+        await asyncio.sleep(e.retry_after)
+        await bot.send_message(chat_id=chat_id, **kwargs)
+    finally:
+        await asyncio.sleep(_SEND_INTERVAL)
 
 
 async def refresh_admin_status_for_chat(chat_id: int, context) -> None:
@@ -122,8 +136,9 @@ async def send_broadcast_to_chats(broadcast_id: int, context) -> dict[str, int]:
                     if broadcast.broadcast_type == BroadcastType.MESSAGE:
                         # Send simple message (no response tracking)
                         try:
-                            await context.bot.send_message(
-                                chat_id=member.user_tg_id,
+                            await _send_message_throttled(
+                                context.bot,
+                                member.user_tg_id,
                                 text=broadcast.message_content,
                             )
                             stats["sent"] += 1
@@ -164,8 +179,9 @@ async def send_broadcast_to_chats(broadcast_id: int, context) -> dict[str, int]:
                         )
 
                         try:
-                            await context.bot.send_message(
-                                chat_id=member.user_tg_id,
+                            await _send_message_throttled(
+                                context.bot,
+                                member.user_tg_id,
                                 text=SURVEY_INTRODUCTION,
                                 reply_markup=keyboard,
                             )
