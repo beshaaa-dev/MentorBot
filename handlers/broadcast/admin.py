@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import datetime
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, CommandHandler, CallbackQueryHandler, filters
 from logger import setup_logger
@@ -16,28 +16,38 @@ from keyboards import get_support_keyboard
 
 logger = setup_logger(__name__)
 
-_admin_chats_cache: dict[int, tuple[list[tuple[int, str]], datetime]] = {}
-_ADMIN_CACHE_TTL = timedelta(minutes=5)
-
 
 async def get_admin_chats_for_user(
     user_tg_id: int, context: ContextTypes.DEFAULT_TYPE
 ) -> list[tuple[int, str]]:
-    """Return (chat_id, chat_title) pairs where user is admin. Cached for 5 minutes."""
-    from database.chat_service import get_all_chats, deactivate_chat
+    """Return (chat_id, chat_title) pairs where user is admin.
 
-    cached = _admin_chats_cache.get(user_tg_id)
-    if cached and cached[1] > datetime.utcnow():
-        return cached[0]
+    Uses DB-cached admin flags updated by ChatMemberUpdated events.
+    Falls back to polling the Telegram API only for users the DB has never seen.
+    """
+    from database.chat_service import (
+        get_all_chats,
+        deactivate_chat,
+        get_user_admin_chats,
+        user_has_any_chat_record,
+        get_or_create_chat_member,
+    )
 
+    if user_has_any_chat_record(user_tg_id):
+        rows = get_user_admin_chats(user_tg_id)
+        return [(chat_id, title or f"Чат {chat_id}") for chat_id, title in rows]
+
+    # Unknown user — poll once and populate the DB for future calls
     chats = get_all_chats(active_only=True)
     admin_chats: list[tuple[int, str]] = []
 
     for chat_id, chat_title in chats:
         try:
             administrators = await context.bot.get_chat_administrators(chat_id)
-            if user_tg_id in {admin.user.id for admin in administrators}:
+            is_admin = user_tg_id in {admin.user.id for admin in administrators}
+            if is_admin:
                 admin_chats.append((chat_id, chat_title or f"Чат {chat_id}"))
+            get_or_create_chat_member(chat_id=chat_id, user_tg_id=user_tg_id, is_admin=is_admin)
         except Exception as e:
             error_msg = str(e).lower()
             logger.warning(f"Could not check admin status in chat {chat_id}: {e}")
@@ -47,7 +57,6 @@ async def get_admin_chats_for_user(
             ):
                 deactivate_chat(chat_id)
 
-    _admin_chats_cache[user_tg_id] = (admin_chats, datetime.utcnow() + _ADMIN_CACHE_TTL)
     return admin_chats
 
 

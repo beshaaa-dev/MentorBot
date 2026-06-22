@@ -298,3 +298,29 @@ def get_all_active_chat_members() -> list[ChatMember]:
     """Return all active ChatMember rows."""
     with get_db() as db:
         return db.query(ChatMember).filter(ChatMember.is_active == True).all()
+
+
+def get_user_admin_chats(user_tg_id: int) -> list[tuple[int, str | None]]:
+    """Return (chat_id, chat_title) for chats where the user is an active admin."""
+    with get_db() as db:
+        return (
+            db.query(Chat.chat_id, Chat.chat_title)
+            .join(ChatMember, ChatMember.chat_id == Chat.id)
+            .filter(
+                ChatMember.user_tg_id == user_tg_id,
+                ChatMember.is_admin == True,
+                ChatMember.is_active == True,
+                Chat.is_active == True,
+            )
+            .all()
+        )
+
+
+def user_has_any_chat_record(user_tg_id: int) -> bool:
+    """Return True if the DB has any ChatMember row for this user."""
+    with get_db() as db:
+        return (
+            db.query(ChatMember.id)
+            .filter(ChatMember.user_tg_id == user_tg_id)
+            .first()
+        ) is not None
