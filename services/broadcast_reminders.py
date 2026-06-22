@@ -1,5 +1,6 @@
 from datetime import datetime, timedelta
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+from keyboards import get_broadcast_delivery_stats_keyboard
 from logger import setup_logger
 from database.broadcast_service import (
     get_broadcast_by_id,
@@ -129,6 +130,8 @@ async def notify_curator(context, broadcast_id: int) -> None:
         if mismatch_lines:
             mismatch_section = "⚠️ Расхождение по участникам:\n" + "\n".join(mismatch_lines) + "\n\n"
 
+        stats_keyboard = get_broadcast_delivery_stats_keyboard(broadcast_id)
+
         # Get incomplete responses
         incomplete_responses = get_incomplete_responses(broadcast_id)
 
@@ -137,6 +140,7 @@ async def notify_curator(context, broadcast_id: int) -> None:
             await context.bot.send_message(
                 chat_id=curator_tg_id,
                 text=f"{mismatch_section}✅ Все участники завершили опрос #{broadcast_id}.",
+                reply_markup=stats_keyboard,
             )
             return
 
@@ -181,6 +185,7 @@ async def notify_curator(context, broadcast_id: int) -> None:
         await context.bot.send_message(
             chat_id=curator_tg_id,
             text=notification,
+            reply_markup=stats_keyboard,
         )
 
         logger.info(

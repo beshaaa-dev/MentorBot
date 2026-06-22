@@ -39,6 +39,7 @@ from messages import (
     MENTOR_HW_NAV_NEXT,
     CHECK_TASKS_BUTTON,
     INVITE_FRIEND_BUTTON,
+    BROADCAST_DELIVERY_STATS_BUTTON,
 )
 
 STUDENT_CHECK_TASKS_CB = "student_check_tasks"
@@ -283,4 +284,14 @@ def get_hw_feedback_skip_keyboard(hw_id: int) -> InlineKeyboardMarkup:
     keyboard = [
         [InlineKeyboardButton(HW_SKIP_BUTTON, callback_data=f"hw_skip_feedback_{hw_id}")],
     ]
+    return InlineKeyboardMarkup(keyboard)
+
+
+def get_broadcast_delivery_stats_keyboard(broadcast_id: int) -> InlineKeyboardMarkup:
+    keyboard = [[
+        InlineKeyboardButton(
+            BROADCAST_DELIVERY_STATS_BUTTON,
+            callback_data=f"broadcast_delivery_stats_{broadcast_id}",
+        )
+    ]]
     return InlineKeyboardMarkup(keyboard)

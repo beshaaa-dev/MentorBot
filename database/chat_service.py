@@ -2,7 +2,7 @@ from datetime import datetime
 from database.db_helper import get_db
 from database.models import Chat, ChatMember
 from logger import setup_logger
-from sqlalchemy import and_
+from sqlalchemy import and_, or_
 from sqlalchemy.exc import IntegrityError
 
 logger = setup_logger(__name__)
@@ -281,6 +281,43 @@ def get_chat_member_by_user_tg_id(chat_db_id: int, user_tg_id: int) -> ChatMembe
             )
             .first()
         )
+
+
+def get_chat_members_display_info(
+    pairs: list[tuple[int, int]],
+) -> dict[tuple[int, int], dict]:
+    """Fetch display fields for multiple (chat_db_id, user_tg_id) pairs in one query.
+
+    Returns a dict keyed by (chat_db_id, user_tg_id) with scalar values extracted
+    inside the session so callers never touch a detached ORM object.
+    """
+    if not pairs:
+        return {}
+    with get_db() as db:
+        conditions = [
+            and_(ChatMember.chat_id == chat_db_id, ChatMember.user_tg_id == user_tg_id)
+            for chat_db_id, user_tg_id in pairs
+        ]
+        rows = (
+            db.query(
+                ChatMember.chat_id,
+                ChatMember.user_tg_id,
+                ChatMember.username,
+                ChatMember.first_name,
+                ChatMember.last_name,
+            )
+            .filter(or_(*conditions))
+            .all()
+        )
+        return {
+            (row.chat_id, row.user_tg_id): {
+                "username": row.username,
+                "first_name": row.first_name,
+                "last_name": row.last_name,
+                "user_tg_id": row.user_tg_id,
+            }
+            for row in rows
+        }
 
 
 def get_active_memberships_with_titles() -> list[tuple[int, str | None]]:

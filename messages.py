@@ -235,3 +235,14 @@ SURVEY_INTRODUCTION = (
     "Ответьте, пожалуйста, на несколько вопросов — это займёт пару минут.\n\n"
     "Результаты опроса важны и для Вашего Наставника и для проекта."
 )
+
+# Broadcast delivery stats
+BROADCAST_DELIVERY_STATS_BUTTON = "Посмотреть подробную статистику"
+BROADCAST_DELIVERY_DATA_UNAVAILABLE = "Данные по рассылке #{broadcast_id} недоступны."
+BROADCAST_DELIVERY_STATS_HEADER = "📋 Подробная статистика рассылки #{broadcast_id}\n\n✅ Получили рассылку ({count} чел.):\n"
+BROADCAST_DELIVERY_FAILED_HEADER = "❌ Не получили рассылку ({count} чел.):\n"
+BROADCAST_DELIVERY_STATS_ERROR = "Ошибка при загрузке статистики."
+BROADCAST_ERROR_NO_START = "не написал /start боту"
+BROADCAST_ERROR_DEACTIVATED = "аккаунт удалён"
+BROADCAST_ERROR_BLOCKED = "заблокировал бота"
+BROADCAST_ERROR_CHAT_NOT_FOUND = "чат не найден"

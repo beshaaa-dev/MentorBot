@@ -11,10 +11,45 @@ from messages import (
     EXPORT_DATA_CAPTION,
     EXPORT_ERROR_MESSAGE,
     ERROR_MESSAGE,
+    BROADCAST_DELIVERY_DATA_UNAVAILABLE,
+    BROADCAST_DELIVERY_STATS_HEADER,
+    BROADCAST_DELIVERY_FAILED_HEADER,
+    BROADCAST_DELIVERY_STATS_ERROR,
+    BROADCAST_ERROR_NO_START,
+    BROADCAST_ERROR_DEACTIVATED,
+    BROADCAST_ERROR_BLOCKED,
+    BROADCAST_ERROR_CHAT_NOT_FOUND,
 )
 from keyboards import get_support_keyboard
 
 logger = setup_logger(__name__)
+
+_DELIVERY_STATS_MAX_LEN = 3900
+
+
+def _classify_telegram_error(error: str) -> str:
+    msg = error.lower()
+    if "can't initiate conversation" in msg or "bot can't initiate" in msg:
+        return BROADCAST_ERROR_NO_START
+    if "user is deactivated" in msg:
+        return BROADCAST_ERROR_DEACTIVATED
+    if "blocked" in msg or "forbidden" in msg:
+        return BROADCAST_ERROR_BLOCKED
+    if "chat not found" in msg:
+        return BROADCAST_ERROR_CHAT_NOT_FOUND
+    return error
+
+
+async def _send_chunked_section(send_fn, header: str, lines: list[str]) -> None:
+    """Send header + lines as one or more messages, keeping header on every chunk."""
+    current = header
+    for line in lines:
+        if len(current) + len(line) > _DELIVERY_STATS_MAX_LEN:
+            await send_fn(current)
+            current = header + line
+        else:
+            current += line
+    await send_fn(current)
 
 
 async def get_admin_chats_for_user(
@@ -205,6 +240,52 @@ async def handle_admin_menu_callback(
                 ADMIN_MENU_TITLE, reply_markup=get_admin_menu_keyboard()
             )
 
+        elif callback_data.startswith("broadcast_delivery_stats_"):
+            try:
+                broadcast_id = int(callback_data.split("_")[-1])
+                from database.chat_service import get_chat_members_display_info
+
+                delivery = context.bot_data.get(f"broadcast_delivery_{broadcast_id}")
+                if not delivery:
+                    await query.message.reply_text(
+                        BROADCAST_DELIVERY_DATA_UNAVAILABLE.format(broadcast_id=broadcast_id)
+                    )
+                    return
+
+                sent = delivery["sent"]
+                failed = delivery["failed"]
+
+                all_pairs = [(e["chat_db_id"], e["user_tg_id"]) for e in sent + failed]
+                member_lookup = get_chat_members_display_info(all_pairs)
+
+                def _display(entry: dict) -> str:
+                    info = member_lookup.get((entry["chat_db_id"], entry["user_tg_id"]))
+                    if info:
+                        display = f"@{info['username']}" if info["username"] else f"ID {info['user_tg_id']}"
+                        name = f"{info['first_name'] or ''} {info['last_name'] or ''}".strip()
+                        if name:
+                            display = f"{name} ({display})"
+                    else:
+                        display = f"ID {entry['user_tg_id']}"
+                    return display
+
+                await _send_chunked_section(
+                    query.message.reply_text,
+                    BROADCAST_DELIVERY_STATS_HEADER.format(broadcast_id=broadcast_id, count=len(sent)),
+                    [f"• {_display(e)}\n" for e in sent],
+                )
+                await _send_chunked_section(
+                    query.message.reply_text,
+                    BROADCAST_DELIVERY_FAILED_HEADER.format(count=len(failed)),
+                    [f"• {_display(e)} — {_classify_telegram_error(e.get('error', ''))}\n" for e in failed],
+                )
+
+                del context.bot_data[f"broadcast_delivery_{broadcast_id}"]
+                logger.info(f"User {user.id} viewed delivery stats for broadcast {broadcast_id}")
+            except Exception as e:
+                logger.error(f"Error showing delivery stats: {e}")
+                await query.message.reply_text(BROADCAST_DELIVERY_STATS_ERROR)
+
         elif callback_data == "admin_export_data":
             try:
                 from services.data_export import generate_survey_export
@@ -241,5 +322,6 @@ async def handle_admin_menu_callback(
 # Handler registrations
 admin_command_handler = CommandHandler("admin", handle_admin_command, filters=filters.ChatType.PRIVATE)
 admin_menu_callback_handler = CallbackQueryHandler(
-    handle_admin_menu_callback, pattern="^(admin_|cancel_broadcast_|admin_back_to_menu)"
+    handle_admin_menu_callback,
+    pattern="^(admin_|cancel_broadcast_|admin_back_to_menu|broadcast_delivery_stats_)",
 )

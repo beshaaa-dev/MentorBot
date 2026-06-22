@@ -94,6 +94,7 @@ async def send_broadcast_to_chats(broadcast_id: int, context) -> dict[str, int]:
 
     broadcast_chats = get_broadcast_chats(broadcast_id)
     stats = {"sent": 0, "failed": 0}
+    delivery = {"sent": [], "failed": []}
 
     for broadcast_chat in broadcast_chats:
         chat_db_id = broadcast_chat.chat_id  # This is the database chat.id
@@ -126,12 +127,21 @@ async def send_broadcast_to_chats(broadcast_id: int, context) -> dict[str, int]:
                                 text=broadcast.message_content,
                             )
                             stats["sent"] += 1
+                            delivery["sent"].append({
+                                "user_tg_id": member.user_tg_id,
+                                "chat_db_id": chat_db_id,
+                            })
 
                         except Exception as e:
                             logger.warning(
                                 f"Could not send message to user {member.user_tg_id}: {e}"
                             )
                             stats["failed"] += 1
+                            delivery["failed"].append({
+                                "user_tg_id": member.user_tg_id,
+                                "chat_db_id": chat_db_id,
+                                "error": str(e),
+                            })
 
                     else:  # BroadcastType.SURVEY
                         # Create survey response record first
@@ -160,22 +170,38 @@ async def send_broadcast_to_chats(broadcast_id: int, context) -> dict[str, int]:
                                 reply_markup=keyboard,
                             )
                             stats["sent"] += 1
+                            delivery["sent"].append({
+                                "user_tg_id": member.user_tg_id,
+                                "chat_db_id": chat_db_id,
+                            })
 
                         except Exception as e:
                             logger.warning(
                                 f"Could not send survey to user {member.user_tg_id}: {e}"
                             )
                             stats["failed"] += 1
+                            delivery["failed"].append({
+                                "user_tg_id": member.user_tg_id,
+                                "chat_db_id": chat_db_id,
+                                "error": str(e),
+                            })
 
                 except Exception as e:
                     logger.error(
                         f"Error processing member {member.user_tg_id} for broadcast {broadcast_id}: {e}"
                     )
                     stats["failed"] += 1
+                    delivery["failed"].append({
+                        "user_tg_id": member.user_tg_id,
+                        "chat_db_id": chat_db_id,
+                        "error": str(e),
+                    })
 
         except Exception as e:
             logger.error(f"Error sending broadcast to chat {telegram_chat_id}: {e}")
             stats["failed"] += 1
+
+    context.bot_data[f"broadcast_delivery_{broadcast_id}"] = delivery
 
     # Update status to SENT
     broadcast = update_broadcast_status(broadcast_id, BroadcastStatus.SENT)
