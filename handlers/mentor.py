@@ -175,7 +175,7 @@ async def send_task(
         chat_id=chat_id,
         task=task,
         context=context,
-        pdf_data=pdf_data,
+        # pdf_data=pdf_data,
         reply_markup=get_mentor_menu_keyboard(),
     )
 
@@ -217,22 +217,22 @@ async def _send_task_payload(
     pdf_data: tuple[str, bytes | None, str | None] | None = None,
     reply_markup=None,
 ) -> list[int]:
-    if pdf_data is None:
-        pdf_data = get_student_anketa_pdf(
-            student_id=task.student_id, lead_id=task.lead_id
-        )
+    # if pdf_data is None:
+    #     pdf_data = get_student_anketa_pdf(
+    #         student_id=task.student_id, lead_id=task.lead_id
+    #     )
 
-    pdf_filename, pdf_bytes, _ = pdf_data
+    # pdf_filename, pdf_bytes, _ = pdf_data
     msg_ids: list[int] = []
 
     # Only send PDF document if it has content
-    if pdf_bytes is not None:
-        pdf_file = InputFile(BytesIO(pdf_bytes), filename=pdf_filename)
-        doc_msg = await context.bot.send_document(
-            chat_id=chat_id,
-            document=pdf_file,
-        )
-        msg_ids.append(doc_msg.message_id)
+    # if pdf_bytes is not None:
+    #     pdf_file = InputFile(BytesIO(pdf_bytes), filename=pdf_filename)
+    #     doc_msg = await context.bot.send_document(
+    #         chat_id=chat_id,
+    #         document=pdf_file,
+    #     )
+    #     msg_ids.append(doc_msg.message_id)
 
     # Send all task messages, ordered by task_number
     task_messages = sorted(task.task_messages, key=lambda tm: tm.task_number)
