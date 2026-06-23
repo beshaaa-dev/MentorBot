@@ -39,7 +39,10 @@ async def send_scheduled_broadcast_callback(context) -> None:
             return
 
         # Send broadcast
-        await send_broadcast_to_chats(broadcast_id, context)
+        from services.broadcast_sender import notify_curator_send_result
+
+        stats = await send_broadcast_to_chats(broadcast_id, context)
+        await notify_curator_send_result(broadcast_id, stats, context)
 
     except Exception as e:
         logger.error(f"Error sending scheduled broadcast {broadcast_id}: {e}")

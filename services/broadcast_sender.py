@@ -239,3 +239,54 @@ async def send_broadcast_to_chats(broadcast_id: int, context) -> dict[str, int]:
     )
 
     return stats
+
+
+async def build_mismatch_section(broadcast_id: int, context) -> str:
+    """Return ⚠️ mismatch block if Telegram member count differs from DB, else empty string."""
+    mismatch_lines = []
+    for broadcast_chat in get_broadcast_chats(broadcast_id):
+        chat = get_chat_by_db_id(broadcast_chat.chat_id)
+        if not chat:
+            continue
+        db_count = len(get_active_chat_members(chat.chat_id, exclude_admins=False))
+        try:
+            tg_count = await context.bot.get_chat_member_count(chat.chat_id)
+        except Exception:
+            continue
+        if tg_count != db_count:
+            chat_title = chat.chat_title or f"chat_{chat.chat_id}"
+            mismatch_lines.append(
+                f"• {chat_title}: в Telegram: {tg_count}, в базе: {db_count}"
+            )
+    if mismatch_lines:
+        return "⚠️ Расхождение по участникам:\n" + "\n".join(mismatch_lines) + "\n\n"
+    return ""
+
+
+async def notify_curator_send_result(
+    broadcast_id: int, stats: dict[str, int], context, query=None
+) -> None:
+    """Send the post-send notification to the curator.
+
+    Passes query to edit the existing inline message (immediate send),
+    or sends a new DM if query is None (scheduled send).
+    """
+    from keyboards import get_broadcast_delivery_stats_keyboard
+
+    mismatch_section = await build_mismatch_section(broadcast_id, context)
+    text = (
+        f"{mismatch_section}"
+        f"Рассылка отправлена! Успешно: {stats['sent']}, ошибок: {stats['failed']}"
+    )
+    keyboard = get_broadcast_delivery_stats_keyboard(broadcast_id)
+
+    if query is not None:
+        await query.edit_message_text(text, reply_markup=keyboard)
+    else:
+        broadcast = get_broadcast_by_id(broadcast_id)
+        if broadcast:
+            await context.bot.send_message(
+                chat_id=broadcast.curator_tg_id,
+                text=text,
+                reply_markup=keyboard,
+            )

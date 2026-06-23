@@ -498,12 +498,10 @@ async def handle_confirmation(
                 add_chat_to_broadcast(broadcast.id, chat.id)
 
         if send_immediately:
-            from services.broadcast_sender import send_broadcast_to_chats
+            from services.broadcast_sender import send_broadcast_to_chats, notify_curator_send_result
 
             stats = await send_broadcast_to_chats(broadcast.id, context)
-            await query.edit_message_text(
-                f"Рассылка отправлена! Успешно: {stats['sent']}, ошибок: {stats['failed']}"
-            )
+            await notify_curator_send_result(broadcast.id, stats, context, query=query)
         else:
             from services.broadcast_scheduler import schedule_broadcast
 

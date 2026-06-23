@@ -1,10 +1,8 @@
 from datetime import datetime, timedelta
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
-from keyboards import get_broadcast_delivery_stats_keyboard
 from logger import setup_logger
 from database.broadcast_service import (
     get_broadcast_by_id,
-    get_broadcast_chats,
     get_incomplete_responses_without_reminder,
     get_incomplete_responses,
     get_all_broadcasts_with_responses,
@@ -108,30 +106,6 @@ async def notify_curator(context, broadcast_id: int) -> None:
 
         curator_tg_id = broadcast.curator_tg_id
 
-        # Build mismatch section: compare Telegram member count vs DB active count per chat
-        mismatch_lines = []
-        for broadcast_chat in get_broadcast_chats(broadcast_id):
-            chat = get_chat_by_db_id(broadcast_chat.chat_id)
-            if not chat:
-                continue
-            db_count = len(get_active_chat_members(chat.chat_id, exclude_admins=False))
-            try:
-                tg_count = await context.bot.get_chat_member_count(chat.chat_id)
-            except Exception as e:
-                logger.warning(f"Could not get member count for chat {chat.chat_id}: {e}")
-                continue
-            if tg_count != db_count:
-                chat_title = chat.chat_title or f"chat_{chat.chat_id}"
-                mismatch_lines.append(
-                    f"• {chat_title}: в Telegram: {tg_count}, в базе: {db_count}"
-                )
-
-        mismatch_section = ""
-        if mismatch_lines:
-            mismatch_section = "⚠️ Расхождение по участникам:\n" + "\n".join(mismatch_lines) + "\n\n"
-
-        stats_keyboard = get_broadcast_delivery_stats_keyboard(broadcast_id)
-
         # Get incomplete responses
         incomplete_responses = get_incomplete_responses(broadcast_id)
 
@@ -139,8 +113,7 @@ async def notify_curator(context, broadcast_id: int) -> None:
             # All completed - send success message
             await context.bot.send_message(
                 chat_id=curator_tg_id,
-                text=f"{mismatch_section}✅ Все участники завершили опрос #{broadcast_id}.",
-                reply_markup=stats_keyboard,
+                text=f"✅ Все участники завершили опрос #{broadcast_id}.",
             )
             return
 
@@ -165,7 +138,6 @@ async def notify_curator(context, broadcast_id: int) -> None:
 
         # Build notification message
         notification = (
-            f"{mismatch_section}"
             f"📊 Статистика по опросу #{broadcast_id}\n\n"
             f"⏰ Отправлен: {format_moscow(broadcast.sent_at)}\n\n"
             f"❌ Не завершили опрос: {len(incomplete_responses)} чел.\n\n"
@@ -185,7 +157,6 @@ async def notify_curator(context, broadcast_id: int) -> None:
         await context.bot.send_message(
             chat_id=curator_tg_id,
             text=notification,
-            reply_markup=stats_keyboard,
         )
 
         logger.info(
