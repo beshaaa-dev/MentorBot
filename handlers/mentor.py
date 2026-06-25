@@ -32,6 +32,7 @@ from keyboards import (
     get_mentor_menu_keyboard,
     get_postponed_task_navigation_keyboard,
     get_mentor_homework_menu_keyboard,
+    get_view_all_tasks_keyboard,
 )
 from messages import (
     ERROR_MESSAGE,
@@ -52,6 +53,7 @@ from messages import (
     DISAPPROVED_STUDENTS_HEADER,
     STUDENT_LIST_EMPTY_MESSAGE,
     STUDENT_LIST_CONTINUATION_LABEL,
+    VIEW_ALL_BUTTON,
     CHECK_NEW_TASK_BUTTON,
     POSTPONED_TASKS_BUTTON,
     NO_POSTPONED_TASKS,
@@ -833,6 +835,7 @@ async def handle_mentor_student_list_request(
         return
 
     target_status, header = status_mapping[text]
+    context.user_data["student_list_status_filter"] = target_status.value
 
     try:
         tasks = get_tasks_for_mentor_by_status(mentor.id, target_status)
@@ -850,15 +853,72 @@ async def handle_mentor_student_list_request(
     messages = _chunk_student_list_messages(header, student_names)
 
     chat_id = update.effective_chat.id
+    last_keyboard = get_view_all_tasks_keyboard() if tasks else get_mentor_menu_keyboard()
 
     for idx, chunk in enumerate(messages):
         await context.bot.send_message(
             chat_id=chat_id,
             text=chunk,
-            reply_markup=(
-                get_mentor_menu_keyboard() if idx == len(messages) - 1 else None
-            ),
+            reply_markup=(last_keyboard if idx == len(messages) - 1 else None),
         )
+
+
+async def handle_view_all_tasks_button(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> None:
+    message = update.message
+    await delete_user_message(message)
+
+    mentor = find_by_tg_id(update.effective_user.id)
+    if not mentor or mentor.role != UserRole.MENTOR:
+        logger.warning("View-all requested by non-mentor user")
+        await update.message.reply_text(ERROR_MESSAGE, reply_markup=get_support_keyboard())
+        context.user_data.clear()
+        return
+
+    status_value = context.user_data.get("student_list_status_filter")
+    if not status_value:
+        await update.message.reply_text(
+            NO_PREVIOUS_TASKS,
+            reply_markup=get_mentor_menu_keyboard(),
+            parse_mode="Markdown",
+            disable_web_page_preview=True,
+        )
+        return
+
+    target_status = TaskStatus(status_value)
+    try:
+        tasks = get_tasks_for_mentor_by_status(mentor.id, target_status)
+    except Exception as e:
+        logger.error(f"Error fetching {target_status.value} tasks for view-all: {e}")
+        await update.message.reply_text(ERROR_MESSAGE, reply_markup=get_support_keyboard())
+        return
+
+    if not tasks:
+        await update.message.reply_text(
+            NO_PREVIOUS_TASKS,
+            reply_markup=get_mentor_menu_keyboard(),
+            parse_mode="Markdown",
+            disable_web_page_preview=True,
+        )
+        return
+
+    task_ids = [t.id for t in tasks]
+    history_message = await _present_decided_task_view(
+        chat_id=update.effective_chat.id,
+        mentor_id=mentor.id,
+        context=context,
+        target_task_id=task_ids[0],
+        cached_task_ids=task_ids,
+    )
+    if not history_message:
+        await update.message.reply_text(
+            NO_PREVIOUS_TASKS,
+            reply_markup=get_mentor_menu_keyboard(),
+            parse_mode="Markdown",
+            disable_web_page_preview=True,
+        )
+        context.user_data.pop("student_list_status_filter", None)
 
 
 # ================================
@@ -1105,6 +1165,11 @@ mentor_history_nav_handler = MessageHandler(
 mentor_to_menu_handler = MessageHandler(
     filters.TEXT & ~filters.COMMAND & filters.Regex(f"^{TO_MENU_BUTTON}$"),
     handle_to_menu_message,
+)
+
+mentor_view_all_tasks_handler = MessageHandler(
+    filters.TEXT & ~filters.COMMAND & filters.Regex(f"^{VIEW_ALL_BUTTON}$"),
+    handle_view_all_tasks_button,
 )
 
 mentor_student_list_handler = MessageHandler(

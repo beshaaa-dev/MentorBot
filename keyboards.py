@@ -16,6 +16,7 @@ from messages import (
     TO_MENU_BUTTON,
     APPROVED_STUDENTS_BUTTON,
     DISAPPROVED_STUDENTS_BUTTON,
+    VIEW_ALL_BUTTON,
     CHECK_NEW_TASK_BUTTON,
     POSTPONE_TASK_BUTTON,
     POSTPONED_TASKS_BUTTON,
@@ -109,6 +110,14 @@ def get_mentor_menu_keyboard() -> ReplyKeyboardMarkup:
         ],
     ]
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=True)
+
+
+def get_view_all_tasks_keyboard() -> ReplyKeyboardMarkup:
+    return ReplyKeyboardMarkup(
+        [[KeyboardButton(VIEW_ALL_BUTTON)], [KeyboardButton(TO_MENU_BUTTON)]],
+        resize_keyboard=True,
+        one_time_keyboard=True,
+    )
 
 
 def get_student_menu_keyboard() -> InlineKeyboardMarkup:
