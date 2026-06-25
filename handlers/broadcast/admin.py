@@ -7,6 +7,7 @@ from messages import (
     SEND_BROADCAST_BUTTON,
     SCHEDULED_BROADCASTS_BUTTON,
     EXPORT_DATA_BUTTON,
+    DOWNLOAD_MENTOR_PDFS_BUTTON,
     EXPORT_GENERATING_MESSAGE,
     EXPORT_DATA_CAPTION,
     EXPORT_ERROR_MESSAGE,
@@ -116,6 +117,11 @@ def get_admin_menu_keyboard() -> InlineKeyboardMarkup:
             )
         ],
         [InlineKeyboardButton(EXPORT_DATA_BUTTON, callback_data="admin_export_data")],
+        [
+            InlineKeyboardButton(
+                DOWNLOAD_MENTOR_PDFS_BUTTON, callback_data="admin_download_mentor_pdfs"
+            )
+        ],
     ]
     return InlineKeyboardMarkup(keyboard)
 

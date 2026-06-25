@@ -31,6 +31,7 @@ from handlers.broadcast import (
     admin_command_handler,
     admin_menu_callback_handler,
     survey_creation_handler,
+    mentor_pdf_download_handler,
 )
 from handlers.survey_questions import survey_questions_handler, submit_survey_handler
 from handlers.chat_events import (
@@ -47,6 +48,7 @@ handlers = [
     # Broadcast system handlers (need to be early for callbacks)
     admin_command_handler,
     survey_creation_handler,  # Must be before admin_menu_callback_handler to catch admin_send_broadcast callback
+    mentor_pdf_download_handler,  # Must be before admin_menu_callback_handler to catch admin_download_mentor_pdfs callback
     survey_questions_handler,
     submit_survey_handler,  # Handle survey submission confirmation
     admin_menu_callback_handler,  # Broad pattern, must be after specific handlers
