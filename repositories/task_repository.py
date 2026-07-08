@@ -259,6 +259,36 @@ def disapprove_task(task_id: int):
     update_lead_status_by_lead(lead, config.CRM_TASK_IS_DISAPPROVED_STATUS)
 
 
+def postpone_task(task_id: int):
+    """
+    Postpone task for user (mentor pressed "Сомневаюсь").
+
+    Args:
+        task_id: Task ID
+    """
+    task = get_task_by_id(task_id)
+    if not task:
+        raise ValueError(f"Task with id={task_id} not found")
+
+    lead = get_crm_lead(task.lead_id)
+    if not lead:
+        raise ValueError(
+            f"CRM lead with id={task.lead_id} not found; skipping postpone"
+        )
+
+    if not lead.status:
+        raise ValueError(
+            f"CRM lead with id={task.lead_id} has no status; skipping postpone"
+        )
+
+    if str(lead.status.id) in {"142", "143"}:
+        raise TaskStatusChangeNotAllowedError(
+            f"Cannot postpone task_id={task_id} because lead_id={task.lead_id} has status 142 or 143"
+        )
+
+    update_lead_status_by_lead(lead, config.CRM_TASK_IS_POSTPONED_STATUS)
+
+
 def mark_task_as_failed(task_id: int):
     task = get_task_by_id(task_id)
     if not task:

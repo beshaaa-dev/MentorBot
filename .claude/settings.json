@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -c \"import config, repositories.task_repository, handlers.mentor; print\\('imports OK'\\); print\\('CRM_TASK_IS_POSTPONED_STATUS =', config.CRM_TASK_IS_POSTPONED_STATUS\\); print\\('postpone_task =', repositories.task_repository.postpone_task\\)\")",
+      "Bash(.venv/bin/python -c \"import config, repositories.task_repository, handlers.mentor; print\\('imports OK'\\); print\\('CRM_TASK_IS_POSTPONED_STATUS =', config.CRM_TASK_IS_POSTPONED_STATUS\\); print\\('postpone_task callable:', callable\\(repositories.task_repository.postpone_task\\)\\)\")"
+    ]
+  }
+}

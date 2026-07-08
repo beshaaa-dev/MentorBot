@@ -18,6 +18,7 @@ from repositories.task_repository import (
     get_task_by_id,
     approve_task,
     disapprove_task,
+    postpone_task,
     TaskStatusChangeNotAllowedError,
     get_decided_task_context,
     DecidedTaskContext,
@@ -759,8 +760,20 @@ async def handle_postpone_callback(
 
     # Update task status to POSTPONED
     try:
+        postpone_task(task_id)
         task = update_task_status(task_id, TaskStatus.POSTPONED)
         logger.info(f"Updated task {task_id} to status POSTPONED via callback")
+    except TaskStatusChangeNotAllowedError as e:
+        logger.info(f"Task status change is not allowed for task_id={task_id}: {e}")
+        try:
+            await query.edit_message_reply_markup(reply_markup=None)
+        except Exception:
+            pass
+        await query.message.reply_text(
+            TASK_STATUS_CHANGE_NOT_ALLOWED,
+            reply_markup=get_mentor_menu_keyboard(),
+        )
+        return
     except Exception as e:
         logger.error(f"Error updating task status to POSTPONED: {e}")
         try:
