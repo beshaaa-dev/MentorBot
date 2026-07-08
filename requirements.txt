@@ -11,6 +11,7 @@ amocrm-api==2.6.1
 reportlab>=4.0.0
 fastapi==0.115.6
 uvicorn==0.32.0
+python-multipart>=0.0.9
 aiohttp>=3.9.0
 openpyxl>=3.1.0
 pytz>=2023.3

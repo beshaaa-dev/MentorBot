@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(.venv/bin/python resend_messages.py 394179398 BAACAgIAAxkBAALtPGno7Gz6qKaFaYNXeZ0w4abAgX18AAKOoQACY99ISx3BfXb6WY8YOwQ)",
+      "Bash(python -c \"from handlers import handlers; print\\(f'Handlers loaded: {len\\(handlers\\)}'\\)\")",
+      "Bash(.venv/bin/python -c \"from handlers import handlers; print\\(f'Handlers loaded: {len\\(handlers\\)}'\\)\")",
+      "Bash(pip show *)",
+      "Bash(python3 -c \"import inspect; from amocrm.v2 import custom_field; print\\(inspect.signature\\(custom_field.TextCustomField.__init__\\)\\)\")",
+      "Bash(python3 -c \"from amocrm.v2 import custom_field; import inspect; src = inspect.getsource\\(custom_field\\); print\\(src\\)\")"
+    ]
+  }
+}
