@@ -9,6 +9,9 @@ sniffio>=1.3.0
 pillow>=10.4.0
 amocrm-api==2.6.1
 reportlab>=4.0.0
+# Ships Roboto TTFs with full Cyrillic coverage. reportlab's built-in fonts are
+# WinAnsi-only and silently render Cyrillic as black squares without a real TTF.
+font-roboto==0.0.1
 fastapi==0.115.6
 uvicorn==0.32.0
 python-multipart>=0.0.9

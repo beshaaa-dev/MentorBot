@@ -2,7 +2,20 @@
   "permissions": {
     "allow": [
       "Bash(python -c \"import config, repositories.task_repository, handlers.mentor; print\\('imports OK'\\); print\\('CRM_TASK_IS_POSTPONED_STATUS =', config.CRM_TASK_IS_POSTPONED_STATUS\\); print\\('postpone_task =', repositories.task_repository.postpone_task\\)\")",
-      "Bash(.venv/bin/python -c \"import config, repositories.task_repository, handlers.mentor; print\\('imports OK'\\); print\\('CRM_TASK_IS_POSTPONED_STATUS =', config.CRM_TASK_IS_POSTPONED_STATUS\\); print\\('postpone_task callable:', callable\\(repositories.task_repository.postpone_task\\)\\)\")"
+      "Bash(.venv/bin/python -c \"import config, repositories.task_repository, handlers.mentor; print\\('imports OK'\\); print\\('CRM_TASK_IS_POSTPONED_STATUS =', config.CRM_TASK_IS_POSTPONED_STATUS\\); print\\('postpone_task callable:', callable\\(repositories.task_repository.postpone_task\\)\\)\")",
+      "Bash(/Users/alfa/Desktop/Work/MentorBot/.venv/bin/python -m pip download font-roboto fonts -q -d . --no-deps)",
+      "Bash(.venv/bin/python -)",
+      "Bash(curl -s --max-time 10 \"https://pypi.org/pypi/font-roboto/json\")",
+      "Bash(.venv/bin/python -c ' *)",
+      "Bash(curl -s --max-time 10 \"https://pypi.org/pypi/fonts/json\")",
+      "Bash(/private/tmp/claude-501/-Users-alfa-Desktop-Work-MentorBot/1374ab7c-91b3-4381-a248-d569277b1c11/scratchpad/probe-venv/bin/python -c ' *)",
+      "Bash(.venv/bin/python -m pip install -q font-roboto)",
+      "Bash(echo \"exit=$?\")",
+      "Bash(.venv/bin/python /private/tmp/claude-501/-Users-alfa-Desktop-Work-MentorBot/1374ab7c-91b3-4381-a248-d569277b1c11/scratchpad/verify_pdf.py)",
+      "Bash(qlmanage -t -s 1400 -o . anketa.pdf)",
+      "Bash(git --no-pager diff)",
+      "Bash(.venv/bin/pip --version)",
+      "Bash(.venv/bin/python -m pip --version)"
     ]
   }
 }

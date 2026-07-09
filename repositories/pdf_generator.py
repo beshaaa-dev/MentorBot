@@ -7,6 +7,7 @@ from reportlab.lib.units import inch
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 from io import BytesIO
+from functools import lru_cache
 import os
 import platform
 
@@ -27,50 +28,81 @@ def _escape_text(value: str, preserve_newlines: bool = False) -> str:
     return escaped
 
 
-def _register_cyrillic_font():
-    """Регистрация шрифта поддерживающего кириллические символы."""
+def _font_candidates() -> list[tuple[str, str]]:
+    """Candidate (regular, bold) TTF path pairs, most preferred first."""
+    candidates: list[tuple[str, str]] = []
+
+    # Packaged with the app, so it is present on every machine and container.
+    try:
+        import font_roboto
+    except ImportError:
+        logger.warning("font-roboto is not installed, falling back to system fonts")
+    else:
+        candidates.append((font_roboto.Roboto, font_roboto.RobotoBold))
+
     system = platform.system()
-    font_paths = []
-
-    if system == "Darwin":  # macOS
-        font_paths = [
-            "/System/Library/Fonts/Supplemental/Arial.ttf",
-            "/System/Library/Fonts/Supplemental/Arial Bold.ttf",
-            "/Library/Fonts/Arial.ttf",
-            "/Library/Fonts/Arial Bold.ttf",
-        ]
+    if system == "Darwin":
+        candidates.append(
+            (
+                "/System/Library/Fonts/Supplemental/Arial.ttf",
+                "/System/Library/Fonts/Supplemental/Arial Bold.ttf",
+            )
+        )
+        candidates.append(("/Library/Fonts/Arial.ttf", "/Library/Fonts/Arial Bold.ttf"))
     elif system == "Linux":
-        font_paths = [
-            "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-            "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
-            "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
-            "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
-        ]
+        candidates.append(
+            (
+                "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+                "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+            )
+        )
+        candidates.append(
+            (
+                "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+                "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
+            )
+        )
     elif system == "Windows":
-        font_paths = [
-            "C:/Windows/Fonts/arial.ttf",
-            "C:/Windows/Fonts/arialbd.ttf",
-        ]
+        candidates.append(("C:/Windows/Fonts/arial.ttf", "C:/Windows/Fonts/arialbd.ttf"))
 
-    # Try to register fonts
-    regular_font = None
-    bold_font = None
+    return candidates
 
-    for path in font_paths:
-        if os.path.exists(path):
-            try:
-                if "Bold" in path or "bold" in path.lower() or "bd" in path.lower():
-                    if not bold_font:
-                        pdfmetrics.registerFont(TTFont("CyrillicBold", path))
-                        bold_font = "CyrillicBold"
-                else:
-                    if not regular_font:
-                        pdfmetrics.registerFont(TTFont("Cyrillic", path))
-                        regular_font = "Cyrillic"
-            except Exception as e:
-                logger.warning(f"Failed to register font {path}: {e}")
 
-    return regular_font or "Helvetica", bold_font or "Helvetica-Bold"
+@lru_cache(maxsize=1)
+def _register_cyrillic_font() -> tuple[str, str]:
+    """Register a Cyrillic-capable TTF pair and return its (regular, bold) names.
+
+    reportlab's built-in Helvetica is WinAnsi-encoded. Rather than raising on a
+    Cyrillic character it silently swaps in ZapfDingbats, whose 'n' glyph is a
+    filled black square, so every letter comes out as an unreadable box. Helvetica
+    is therefore a last resort and its use is logged as an error.
+    """
+    for regular_path, bold_path in _font_candidates():
+        if not os.path.exists(regular_path):
+            continue
+        try:
+            pdfmetrics.registerFont(TTFont("Cyrillic", regular_path))
+        except Exception as e:
+            logger.warning(f"Failed to register font {regular_path}: {e}")
+            continue
+
+        if not os.path.exists(bold_path):
+            logger.warning(f"No bold companion for {regular_path}, reusing regular")
+            return "Cyrillic", "Cyrillic"
+
+        try:
+            pdfmetrics.registerFont(TTFont("CyrillicBold", bold_path))
+        except Exception as e:
+            logger.warning(f"Failed to register bold font {bold_path}: {e}")
+            return "Cyrillic", "Cyrillic"
+
+        return "Cyrillic", "CyrillicBold"
+
+    logger.error(
+        "No Cyrillic-capable font found. PDF text will render as black squares. "
+        "Reinstall dependencies so that font-roboto is available."
+    )
+    return "Helvetica", "Helvetica-Bold"
 
 
 def create_anketa_pdf(lead: Lead | None) -> bytes | None:
