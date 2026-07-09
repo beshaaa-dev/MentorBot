@@ -8,6 +8,7 @@ from telegram import Update
 from telegram.ext import Application, JobQueue
 from logger import setup_logger
 from handlers import handlers
+from handlers.error_handler import handle_error
 from database.db_helper import init_db
 from crm.crm_service import init_amo_crm_integration
 from thread_safe_persistence import ThreadSafePicklePersistence
@@ -54,6 +55,8 @@ def main() -> None:
     )
     for handler in handlers:
         application.add_handler(handler)
+
+    application.add_error_handler(handle_error)
 
     # Restore scheduled jobs after startup
     from services.broadcast_scheduler import restore_scheduled_jobs

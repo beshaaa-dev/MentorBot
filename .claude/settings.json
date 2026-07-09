@@ -15,7 +15,24 @@
       "Bash(qlmanage -t -s 1400 -o . anketa.pdf)",
       "Bash(git --no-pager diff)",
       "Bash(.venv/bin/pip --version)",
-      "Bash(.venv/bin/python -m pip --version)"
+      "Bash(.venv/bin/python -m pip --version)",
+      "Bash(python -c \"import telegram; print\\('PTB', telegram.__version__\\)\")",
+      "Bash(python -c \"import telegram.ext, os; print\\(os.path.dirname\\(telegram.ext.__file__\\)\\)\")",
+      "Bash(grep -n 'await self.callback' __CMDSUB_OUTPUT__/_handlers/basehandler.py)",
+      "Bash(grep -rn 'class ConversationHandler' __CMDSUB_OUTPUT__/_handlers/conversationhandler.py)",
+      "Bash(python3 -c ' *)",
+      "Bash(echo \"--- exit: $?\")",
+      "Bash(.venv/bin/python -c \"import telegram; print\\('PTB', telegram.__version__\\)\")",
+      "Bash(.venv/bin/python /private/tmp/claude-501/-Users-alfa-Desktop-Work-MentorBot/c57878b4-fc86-45d4-b3cf-d772692dbbfd/scratchpad/repro.py)",
+      "Bash(sed -i '' 's|_, handler, _ = check\\\\[0\\\\], check\\\\[1\\\\], check\\\\[2\\\\]|handler = check[2]|; s|await check\\\\[1\\\\].callback|await check[2].callback|' repro.py)",
+      "Bash(/Users/alfa/Desktop/Work/MentorBot/.venv/bin/python repro.py)",
+      "Bash(.venv/bin/python /private/tmp/claude-501/-Users-alfa-Desktop-Work-MentorBot/c57878b4-fc86-45d4-b3cf-d772692dbbfd/scratchpad/routing_old.py)",
+      "Bash(.venv/bin/python scripts/clear_stuck_conversation.py 8053240789)",
+      "Bash(.venv/bin/python scripts/clear_stuck_conversation.py 6446849095)",
+      "Bash(.venv/bin/python scripts/clear_stuck_conversation.py 6446849095 --include-ended)",
+      "Bash(.venv/bin/python scripts/clear_stuck_conversation.py 111222333)",
+      "Bash(.venv/bin/python /private/tmp/claude-501/-Users-alfa-Desktop-Work-MentorBot/c57878b4-fc86-45d4-b3cf-d772692dbbfd/scratchpad/error_handler_check.py)",
+      "Bash(.venv/bin/python -m py_compile main.py handlers/error_handler.py handlers/survey_questions.py scripts/clear_stuck_conversation.py)"
     ]
   }
 }

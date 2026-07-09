@@ -2,6 +2,7 @@ import asyncio
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.constants import ParseMode
 from telegram.ext import (
+    CommandHandler,
     ContextTypes,
     ConversationHandler,
     CallbackQueryHandler,
@@ -470,6 +471,12 @@ async def handle_submit_survey(
     )
 
 
+async def cancel_survey(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Abandon an in-progress survey."""
+    logger.info(f"User {update.effective_user.id} cancelled the survey")
+    return ConversationHandler.END
+
+
 # Conversation handler for survey questions
 survey_questions_handler = ConversationHandler(
     name="survey_questions",
@@ -487,9 +494,11 @@ survey_questions_handler = ConversationHandler(
             MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text_answer),
         ],
     },
-    fallbacks=[
-        MessageHandler(filters.COMMAND, lambda u, c: ConversationHandler.END),
-    ],
+    # This handler is registered before the /start conversation, so it must not
+    # match commands: a broad `filters.COMMAND` fallback would swallow /start
+    # for anyone with an unfinished survey.
+    fallbacks=[CommandHandler("cancel", cancel_survey)],
+    conversation_timeout=60 * 60 * 24 * 3,  # 3 days
 )
 
 # Handler for submit survey button (outside conversation)
