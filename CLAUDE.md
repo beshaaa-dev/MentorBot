@@ -66,6 +66,10 @@ Models in [database/models.py](database/models.py):
 
 Token management uses `ThreadSafeTokenManager` ([thread_safe_token_manager.py](thread_safe_token_manager.py)) because the AmoCRM library is not thread-safe. There is a known workaround in `_patch_amo_interaction()` that retries on 401 during token refresh race conditions — do not remove it without verifying the upstream bug is fixed.
 
+**Never call `entity.save()` — use `save_entity(entity)` from [crm/crm_service.py](crm/crm_service.py).** The library registers every custom field under the same dirty path (`custom_fields_values`), so it cannot tell which field was written and its `save()` sends the whole fetched array back. AmoCRM then rejects the read-only keys it had attached to fields the bot never touched (`enum_code` on a phone, `is_masked`, tag `color`) with a 400, and the entire update is lost. `save_entity()` diffs against a snapshot of the fields as fetched (taken by `_patch_amo_model_snapshot()`, installed in `init_amo_crm_integration()`) and sends only what actually changed. `_sanitize_amo_payload()` strips those keys from the remaining payloads — the create body and tags, which AmoCRM replaces wholesale.
+
+The library is unmaintained (2.6.1, last released June 2023), so these patches are the fix, not a stopgap.
+
 ### Webhook → Bot Notification Flow
 
 `webhooks.py` receives form-encoded POST requests from AmoCRM when a lead changes status. Each endpoint:
