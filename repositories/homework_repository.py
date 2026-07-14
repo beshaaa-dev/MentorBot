@@ -129,16 +129,6 @@ def _append_lead_tag(lead: Lead, tag: str) -> None:
     lead.tags.append(tag)
 
 
-def _sanitize_lead_for_save(lead: Lead) -> None:
-    """Удаляет read-only поля, которые AmoCRM отклоняет при обновлении."""
-    for field in lead._data.get("custom_fields_values") or []:
-        field.pop("is_masked", None)
-
-    embedded = lead._data.get("_embedded") or {}
-    for tag in embedded.get("tags") or []:
-        tag.pop("color", None)
-
-
 def save_homework_from_webhook(lead_id: str) -> tuple[Homework, int]:
     """
     Fetch the CRM lead, resolve student + mentor, and persist a Homework record.
@@ -181,7 +171,6 @@ def save_homework_from_webhook(lead_id: str) -> tuple[Homework, int]:
 
     if not student:
         _append_lead_tag(lead, "Ошибка бот")
-        _sanitize_lead_for_save(lead)
         with amo_crm_rate_limiter.limit():
             lead.save()
         with amo_crm_rate_limiter.limit():
@@ -395,8 +384,6 @@ def _sync_contact_from_user(contact: Contact, user: User) -> None:
                 updates["telegram_nickname"] = db_nickname
 
         if updates:
-            for field in (contact._data.get("custom_fields_values") or []):
-                field.pop("is_masked", None)
             with amo_crm_rate_limiter.limit():
                 contact.save()
             logger.info(

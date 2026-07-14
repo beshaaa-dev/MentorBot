@@ -105,9 +105,6 @@ def update_contact_test_scores(contact: Contact, scores: TestScores) -> None:
         contact.case2 = str(scores.case2_score)
         contact.total_score = str(scores.total_score)
         
-        for field in (contact._data.get("custom_fields_values") or []):
-            field.pop("is_masked", None)
-
         with amo_crm_rate_limiter.limit():
             contact.save()
         

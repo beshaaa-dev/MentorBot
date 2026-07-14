@@ -59,10 +59,44 @@ def _is_transient_amo_error(exc: Exception) -> bool:
     return any(f"Wrong status {code}" in msg for code in _TRANSIENT_STATUS_CODES)
 
 
+# AmoCRM returns these keys when an entity is read but rejects them with
+# "FieldNotExpected" when they come back in a write payload. The library keeps the
+# fetched data on the model and sends it back as-is on save(), so every payload is
+# stripped here rather than at each of the ~20 call sites.
+_READ_ONLY_FIELD_KEYS = ("is_masked",)
+_READ_ONLY_VALUE_KEYS = ("enum_code",)
+
+
+def _sanitize_amo_payload(data):
+    if isinstance(data, list):
+        for item in data:
+            _sanitize_amo_payload(item)
+        return
+    if not isinstance(data, dict):
+        return
+
+    for field in data.get("custom_fields_values") or []:
+        if not isinstance(field, dict):
+            continue
+        for key in _READ_ONLY_FIELD_KEYS:
+            field.pop(key, None)
+        for value in field.get("values") or []:
+            if isinstance(value, dict):
+                for key in _READ_ONLY_VALUE_KEYS:
+                    value.pop(key, None)
+
+    embedded = data.get("_embedded") or {}
+    for tag in embedded.get("tags") or []:
+        if isinstance(tag, dict):
+            tag.pop("color", None)
+
+
 def _patch_amo_interaction():
     _orig_request = _amo_interaction.BaseInteraction.request
 
     def _retrying_request(self, method, path, **kwargs):
+        _sanitize_amo_payload(kwargs.get("data"))
+
         for attempt in range(_MAX_RETRY_ATTEMPTS):
             try:
                 return _orig_request(self, method, path, **kwargs)

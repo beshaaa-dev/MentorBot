@@ -1,6 +1,7 @@
 import asyncio
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.constants import ParseMode
+from telegram.error import BadRequest
 from telegram.ext import (
     CommandHandler,
     ContextTypes,
@@ -214,6 +215,27 @@ async def start_survey(
     return await show_next_question(update, context)
 
 
+async def _render_step(
+    update: Update, text: str, keyboard: InlineKeyboardMarkup | None
+) -> None:
+    """Show a survey step: edit the message in place, or reply if there is none to edit."""
+    if not update.callback_query:
+        await update.message.reply_text(
+            text, reply_markup=keyboard, parse_mode=ParseMode.MARKDOWN
+        )
+        return
+
+    try:
+        await update.callback_query.edit_message_text(
+            text, reply_markup=keyboard, parse_mode=ParseMode.MARKDOWN
+        )
+    except BadRequest as e:
+        # Tapping the same button twice re-renders identical content, which Telegram
+        # rejects. The step is already on screen, so there is nothing to do.
+        if "message is not modified" not in str(e).lower():
+            raise
+
+
 async def show_next_question(
     update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> int:
@@ -228,12 +250,7 @@ async def show_next_question(
     question_text = question.get("text", "")
     keyboard = create_question_keyboard(question)
 
-    if update.callback_query:
-        await update.callback_query.edit_message_text(
-            question_text, reply_markup=keyboard, parse_mode=ParseMode.MARKDOWN
-        )
-    else:
-        await update.message.reply_text(question_text, reply_markup=keyboard, parse_mode=ParseMode.MARKDOWN)
+    await _render_step(update, question_text, keyboard)
 
     return ANSWERING_QUESTION
 
@@ -368,10 +385,7 @@ async def complete_survey(
         [InlineKeyboardButton("✅ Отправить ответы", callback_data=f"submit_survey_{response_id}")]
     ])
 
-    if update.callback_query:
-        await update.callback_query.edit_message_text(completion_message, reply_markup=keyboard, parse_mode=ParseMode.MARKDOWN)
-    else:
-        await update.message.reply_text(completion_message, reply_markup=keyboard, parse_mode=ParseMode.MARKDOWN)
+    await _render_step(update, completion_message, keyboard)
 
     context.user_data.clear()
     return ConversationHandler.END

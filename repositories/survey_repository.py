@@ -47,7 +47,6 @@ def update_survey_lead_by_conducting(
     lead.survey_date = _normalize_survey_date(survey_date)
     lead.chat_name = chat_name
     _append_entity_tag(lead, chat_name)
-    _sanitize_lead_for_save(lead)
 
     lead = update_lead_status_in_pipeline(
         lead, CRM_SURVEY_PIPELINE, SURVEY_LEAD_STATUS_ID
@@ -67,7 +66,6 @@ def update_survey_lead_status_on_start(
         survey_id=survey_id,
         missing_lead_with_error_metadata=True,
     )
-    _sanitize_lead_for_save(lead)
     lead = update_lead_status_in_pipeline(
         lead, CRM_SURVEY_PIPELINE, SURVEY_LEAD_STATUS_STARTED_ID
     )
@@ -113,7 +111,6 @@ def update_survey_lead_on_submit(
     if q3_addition_text:
         lead.survey_q3_addition = q3_addition_text
 
-    _sanitize_lead_for_save(lead)
     update_lead_status_in_pipeline(
         lead, CRM_SURVEY_PIPELINE, SURVEY_LEAD_STATUS_SUBMITTED_ID
     )
@@ -199,18 +196,6 @@ def _normalize_survey_id(value: object) -> int | None:
         return int(float(str(value).strip()))
     except (TypeError, ValueError):
         return None
-
-
-def _sanitize_lead_for_save(lead: Lead) -> None:
-    """
-    Strip read-only/transient fields that AmoCRM rejects on update payload.
-    """
-    for field in lead._data.get("custom_fields_values") or []:
-        field.pop("is_masked", None)
-
-    embedded = lead._data.get("_embedded") or {}
-    for tag in embedded.get("tags") or []:
-        tag.pop("color", None)
 
 
 def _contact_display_name(username: str | None, tg_id: int) -> str:
