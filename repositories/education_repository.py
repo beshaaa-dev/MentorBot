@@ -7,7 +7,7 @@ from amocrm.v2.entity.note import COMMON_TYPE
 
 from config import CRM_EDUCATION_PIPELINE
 from crm.crm_models import Contact, Lead
-from crm.crm_service import update_lead_status_in_pipeline
+from crm.crm_service import save_entity, update_lead_status_in_pipeline
 from logger import setup_logger
 from rate_limiter import amo_crm_rate_limiter
 
@@ -106,17 +106,17 @@ def _create_contact(tg_id: int, username: str | None) -> Contact:
         contact = Contact(
             name=name, telegram_id=str(tg_id), telegram_nickname=username
         )
-        contact.save()
+        save_entity(contact)
 
     _append_entity_tag(contact, TAG_KICK_CONTACT_ERROR)
     with amo_crm_rate_limiter.limit():
-        contact.save()
+        save_entity(contact)
 
     with amo_crm_rate_limiter.limit():
         contact.notes.objects.create(
             text=NOTE_KICK_CONTACT_CREATED, note_type=COMMON_TYPE
         )
-        contact.save()
+        save_entity(contact)
     return contact
 
 
@@ -137,7 +137,7 @@ def _create_lead(contact: Contact, *, with_error_metadata: bool) -> Lead:
 
     with amo_crm_rate_limiter.limit():
         lead = Lead(pipeline=pipeline, status=status)
-        lead.save()
+        save_entity(lead)
     # contacts= in __init__ is not supported (_EmbeddedLinkListField.on_set raises TypeError)
     with amo_crm_rate_limiter.limit():
         lead.contacts.append(contact, main=True)
@@ -145,10 +145,10 @@ def _create_lead(contact: Contact, *, with_error_metadata: bool) -> Lead:
     if with_error_metadata:
         _append_entity_tag(lead, TAG_KICK_LEAD_ERROR)
         with amo_crm_rate_limiter.limit():
-            lead.save()
+            save_entity(lead)
         with amo_crm_rate_limiter.limit():
             lead.notes.objects.create(
                 text=NOTE_KICK_LEAD_CREATED, note_type=COMMON_TYPE
             )
-            lead.save()
+            save_entity(lead)
     return lead

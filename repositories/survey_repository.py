@@ -11,7 +11,7 @@ from amocrm.v2.entity.note import COMMON_TYPE
 
 from config import CRM_SURVEY_PIPELINE
 from crm.crm_models import Contact, Lead
-from crm.crm_service import update_lead_status_in_pipeline
+from crm.crm_service import save_entity, update_lead_status_in_pipeline
 from logger import setup_logger
 from rate_limiter import amo_crm_rate_limiter
 
@@ -258,17 +258,17 @@ def _create_contact(tg_id: int, username: str | None) -> Contact:
     name = _contact_display_name(username, tg_id)
     with amo_crm_rate_limiter.limit():
         contact = Contact(name=name, telegram_id=str(tg_id), telegram_nickname=username)
-        contact.save()
+        save_entity(contact)
 
     _append_entity_tag(contact, TAG_SURVEY_CONTACT_ERROR)
     with amo_crm_rate_limiter.limit():
-        contact.save()
+        save_entity(contact)
 
     with amo_crm_rate_limiter.limit():
         contact.notes.objects.create(
             text=NOTE_SURVEY_CONTACT_CREATED, note_type=COMMON_TYPE
         )
-        contact.save()
+        save_entity(contact)
     return contact
 
 
@@ -297,17 +297,17 @@ def _create_lead(
     with amo_crm_rate_limiter.limit():
         lead = Lead(pipeline=pipeline, status=status)
         lead.survey_id = survey_id
-        lead.save()
+        save_entity(lead)
     with amo_crm_rate_limiter.limit():
         lead.contacts.append(contact, main=True)
 
     if with_error_metadata:
         _append_entity_tag(lead, TAG_SURVEY_LEAD_ERROR)
         with amo_crm_rate_limiter.limit():
-            lead.save()
+            save_entity(lead)
         with amo_crm_rate_limiter.limit():
             lead.notes.objects.create(
                 text=NOTE_SURVEY_LEAD_CREATED, note_type=COMMON_TYPE
             )
-            lead.save()
+            save_entity(lead)
     return lead

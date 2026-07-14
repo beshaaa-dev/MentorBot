@@ -1,6 +1,11 @@
 from dataclasses import dataclass
 from database.test_service import save_test_result as _save_test_result
-from crm.crm_service import get_crm_lead, update_lead_status_by_lead, send_note
+from crm.crm_service import (
+    get_crm_lead,
+    save_entity,
+    send_note,
+    update_lead_status_by_lead,
+)
 from crm.crm_models import Contact
 from config import CRM_TEST_IS_IN_PROGRESS_STATUS, CRM_VISIT_CARD_STATUS
 from logger import setup_logger
@@ -106,7 +111,7 @@ def update_contact_test_scores(contact: Contact, scores: TestScores) -> None:
         contact.total_score = str(scores.total_score)
         
         with amo_crm_rate_limiter.limit():
-            contact.save()
+            save_entity(contact)
         
         logger.info(f"Updated contact {contact.id} with test scores: total={scores.total_score}")
     except Exception as e:

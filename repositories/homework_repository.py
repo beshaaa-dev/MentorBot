@@ -9,6 +9,7 @@ from crm.crm_chat_service import send_media_to_chat, send_video_to_chat
 from crm.crm_service import (
     get_crm_contact_by_id,
     get_crm_lead,
+    save_entity,
     update_lead_status_in_pipeline,
     upload_file,
     upload_video,
@@ -172,7 +173,7 @@ def save_homework_from_webhook(lead_id: str) -> tuple[Homework, int]:
     if not student:
         _append_lead_tag(lead, "Ошибка бот")
         with amo_crm_rate_limiter.limit():
-            lead.save()
+            save_entity(lead)
         with amo_crm_rate_limiter.limit():
             lead.notes.objects.create(
                 text="Не получилось отправить домашку из-за отсутствующих тг айди и ника",
@@ -385,7 +386,7 @@ def _sync_contact_from_user(contact: Contact, user: User) -> None:
 
         if updates:
             with amo_crm_rate_limiter.limit():
-                contact.save()
+                save_entity(contact)
             logger.info(
                 f"Synced CRM contact {contact.id} from DB user tg_id={user.tg_id}: {updates}"
             )
@@ -577,7 +578,7 @@ async def submit_student_answers(
 
     def _save_lead():
         with amo_crm_rate_limiter.limit():
-            lead.save()
+            save_entity(lead)
 
     def _create_note(text: str) -> None:
         with amo_crm_rate_limiter.limit():

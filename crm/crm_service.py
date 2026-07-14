@@ -1,8 +1,11 @@
 import time
+from copy import deepcopy
+
 import requests
 from amocrm.v2 import Pipeline, tokens
 from amocrm.v2.entity.note import COMMON_TYPE
 from amocrm.v2 import interaction as _amo_interaction
+from amocrm.v2 import model as _amo_model
 from amocrm.v2.interaction import _session as _amo_session
 from .crm_models import Contact, Lead
 import config
@@ -60,9 +63,10 @@ def _is_transient_amo_error(exc: Exception) -> bool:
 
 
 # AmoCRM returns these keys when an entity is read but rejects them with
-# "FieldNotExpected" when they come back in a write payload. The library keeps the
-# fetched data on the model and sends it back as-is on save(), so every payload is
-# stripped here rather than at each of the ~20 call sites.
+# "FieldNotExpected" when they come back in a write payload. save_entity() already
+# keeps them out of the fields it sends; this is the last line of defence for the
+# paths it does not build itself (tags, which AmoCRM replaces wholesale, and the
+# create payload).
 _READ_ONLY_FIELD_KEYS = ("is_masked",)
 _READ_ONLY_VALUE_KEYS = ("enum_code",)
 
@@ -89,6 +93,94 @@ def _sanitize_amo_payload(data):
     for tag in embedded.get("tags") or []:
         if isinstance(tag, dict):
             tag.pop("color", None)
+
+
+# Custom fields all register under the same dirty path ("custom_fields_values"), so
+# the library cannot tell which one was written and sends the whole array back on
+# save(). Keeping a copy of the fields as they were fetched lets save_entity() send
+# only the ones that actually changed.
+_FETCHED_FIELDS_ATTR = "_amo_fetched_custom_fields"
+
+
+def _patch_amo_model_snapshot():
+    _orig_init = _amo_model.Model.__init__
+
+    def _init_with_snapshot(self, data=None, **kwargs):
+        # Snapshot before __init__ applies kwargs, so fields set on a new entity
+        # count as changed.
+        setattr(
+            self,
+            _FETCHED_FIELDS_ATTR,
+            deepcopy((data or {}).get("custom_fields_values") or []),
+        )
+        _orig_init(self, data, **kwargs)
+
+    _amo_model.Model.__init__ = _init_with_snapshot
+
+
+def _changed_custom_fields(entity: Contact | Lead) -> list[dict]:
+    """Return only the custom fields whose values differ from the fetched ones."""
+    fetched = {
+        field.get("field_id"): field
+        for field in getattr(entity, _FETCHED_FIELDS_ATTR, None) or []
+        if isinstance(field, dict)
+    }
+
+    changed = []
+    for field in entity._data.get("custom_fields_values") or []:
+        if not isinstance(field, dict):
+            continue
+
+        before = fetched.get(field.get("field_id"))
+        if before is not None and before.get("values") == field.get("values"):
+            continue
+
+        entry = {"values": field.get("values")}
+        if field.get("field_id") is not None:
+            entry["field_id"] = field["field_id"]
+        elif field.get("field_code"):
+            entry["field_code"] = field["field_code"]
+        else:
+            # Not addressable on write; sending it back would fail validation.
+            continue
+        changed.append(entry)
+
+    return changed
+
+
+def save_entity(entity: Contact | Lead) -> None:
+    """
+    Persist pending changes, sending only the custom fields that were actually
+    written. Use this instead of entity.save(): the library's own save() echoes
+    every field it read back to AmoCRM, which rejects the read-only keys it puts
+    on fields the bot never touched.
+    """
+    if not entity.id:
+        entity.save()
+        return
+
+    if not entity._updated_fields:
+        return
+
+    data = entity._get_updated_data()
+
+    if "custom_fields_values" in data:
+        changed = _changed_custom_fields(entity)
+        if changed:
+            data["custom_fields_values"] = changed
+        else:
+            data.pop("custom_fields_values")
+
+    if data:
+        _sanitize_amo_payload(data)
+        entity._manager.update(entity.id, data)
+
+    entity._updated_fields = set()
+    setattr(
+        entity,
+        _FETCHED_FIELDS_ATTR,
+        deepcopy(entity._data.get("custom_fields_values") or []),
+    )
 
 
 def _patch_amo_interaction():
@@ -126,6 +218,7 @@ def _patch_amo_interaction():
 def init_amo_crm_integration():
     """Initialize AmoCRM token manager and handle token setup."""
     _patch_amo_interaction()
+    _patch_amo_model_snapshot()
     # _amo_session.hooks["response"].append(_amo_response_hook)
     tokens.default_token_manager(
         client_id=config.CRM_CLIENT_ID,
@@ -303,7 +396,7 @@ def update_lead_status_in_pipeline(
 
     with amo_crm_rate_limiter.limit():
         lead.status = status
-        lead.save()
+        save_entity(lead)
     return lead
 
 
@@ -316,21 +409,21 @@ def update_lead_hw_rating(lead: Lead, rating: int) -> None:
     """Write the homework rating to the corresponding custom field on the lead."""
     lead.hw_rating = rating
     with amo_crm_rate_limiter.limit():
-        lead.save()
+        save_entity(lead)
 
 
 def update_lead_hw_feedback(lead: Lead, feedback: str) -> None:
     """Write the mentor feedback to the corresponding custom field on the lead."""
     lead.hw_feedback = feedback
     with amo_crm_rate_limiter.limit():
-        lead.save()
+        save_entity(lead)
 
 
 def update_lead_hw_edit_reason_mentor(lead: Lead, reason: str) -> None:
     """Записывает причину возврата на переработку от ментора в поле лида."""
     lead.hw_edit_reason_mentor = reason
     with amo_crm_rate_limiter.limit():
-        lead.save()
+        save_entity(lead)
 
 
 def send_note(lead_id: int, note: str):
@@ -338,7 +431,7 @@ def send_note(lead_id: int, note: str):
     if lead:
         with amo_crm_rate_limiter.limit():
             lead.notes.objects.create(text=note, note_type=COMMON_TYPE)
-            lead.save()
+            save_entity(lead)
 
 
 def get_crm_contact_by_id(crm_id: int | str) -> Contact | None:
