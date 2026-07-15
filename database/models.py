@@ -78,6 +78,10 @@ class UserRole(str, Enum):
 
 
 class TaskStatus(str, Enum):
+    PENDING = "pending"
+    IN_PROGRESS = "in_progress"
+    SUBMITTED = "submitted"
+    EDIT = "edit"
     UNCHECKED = "unchecked"
     APPROVED = "approved"
     DISAPPROVED = "disapproved"
@@ -113,21 +117,55 @@ class Task(Base):
     # ID студента
     student_id = Column(Integer, nullable=False)
     # ID ментора
-    mentor_id = Column(Integer, nullable=False)
-    # ID лида в AmoCRM
+    mentor_id = Column(Integer, nullable=True)
+    # ID лида в AmoCRM. Не уникален
     lead_id = Column(String, nullable=False)
     # Статус задачи
     status = Column(SQLEnum(TaskStatus), nullable=False)
+    # Тексты заданий из CRM
+    first_task = Column(String, nullable=True)
+    second_task = Column(String, nullable=True)
+    third_task = Column(String, nullable=True)
+    # Дедлайн задания
+    deadline = Column(DateTime, nullable=True)
+    # Причина возврата на доработку
+    edit_reason = Column(String, nullable=True)
     # Дата создания задачи
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     # Дата обновления задачи
     updated_at = Column(
         DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow
     )
-    # Связь с сообщениями задачи
+    # TODO: - Удалить в январе 2027
+    # Связь с сообщениями задачи (Легаси)
     task_messages = relationship(
         "TaskMessage", back_populates="task", cascade="all, delete-orphan"
     )
+    # Ответы студента
+    answers = relationship(
+        "TaskAnswer", back_populates="task", cascade="all, delete-orphan"
+    )
+
+
+class TaskAnswer(Base):
+    __tablename__ = "task_answers"
+
+    # Уникальный id
+    id = Column(Integer, primary_key=True, nullable=False)
+    # ID задачи
+    task_id = Column(Integer, ForeignKey("tasks.id"), nullable=False)
+    # Номер задания (1, 2 или 3)
+    question_number = Column(Integer, nullable=False)
+    # Текст ответа или Telegram file_id
+    answer_content = Column(String, nullable=False)
+    # Тип ответа: text | video | video_note | audio | voice | photo | document
+    media_type = Column(String, nullable=False, default="text")
+    # Дата создания ответа
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    # Связь с задачей
+    task = relationship("Task", back_populates="answers")
+
+    __table_args__ = (UniqueConstraint("task_id", "question_number"),)
 
 
 class TaskMessage(Base):

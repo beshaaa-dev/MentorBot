@@ -30,7 +30,7 @@ from database.homework_service import (
 )
 from database.models import Homework, HomeworkStatus, UserRole
 from database.user_service import find_by_tg_id, get_by_id
-from handlers.homework_student import _send_answer_content
+from handlers.answer_utils import send_answer_content as _send_answer_content
 from handlers.utils import delete_user_message
 from handlers.mentor import delete_task_messages
 from keyboards import (

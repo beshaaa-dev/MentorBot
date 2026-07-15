@@ -4,6 +4,7 @@ from handlers.common import (
     unknown_message_handler,
 )
 from handlers.homework_student import hw_student_conversation_handler
+from handlers.task_student import task_student_conversation_handler
 from handlers.homework_mentor import (
     hw_approve_conversation_handler,
     hw_edit_from_mentor_conversation_handler,
@@ -65,6 +66,7 @@ handlers = [
     hw_check_new_button_handler,
     hw_check_postponed_button_handler,
     hw_check_history_button_handler,
+    task_student_conversation_handler,
     # Mentor handlers
     mentor_to_menu_handler,
     mentor_postponed_nav_handler,

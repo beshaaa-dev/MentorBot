@@ -20,10 +20,12 @@ from messages import (
     CHECK_NEW_TASK_BUTTON,
     POSTPONE_TASK_BUTTON,
     POSTPONED_TASKS_BUTTON,
-    CHANGE_TASK_1_BUTTON,
-    CHANGE_TASK_2_BUTTON,
-    CHANGE_TASK_3_BUTTON,
-    CONFIRM_ALL_BUTTON,
+    TASK_REVIEW_CHANGE_BUTTON,
+    TASK_START_BUTTON,
+    TASK_EDIT_BUTTON,
+    TASK_CONFIRM_ALL_BUTTON,
+    TASK_CONFIRM_YES_BUTTON,
+    TASK_CONFIRM_RETRY_BUTTON,
     HW_CONFIRM_ALL_BUTTON,
     HW_REVIEW_CHANGE_BUTTON,
     HW_CONFIRM_YES_BUTTON,
@@ -168,36 +170,54 @@ def get_postponed_task_navigation_keyboard(
     return ReplyKeyboardMarkup(rows, resize_keyboard=True, one_time_keyboard=True)
 
 
-def get_task_review_keyboard(has_task_2: bool, has_task_3: bool) -> ReplyKeyboardMarkup:
-    """Keyboard for reviewing all task answers with change options."""
-    row: list[KeyboardButton] = []
-
-    row.append(KeyboardButton(CHANGE_TASK_1_BUTTON))
-    if has_task_2:
-        row.append(KeyboardButton(CHANGE_TASK_2_BUTTON))
-    if has_task_3:
-        row.append(KeyboardButton(CHANGE_TASK_3_BUTTON))
-
-    rows = [row]
-    rows.append([KeyboardButton(CONFIRM_ALL_BUTTON)])
+def get_task_review_keyboard(question_count: int) -> ReplyKeyboardMarkup:
+    rows = [
+        [KeyboardButton(TASK_REVIEW_CHANGE_BUTTON.format(n=n))]
+        for n in range(1, question_count + 1)
+    ]
+    rows.append([KeyboardButton(TASK_CONFIRM_ALL_BUTTON)])
     return ReplyKeyboardMarkup(rows, resize_keyboard=True, one_time_keyboard=True)
+
+
+def get_task_answer_confirmation_keyboard() -> ReplyKeyboardMarkup:
+    keyboard = [
+        [
+            KeyboardButton(TASK_CONFIRM_YES_BUTTON),
+            KeyboardButton(TASK_CONFIRM_RETRY_BUTTON),
+        ]
+    ]
+    return ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=True)
+
+
+def get_start_task_keyboard(task_id: int) -> InlineKeyboardMarkup:
+    keyboard = [
+        [InlineKeyboardButton(TASK_START_BUTTON, callback_data=f"start_task_{task_id}")]
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+
+def get_edit_task_keyboard(task_id: int) -> InlineKeyboardMarkup:
+    keyboard = [
+        [InlineKeyboardButton(TASK_EDIT_BUTTON, callback_data=f"edit_task_{task_id}")]
+    ]
+    return InlineKeyboardMarkup(keyboard)
 
 
 def get_edit_homework_keyboard(hw_id: int) -> InlineKeyboardMarkup:
     keyboard = [
-        [InlineKeyboardButton("Исправить", callback_data=f"edit_homework_{hw_id}")]
+        [InlineKeyboardButton(TASK_EDIT_BUTTON, callback_data=f"edit_homework_{hw_id}")]
     ]
     return InlineKeyboardMarkup(keyboard)
 
 
 def get_start_homework_keyboard(hw_id: int) -> InlineKeyboardMarkup:
     keyboard = [
-        [InlineKeyboardButton("Приступить", callback_data=f"start_homework_{hw_id}")]
+        [InlineKeyboardButton(TASK_START_BUTTON, callback_data=f"start_homework_{hw_id}")]
     ]
     return InlineKeyboardMarkup(keyboard)
 
 
-def get_hw_answer_confirmation_keyboard() -> ReplyKeyboardMarkup:
+def get_answer_confirmation_keyboard() -> ReplyKeyboardMarkup:
     keyboard = [[KeyboardButton(HW_CONFIRM_YES_BUTTON), KeyboardButton(HW_CONFIRM_RETRY_BUTTON)]]
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=True)
 

@@ -19,14 +19,21 @@ CRM_VISIT_CARD_STATUS = 82059746
 CRM_VISIT_CARD_IS_SENT_STATUS = 82059750
 # Ожидаем тестовое
 CRM_TASK_STATUS = 76914298
-# Тестовое отправлено наставнику
-CRM_TASK_IS_SENT_STATUS = 76914306
 # Наставник отклонил
 CRM_TASK_IS_DISAPPROVED_STATUS = 81677538
 # Наставник принял
 CRM_TASK_IS_APPROVED_STATUS = 81677542
 # Наставник отложил (сомневается)
 CRM_TASK_IS_POSTPONED_STATUS = 87071570
+
+# Statuses are strings: webhooks compare them to raw form values.
+CRM_SELECTION_PIPELINE = 9395722
+# Ожидаем тестовое
+CRM_TASK_ASSIGNED_STATUS = "76914298"
+# Тестовое отправлено наставнику
+CRM_TASK_SUBMITTED_STATUS = "76914306"
+# Тестовое возвращено студенту на доработку
+CRM_TASK_EDIT_STATUS = "87180598"
 
 SUPPORT_CONTACT_LINK = "https://t.me/Pokolenez_bot"
 

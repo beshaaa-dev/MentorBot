@@ -291,6 +291,10 @@ def _build_survey_sheet(wb: Workbook, users: list) -> None:
 
 
 _TASK_STATUS_LABELS = {
+    "pending": "Ожидает выполнения",
+    "in_progress": "Выполняется",
+    "submitted": "Сдано",
+    "edit": "На доработке",
     "unchecked": "Не проверено",
     "approved": "Одобрено",
     "disapproved": "Отклонено",

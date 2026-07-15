@@ -18,11 +18,7 @@ STUDENT_NO_TASK = """
 """
 MENTOR_NO_TASK = "Заданий на проверку пока нет."
 MENTOR_NOTHING_TO_REVIEW = "Нет ничего на проверку"
-TASK = "У вас есть новое задание 🧡\n\n{text}\n\n"
-TASK_DEADLINE = "Дедлайн: {deadline} по МСК\n\n"
-REQUEST_TASK_ANSWER = "Пожалуйста, отправь ответ."
-VIDEO_RECEIVED = "Отправить ответ ментору?"
-VIDEO_CONFIRMED = "Ваш ответ отправлен ментору! Ожидайте фидбек"
+TASK_DEADLINE = "Дедлайн: {deadline} по МСК"
 VIDEO_CANCELLED = "Отправка видео отменена."
 CONFIRM_BUTTON = "Да, отправить"
 CANCEL_BUTTON = "Нет, попробовать ещё раз"
@@ -124,14 +120,30 @@ VISIT_CARD_VIDEO_RECEIVED = "Отправить видео-визитку?"
 VISIT_CARD_UPLOADING = "Загружаем видео..."
 VISIT_CARD_VIDEO_CONFIRMED = "Ваша видео-визитка отправлена! Ожидайте ответа."
 
-# Multiple task answers flow messages
+# Task (тестовое) flow messages.
+# Кнопки намеренно отличаются текстом от домашних заданий: фильтры ConversationHandler
+# срабатывают по тексту сообщения, и одинаковые подписи привели бы к тому, что
+# зарегистрированный первым флоу ДЗ перехватывал бы нажатия в тестовом задании.
 TASK_ANSWER_RECEIVED = "Отправить этот ответ?"
-TASK_ANSWERS_REVIEW_HEADER = "Вот твои ответы"
 TASK_ANSWERS_REVIEW_QUESTION = "Хочешь что-то изменить?"
-CHANGE_TASK_1_BUTTON = "Изменить задание 1"
-CHANGE_TASK_2_BUTTON = "Изменить задание 2"
-CHANGE_TASK_3_BUTTON = "Изменить задание 3"
-CONFIRM_ALL_BUTTON = "Всё верно, отправить"
+TASK_REVIEW_CHANGE_BUTTON = "Изменить задание {n}"
+TASK_CONFIRM_YES_BUTTON = "Да, сохранить ответ"
+TASK_CONFIRM_RETRY_BUTTON = "Нет, ответить еще раз"
+TASK_CONFIRM_ALL_BUTTON = "Всё верно, отправить ответы"
+TASK_NEW_ASSIGNMENT = "У вас новое тестовое задание 🧡"
+TASK_CONTINUE_ASSIGNMENT = "У вас есть незавершённое тестовое задание 🧡"
+TASK_QUESTION_PROMPT = "Задание {n} из {total}:\n\n{question}"
+TASK_REVIEW_QUESTION_HEADER = "*Задание {n}*: {question}"
+TASK_SUBMITTING = "Отправляем ваши ответы…"
+TASK_SUBMITTED = "Ваше тестовое задание отправлено! Ожидайте обратной связи 🧡"
+TASK_NOT_FOUND = "Задание не найдено. Введите /start для продолжения."
+TASK_EDIT_NOTIFICATION = (
+    "Ваше тестовое задание отправлено на доработку.\n\nПричина: {reason}"
+)
+TASK_START_BUTTON = "Приступить"
+TASK_EDIT_BUTTON = "Исправить"
+TASK_MENTOR_QUESTION_HEADER = "*Задание {n}:* {question}"
+TASK_MENTOR_NO_ANSWER = "_Ответ не получен_"
 
 # Homework flow messages
 HW_NEW_ASSIGNMENT = "У вас новое домашнее задание 🧡"

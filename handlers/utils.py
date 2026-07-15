@@ -11,14 +11,24 @@ async def send_error_message(update: Update):
     await update.effective_chat.send_message(ERROR_MESSAGE, reply_markup=reply_markup)
 
 
-async def delete_user_message(message: Message | None) -> None:
-    """Best-effort deletion of the triggering user message."""
+async def safe_delete_message(message: Message | None) -> None:
+    """Best-effort deletion of a message.
+
+    Telegram only allows a bot to delete a message within 48 hours of it being
+    sent; older messages raise BadRequest("Message can't be deleted for
+    everyone"). Deletion is never critical here, so swallow any failure.
+    """
     if not message:
         return
     try:
         await message.delete()
     except Exception as e:
-        logger.warning(f"Failed to delete user message: {e}")
+        logger.warning(f"Failed to delete message: {e}")
+
+
+async def delete_user_message(message: Message | None) -> None:
+    """Best-effort deletion of the triggering user message."""
+    await safe_delete_message(message)
 
 
 def parse_message_reference(file_id: str) -> tuple[int, int] | None:

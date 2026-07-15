@@ -1,20 +1,10 @@
 import asyncio
-from datetime import date, datetime, timezone
 
-from amocrm.v2.entity.note import COMMON_TYPE
 from telegram import Bot
 
 from config import CRM_HOMEWORK_PIPELINE, CRM_HW_SUBMITTED_STATUS
-from crm.crm_chat_service import send_media_to_chat, send_video_to_chat
-from crm.crm_service import (
-    get_crm_contact_by_id,
-    get_crm_lead,
-    save_entity,
-    update_lead_status_in_pipeline,
-    upload_file,
-    upload_video,
-)
-from crm.crm_models import Contact, Lead
+from crm.crm_service import get_crm_lead, save_entity, update_lead_status_in_pipeline
+from crm.crm_models import Lead
 from database.homework_service import (
     create_homework as _create_homework,
     get_homework_by_id as _get_homework_by_id,
@@ -24,24 +14,26 @@ from database.homework_service import (
     upsert_homework_answers as _upsert_homework_answers,
     get_earliest_pending_mentor_homework as _get_earliest_pending_mentor_homework,
 )
-from database.models import Homework, HomeworkStatus, User
-from database.user_service import find_by_tg_id, find_by_tg_nickname, update_user
+from database.models import Homework, HomeworkStatus
+from database.user_service import find_by_tg_id, find_by_tg_nickname
 from logger import setup_logger
 from rate_limiter import amo_crm_rate_limiter
+from repositories.crm_answers import (
+    append_lead_tag,
+    create_lead_note,
+    extract_student_and_mentor,
+    fetch_lead_contacts,
+    get_contact_info,
+    is_deadline_missed,
+    prepare_answers,
+    push_answers_to_crm,
+    read_deadline,
+    sync_contact_from_user,
+    sync_users_from_lead,
+)
 from timezone_utils import now_moscow
 
 logger = setup_logger(__name__)
-
-
-def _fetch_lead_contacts(lead: Lead) -> list[Contact]:
-    """Загружает контакты лида поштучно через rate limiter, минуя lead.contacts."""
-    contact_refs = (lead._data.get("_embedded") or {}).get("contacts") or []
-    contacts = []
-    for ref in contact_refs:
-        contact = get_crm_contact_by_id(ref["id"])
-        if contact is not None:
-            contacts.append(contact)
-    return contacts
 
 
 def process_homework_edit(lead_id: str) -> tuple[Homework, int, str]:
@@ -58,7 +50,7 @@ def process_homework_edit(lead_id: str) -> tuple[Homework, int, str]:
     if not lead:
         raise ValueError(f"CRM lead {lead_id} not found")
 
-    student_tg_id, _ = _extract_student_and_mentor(lead)
+    student_tg_id, _ = extract_student_and_mentor(lead)
 
     edit_reason = getattr(lead, "hw_edit_reason", None) or "не указана"
 
@@ -67,7 +59,7 @@ def process_homework_edit(lead_id: str) -> tuple[Homework, int, str]:
         raise ValueError(f"No homework record for lead_id={lead_id}")
 
     questions = read_questions(lead)
-    deadline = read_deadline(lead)
+    deadline = read_deadline(lead.hw_deadline)
 
     homework = _update_homework(
         hw_id=homework.id,
@@ -97,7 +89,7 @@ def process_homework_edit_from_mentor(lead_id: str) -> tuple[Homework, int, str]
     if not lead:
         raise ValueError(f"CRM lead {lead_id} not found")
 
-    student_tg_id, _ = _extract_student_and_mentor(lead)
+    student_tg_id, _ = extract_student_and_mentor(lead)
 
     edit_reason = getattr(lead, "hw_edit_reason_mentor", None) or ""
 
@@ -106,7 +98,7 @@ def process_homework_edit_from_mentor(lead_id: str) -> tuple[Homework, int, str]
         raise ValueError(f"No homework record for lead_id={lead_id}")
 
     questions = read_questions(lead)
-    deadline = read_deadline(lead)
+    deadline = read_deadline(lead.hw_deadline)
 
     homework = _update_homework(
         hw_id=homework.id,
@@ -118,16 +110,10 @@ def process_homework_edit_from_mentor(lead_id: str) -> tuple[Homework, int, str]
         fifth_hw=questions[4] if len(questions) > 4 else None,
         deadline=deadline,
     )
-    logger.info(f"Updated homework id={homework.id} for edit_from_mentor, lead_id={lead_id}")
+    logger.info(
+        f"Updated homework id={homework.id} for edit_from_mentor, lead_id={lead_id}"
+    )
     return homework, student_tg_id, edit_reason
-
-
-def _append_lead_tag(lead: Lead, tag: str) -> None:
-    """Добавляет тег к лиду, если он ещё не установлен."""
-    for t in lead.tags:
-        if getattr(t, "name", None) == tag:
-            return
-    lead.tags.append(tag)
 
 
 def save_homework_from_webhook(lead_id: str) -> tuple[Homework, int]:
@@ -150,14 +136,17 @@ def save_homework_from_webhook(lead_id: str) -> tuple[Homework, int]:
     mentor_tg_nickname = None
 
     try:
-        student_tg_id, mentor_tg_nickname = _extract_student_and_mentor(lead)
+        student_tg_id, mentor_tg_nickname = extract_student_and_mentor(lead)
         student = find_by_tg_id(student_tg_id)
     except ValueError:
-        logger.warning("save_homework_from_webhook: tg_id lookup failed for lead_id=%s, trying tg_nickname", lead_id)
+        logger.warning(
+            "save_homework_from_webhook: tg_id lookup failed for lead_id=%s, trying tg_nickname",
+            lead_id,
+        )
 
     if not student:
         # Фоллбэк: поиск по telegram_nickname (поле 536049)
-        for contact in _fetch_lead_contacts(lead):
+        for contact in fetch_lead_contacts(lead):
             nickname = getattr(contact, "telegram_nickname", None)
             if nickname:
                 nickname = nickname.lstrip("@")
@@ -165,20 +154,22 @@ def save_homework_from_webhook(lead_id: str) -> tuple[Homework, int]:
                 if student and student.tg_id:
                     student_tg_id = student.tg_id
                     mentor_tg_nickname = getattr(lead, "mentor_tg_nickname", None)
-                    _sync_contact_from_user(contact, student)
-                    logger.info("save_homework_from_webhook: resolved student by tg_nickname=@%s for lead_id=%s", nickname, lead_id)
+                    sync_contact_from_user(contact, student)
+                    logger.info(
+                        "save_homework_from_webhook: resolved student by tg_nickname=@%s for lead_id=%s",
+                        nickname,
+                        lead_id,
+                    )
                     break
                 student = None
 
     if not student:
-        _append_lead_tag(lead, "Ошибка бот")
+        append_lead_tag(lead, "Ошибка бот")
         with amo_crm_rate_limiter.limit():
             save_entity(lead)
-        with amo_crm_rate_limiter.limit():
-            lead.notes.objects.create(
-                text="Не получилось отправить домашку из-за отсутствующих тг айди и ника",
-                note_type=COMMON_TYPE,
-            )
+        create_lead_note(
+            lead, "Не получилось отправить домашку из-за отсутствующих тг айди и ника"
+        )
         raise ValueError(
             f"Student not found by tg_id or tg_nickname for lead {lead_id}"
         )
@@ -196,7 +187,7 @@ def save_homework_from_webhook(lead_id: str) -> tuple[Homework, int]:
     if not questions:
         raise ValueError(f"No questions found on lead {lead_id}")
 
-    deadline = read_deadline(lead)
+    deadline = read_deadline(lead.hw_deadline)
 
     existing = _get_homework_by_lead_id(lead_id)
     if existing:
@@ -259,7 +250,7 @@ def process_homework_for_mentor(lead_id: str) -> tuple[Homework, int, int]:
         raise ValueError(f"Mentor @{nickname} has no tg_id")
 
     # Обновляем данные пользователей из CRM-контактов
-    _sync_users_from_lead(lead)
+    sync_users_from_lead(lead)
 
     homework = _get_homework_by_lead_id(lead_id)
     if not homework:
@@ -286,7 +277,7 @@ def process_homework_accepted(lead_id: str) -> tuple[Homework, int]:
     if not lead:
         raise ValueError(f"CRM lead {lead_id} not found")
 
-    student_tg_id, _ = _extract_student_and_mentor(lead)
+    student_tg_id, _ = extract_student_and_mentor(lead)
 
     homework = _get_homework_by_lead_id(lead_id)
     if not homework:
@@ -298,102 +289,6 @@ def process_homework_accepted(lead_id: str) -> tuple[Homework, int]:
 def get_earliest_pending_homework_for_mentor(mentor_id: int) -> Homework | None:
     """Возвращает самое раннее ДЗ в статусе PENDING_MENTOR для данного ментора."""
     return _get_earliest_pending_mentor_homework(mentor_id)
-
-
-def _extract_student_and_mentor(lead: Lead) -> tuple[int, str | None]:
-    """Return (student_tg_id, mentor_tg_nickname) from lead's contact."""
-    contact_refs = (lead._data.get("_embedded") or {}).get("contacts")
-    if not contact_refs:
-        raise ValueError(f"Lead {lead.id} has no embedded contacts")
-
-    for contact in _fetch_lead_contacts(lead):
-        raw_tg_id = contact.telegram_id
-        if raw_tg_id:
-            try:
-                tg_id = int(str(raw_tg_id).strip())
-            except ValueError:
-                continue
-            mentor_nickname = getattr(lead, "mentor_tg_nickname", None)
-            user = find_by_tg_id(tg_id)
-            if user:
-                _sync_contact_from_user(contact, user)
-            _sync_user_from_contact(tg_id, contact, user=user)
-            return tg_id, mentor_nickname
-
-    raise ValueError(f"No contact with telegram_id found on lead {lead.id}")
-
-
-def _sync_users_from_lead(lead: Lead) -> None:
-    """Обновляет данные всех пользователей из CRM-контактов лида."""
-    for contact in _fetch_lead_contacts(lead):
-        raw_tg_id = contact.telegram_id
-        if raw_tg_id:
-            try:
-                tg_id = int(str(raw_tg_id).strip())
-                _sync_user_from_contact(tg_id, contact)
-            except (ValueError, TypeError):
-                pass
-
-
-def _sync_user_from_contact(tg_id: int, contact, *, user: User | None = None) -> None:
-    """Обновляет имя и tg_nickname пользователя в БД из данных CRM-контакта."""
-    try:
-        if user is None:
-            user = find_by_tg_id(tg_id)
-        if not user:
-            return
-
-        contact_name = getattr(contact, "name", None) or ""
-        tg_nickname = getattr(contact, "telegram_nickname", None)
-
-        parts = contact_name.strip().split(maxsplit=1)
-        first_name = parts[0] if parts else None
-        last_name = parts[1] if len(parts) > 1 else None
-
-        update_kwargs = {}
-        if first_name:
-            update_kwargs["first_name"] = first_name
-        if last_name:
-            update_kwargs["last_name"] = last_name
-        if tg_nickname:
-            update_kwargs["tg_nickname"] = tg_nickname.lstrip("@")
-
-        if update_kwargs:
-            update_user(user.id, **update_kwargs)
-            logger.info(f"Synced user tg_id={tg_id} from CRM contact: {update_kwargs}")
-    except Exception as e:
-        logger.warning(f"Failed to sync user tg_id={tg_id} from CRM contact: {e}")
-
-
-def _sync_contact_from_user(contact: Contact, user: User) -> None:
-    """Update CRM contact's telegram_id and telegram_nickname if missing or stale."""
-    try:
-        updates: dict[str, str] = {}
-
-        crm_tg_id = getattr(contact, "telegram_id", None)
-        if not crm_tg_id and user.tg_id:
-            contact.telegram_id = str(user.tg_id)
-            updates["telegram_id"] = str(user.tg_id)
-
-        db_nickname = user.tg_nickname
-        if db_nickname:
-            crm_nickname = getattr(contact, "telegram_nickname", None)
-            crm_norm = (crm_nickname or "").lstrip("@").strip().lower()
-            db_norm = db_nickname.lstrip("@").strip().lower()
-            if crm_norm != db_norm:
-                contact.telegram_nickname = db_nickname
-                updates["telegram_nickname"] = db_nickname
-
-        if updates:
-            with amo_crm_rate_limiter.limit():
-                save_entity(contact)
-            logger.info(
-                f"Synced CRM contact {contact.id} from DB user tg_id={user.tg_id}: {updates}"
-            )
-    except Exception as e:
-        logger.warning(
-            f"Failed to sync CRM contact {contact.id} from DB user tg_id={user.tg_id}: {e}"
-        )
 
 
 def read_questions(lead: Lead) -> list[str]:
@@ -410,33 +305,16 @@ def read_questions(lead: Lead) -> list[str]:
     ]
 
 
-def read_deadline(lead: Lead) -> datetime | None:
-    raw = lead.hw_deadline
-    if not raw:
-        return None
-    if isinstance(raw, datetime):
-        return raw.replace(tzinfo=None)
-    if isinstance(raw, date):
-        return datetime(raw.year, raw.month, raw.day)
-    try:
-        ts = int(raw)
-        return datetime.fromtimestamp(ts, tz=timezone.utc).replace(tzinfo=None)
-    except (ValueError, TypeError):
-        return None
-
-
 async def submit_student_answers(
     hw_id: int,
     answers: dict[int, dict],
     bot: Bot,
 ) -> None:
     """
-    Upload video answers, write all CRM fields in one save, persist HomeworkAnswer rows,
-    update homework status → SUBMITTED, update lead status → 84497010.
+    Upload media answers, write all CRM fields in one save, persist HomeworkAnswer rows,
+    update homework status → SUBMITTED, move the lead to CRM_HW_SUBMITTED_STATUS.
 
     `answers` format: {question_number: {"text": str|None, "file_id": str|None, "media_type": str}}
-    media_type: "text" | "video" | "video_note" | "audio" | "voice" | "photo" | "document".
-    "video"/"video_note" → Drive + chat; "audio"/"voice" → Drive + lead Files; "photo" → Drive + lead Files; "document" → Drive + chat (file).
     """
     loop = asyncio.get_running_loop()
 
@@ -448,8 +326,6 @@ async def submit_student_answers(
     if not lead:
         raise ValueError(f"CRM lead {homework.lead_id} not found")
 
-    answer_rows: list[dict] = []
-    answer_info: list[dict] = []
     text_field_map = {
         1: "hw_answer_1",
         2: "hw_answer_2",
@@ -470,8 +346,7 @@ async def submit_student_answers(
         if q
     )
 
-    for q_num in range(1, 6):
-        field_name = text_field_map[q_num]
+    for q_num, field_name in text_field_map.items():
         if q_num > questions_total:
             setattr(lead, field_name, "")
         else:
@@ -481,238 +356,29 @@ async def submit_student_answers(
             else:
                 setattr(lead, field_name, "Ответ в примечании")
 
-    for q_num in sorted(answers.keys()):
-        data = answers[q_num]
-        text: str | None = data.get("text")
-        file_id: str | None = data.get("file_id")
-        media_type: str = data.get("media_type", "text")
-
-        if media_type == "text" and text:
-            content = text
-            answer_info.append({"q_num": q_num, "type": "text", "text": text})
-        elif media_type in ("video", "video_note"):
-            download_url, file_size, filename = await _upload_answer_media(
-                bot, file_id, q_num
-            )
-            content = file_id or ""
-            answer_info.append(
-                {
-                    "q_num": q_num,
-                    "type": "video",
-                    "url": download_url,
-                    "filename": filename,
-                    "file_size": file_size,
-                }
-            )
-        elif media_type in ("audio", "voice"):
-            file_uuid, version_uuid, file_size, filename, download_url = await _upload_answer_audio(
-                bot, file_id, q_num, media_type
-            )
-            content = file_id or ""
-            answer_info.append(
-                {
-                    "q_num": q_num,
-                    "type": "audio",
-                    "uuid": file_uuid,
-                    "version_uuid": version_uuid,
-                    "filename": filename,
-                    "file_size": file_size,
-                    "download_url": download_url,
-                }
-            )
-        elif media_type == "photo":
-            file_uuid, version_uuid, file_size, filename, download_url = await _upload_answer_image(
-                bot, file_id, q_num
-            )
-            content = file_id or ""
-            answer_info.append(
-                {
-                    "q_num": q_num,
-                    "type": "image",
-                    "uuid": file_uuid,
-                    "version_uuid": version_uuid,
-                    "filename": filename,
-                    "file_size": file_size,
-                    "download_url": download_url,
-                }
-            )
-        elif media_type == "document":
-            file_uuid, version_uuid, file_size, filename, download_url = await _upload_answer_document(
-                bot, file_id, q_num,
-                original_filename=data.get("file_name"),
-                mime_type=data.get("mime_type"),
-            )
-            content = file_id or ""
-            answer_info.append(
-                {
-                    "q_num": q_num,
-                    "type": "document",
-                    "uuid": file_uuid,
-                    "version_uuid": version_uuid,
-                    "filename": filename,
-                    "file_size": file_size,
-                    "download_url": download_url,
-                }
-            )
-        else:
-            content = file_id or ""
-            answer_info.append({"q_num": q_num, "type": "other"})
-
-        answer_rows.append(
-            {"question_number": q_num, "answer_content": content, "media_type": media_type}
-        )
-
-    now = now_moscow()
-    completion_ts = int(now.timestamp())
-
-    homework_deadline = homework.deadline
-    missed_deadline = False
-    if homework_deadline and now_moscow().replace(tzinfo=None) > homework_deadline:
-        missed_deadline = True
+    answer_rows, answer_info = await prepare_answers(bot, answers, file_prefix="hw")
 
     lead.hw_db_record_id = str(hw_id)
-    lead.hw_completion_date = completion_ts
-    lead.hw_deadline_missed = "Да" if missed_deadline else "Нет"
+    lead.hw_completion_date = int(now_moscow().timestamp())
+    lead.hw_deadline_missed = "Да" if is_deadline_missed(homework.deadline) else "Нет"
 
-    contact_id, contact_name = await loop.run_in_executor(None, _get_contact_info, lead)
+    contact_id, contact_name = await loop.run_in_executor(None, get_contact_info, lead)
 
     def _save_lead():
         with amo_crm_rate_limiter.limit():
             save_entity(lead)
 
-    def _create_note(text: str) -> None:
-        with amo_crm_rate_limiter.limit():
-            lead.notes.objects.create(text=text, note_type=COMMON_TYPE)
-
     await loop.run_in_executor(None, _save_lead)
 
-    for info in answer_info:
-        q_num = info["q_num"]
-        if info["type"] == "text":
-            await loop.run_in_executor(
-                None, _create_note, f"Ответ на Д/З № {q_num}: {info['text']}"
-            )
-        elif info["type"] == "video":
-            video_url = info["url"]
-            if video_url and contact_id:
-                sent = await send_video_to_chat(
-                    video_url=video_url,
-                    contact_id=contact_id,
-                    filename=info["filename"],
-                    lead_id=int(homework.lead_id),
-                    contact_name=contact_name,
-                    file_size=info["file_size"],
-                    text=f"Ответ на Д/З № {q_num}",
-                )
-                if not sent:
-                    await loop.run_in_executor(
-                        None,
-                        _create_note,
-                        f"Ответ на Д/З № {q_num} (видео): {video_url}",
-                    )
-            else:
-                logger.warning(
-                    f"[submit_student_answers] hw={hw_id} q={q_num} видео: "
-                    f"video_url={'есть' if video_url else 'нет'}, contact_id={contact_id}"
-                )
-                await loop.run_in_executor(
-                    None,
-                    _create_note,
-                    f"Ответ на Д/З № {q_num} (видео): {video_url or 'не удалось загрузить'}",
-                )
-        elif info["type"] == "audio":
-            dl_url = info.get("download_url")
-            if dl_url and contact_id:
-                sent = await send_media_to_chat(
-                    media_url=dl_url,
-                    contact_id=contact_id,
-                    filename=info["filename"],
-                    media_type="voice",
-                    lead_id=int(homework.lead_id),
-                    contact_name=contact_name,
-                    file_size=info.get("file_size", 0),
-                    text=f"Ответ на Д/З № {q_num} (аудио)",
-                )
-                if not sent:
-                    await loop.run_in_executor(
-                        None,
-                        _create_note,
-                        f"Ответ на Д/З № {q_num} (аудио): {dl_url}",
-                    )
-            else:
-                logger.warning(
-                    f"[submit_student_answers] hw={hw_id} q={q_num} аудио: "
-                    f"dl_url={'есть' if dl_url else 'нет'}, contact_id={contact_id}"
-                )
-                await loop.run_in_executor(
-                    None,
-                    _create_note,
-                    f"Ответ на Д/З № {q_num} (аудио): не удалось загрузить",
-                )
-        elif info["type"] == "image":
-            dl_url = info.get("download_url")
-            if dl_url and contact_id:
-                sent = await send_media_to_chat(
-                    media_url=dl_url,
-                    contact_id=contact_id,
-                    filename=info["filename"],
-                    media_type="picture",
-                    lead_id=int(homework.lead_id),
-                    contact_name=contact_name,
-                    file_size=info.get("file_size", 0),
-                    text=f"Ответ на Д/З № {q_num} (фото)",
-                )
-                if not sent:
-                    await loop.run_in_executor(
-                        None,
-                        _create_note,
-                        f"Ответ на Д/З № {q_num} (фото): {dl_url}",
-                    )
-            else:
-                logger.warning(
-                    f"[submit_student_answers] hw={hw_id} q={q_num} фото: "
-                    f"dl_url={'есть' if dl_url else 'нет'}, contact_id={contact_id}"
-                )
-                await loop.run_in_executor(
-                    None,
-                    _create_note,
-                    f"Ответ на Д/З № {q_num} (фото): не удалось загрузить",
-                )
-        elif info["type"] == "document":
-            dl_url = info.get("download_url")
-            if dl_url and contact_id:
-                sent = await send_media_to_chat(
-                    media_url=dl_url,
-                    contact_id=contact_id,
-                    filename=info["filename"],
-                    media_type="file",
-                    lead_id=int(homework.lead_id),
-                    contact_name=contact_name,
-                    file_size=info.get("file_size", 0),
-                    text=f"Ответ на Д/З № {q_num} (файл)",
-                )
-                if not sent:
-                    await loop.run_in_executor(
-                        None,
-                        _create_note,
-                        f"Ответ на Д/З № {q_num} (файл): {dl_url}",
-                    )
-            else:
-                logger.warning(
-                    f"[submit_student_answers] hw={hw_id} q={q_num} файл: "
-                    f"dl_url={'есть' if dl_url else 'нет'}, contact_id={contact_id}"
-                )
-                await loop.run_in_executor(
-                    None,
-                    _create_note,
-                    f"Ответ на Д/З № {q_num} (файл): не удалось загрузить",
-                )
-        else:
-            await loop.run_in_executor(
-                None,
-                _create_note,
-                f"Ответ на Д/З № {q_num} (медиафайл): передан в Telegram",
-            )
+    await push_answers_to_crm(
+        lead=lead,
+        lead_id=homework.lead_id,
+        answer_info=answer_info,
+        label="Д/З",
+        contact_id=contact_id,
+        contact_name=contact_name,
+    )
+
     await loop.run_in_executor(None, _upsert_homework_answers, hw_id, answer_rows)
     await loop.run_in_executor(
         None, _update_homework_status, hw_id, HomeworkStatus.SUBMITTED
@@ -726,99 +392,3 @@ async def submit_student_answers(
     )
 
     logger.info(f"Homework {hw_id} submitted successfully")
-
-
-def _get_contact_info(lead) -> tuple[int | None, str]:
-    contacts = _fetch_lead_contacts(lead)
-    if contacts:
-        return contacts[0].id, getattr(contacts[0], "name", "") or ""
-    logger.warning(f"[_get_contact_info] Не найден контакт для сделки {getattr(lead, 'id', '?')}")
-    return None, ""
-
-
-async def _upload_answer_media(
-    bot: Bot,
-    file_id: str | None,
-    q_num: int,
-) -> tuple[str | None, int, str]:
-    filename = f"hw_{q_num}_{(file_id or 'unknown')[:8]}.mp4"
-    if not file_id:
-        logger.warning(f"[_upload_answer_media] file_id отсутствует для вопроса {q_num}")
-        return None, 0, filename
-    try:
-        tg_file = await bot.get_file(file_id)
-        file_bytes = await tg_file.download_as_bytearray()
-        download_url, _ = await upload_video(bytes(file_bytes), filename)
-        return download_url, len(file_bytes), filename
-    except Exception as e:
-        logger.error(f"Failed to upload media for question {q_num}: {e}", exc_info=True)
-        return None, 0, filename
-
-
-async def _upload_answer_audio(
-    bot: Bot,
-    file_id: str | None,
-    q_num: int,
-    media_type: str | None,
-) -> tuple[str | None, str | None, int, str, str | None]:
-    """Returns (file_uuid, version_uuid, file_size, filename, download_url). UUIDs are None on failure."""
-    ext = "ogg" if media_type == "voice" else "mp3"
-    content_type = "audio/ogg" if media_type == "voice" else "audio/mpeg"
-    filename = f"hw_{q_num}_{(file_id or 'unknown')[:8]}.{ext}"
-    if not file_id:
-        return None, None, 0, filename, None
-    try:
-        tg_file = await bot.get_file(file_id)
-        file_bytes = await tg_file.download_as_bytearray()
-        file_uuid, version_uuid, _, download_url = await upload_file(
-            bytes(file_bytes), filename, content_type
-        )
-        return file_uuid, version_uuid, len(file_bytes), filename, download_url
-    except Exception as e:
-        logger.error(f"Failed to upload audio for question {q_num}: {e}", exc_info=True)
-        return None, None, 0, filename, None
-
-
-async def _upload_answer_document(
-    bot: Bot,
-    file_id: str | None,
-    q_num: int,
-    original_filename: str | None = None,
-    mime_type: str | None = None,
-) -> tuple[str | None, str | None, int, str, str | None]:
-    """Возвращает (file_uuid, version_uuid, file_size, filename, download_url)."""
-    filename = original_filename or f"hw_{q_num}_{(file_id or 'unknown')[:8]}.bin"
-    content_type = mime_type or "application/octet-stream"
-    if not file_id:
-        return None, None, 0, filename, None
-    try:
-        tg_file = await bot.get_file(file_id)
-        file_bytes = await tg_file.download_as_bytearray()
-        file_uuid, version_uuid, _, download_url = await upload_file(
-            bytes(file_bytes), filename, content_type
-        )
-        return file_uuid, version_uuid, len(file_bytes), filename, download_url
-    except Exception as e:
-        logger.error(f"Failed to upload document for question {q_num}: {e}", exc_info=True)
-        return None, None, 0, filename, None
-
-
-async def _upload_answer_image(
-    bot: Bot,
-    file_id: str | None,
-    q_num: int,
-) -> tuple[str | None, str | None, int, str, str | None]:
-    """Returns (file_uuid, version_uuid, file_size, filename, download_url). UUIDs are None on failure."""
-    filename = f"hw_{q_num}_{(file_id or 'unknown')[:8]}.jpg"
-    if not file_id:
-        return None, None, 0, filename, None
-    try:
-        tg_file = await bot.get_file(file_id)
-        file_bytes = await tg_file.download_as_bytearray()
-        file_uuid, version_uuid, _, download_url = await upload_file(
-            bytes(file_bytes), filename, "image/jpeg"
-        )
-        return file_uuid, version_uuid, len(file_bytes), filename, download_url
-    except Exception as e:
-        logger.error(f"Failed to upload image for question {q_num}: {e}", exc_info=True)
-        return None, None, 0, filename, None

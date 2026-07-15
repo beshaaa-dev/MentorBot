@@ -1,8 +1,15 @@
+import asyncio
 from dataclasses import dataclass
 
+from telegram import Bot
+
 from database.task_service import (
-    create_task as _create_task,
+    create_task_from_lead as _create_task_from_lead,
+    get_active_task_by_lead_id as _get_active_task_by_lead_id,
+    get_latest_task_by_lead_id as _get_latest_task_by_lead_id,
+    update_task as _update_task,
     update_task_status as _update_task_status,
+    upsert_task_answers as _upsert_task_answers,
     find_earliest_task as _find_earliest_task,
     get_task_by_id as _get_task_by_id,
     get_decided_tasks,
@@ -12,13 +19,28 @@ from database.task_service import (
 from database.user_service import find_by_tg_id, find_by_tg_nickname
 from database.models import Task, TaskStatus
 from logger import setup_logger
+from crm.crm_models import Lead
 from crm.crm_service import (
     get_crm_lead,
-    resolve_crm_contact,
-    get_first_lead,
+    save_entity,
     update_lead_status_by_lead,
-    send_note,
+    update_lead_status_in_pipeline,
 )
+from rate_limiter import amo_crm_rate_limiter
+from repositories.crm_answers import (
+    append_lead_tag,
+    create_lead_note,
+    extract_student_and_mentor,
+    fetch_lead_contacts,
+    get_contact_info,
+    is_deadline_missed,
+    prepare_answers,
+    push_answers_to_crm,
+    read_deadline,
+    sync_contact_from_user,
+    sync_users_from_lead,
+)
+from timezone_utils import now_moscow
 import config
 
 logger = setup_logger(__name__)
@@ -26,14 +48,6 @@ logger = setup_logger(__name__)
 
 class TaskStatusChangeNotAllowedError(Exception):
     pass
-
-
-@dataclass
-class TaskMessageData:
-    """Data class for task message information."""
-
-    file_id: str
-    task_number: int  # 1, 2, or 3
 
 
 @dataclass
@@ -56,101 +70,272 @@ class PostponedTaskContext:
     cached_task_ids: list[int]
 
 
-def create_task(student_tg_id: int, task_messages: list[TaskMessageData]) -> Task:
+def read_questions(lead: Lead) -> list[str]:
+    return [q for q in [lead.first_task, lead.second_task, lead.third_task] if q]
+
+
+def _resolve_mentor_id(lead: Lead, lead_id: str) -> int | None:
     """
-    Create a new task in the database with TaskMessages.
+    Отсутствие ментора не блокирует выдачу задания студенту — наставник может
+    появиться в CRM позже, к моменту проверки.
+    """
+    from repositories.user_repository import create_mentor_if_needed
 
-    Args:
-        student_tg_id: Student Telegram user ID (required)
-        task_messages: List of TaskMessageData objects (required)
+    mentor_tg_nickname = getattr(lead, "mentor_tg_nickname", None)
+    if not mentor_tg_nickname:
+        logger.warning(f"Lead {lead_id} has no mentor_tg_nickname")
+        return None
 
+    nickname = mentor_tg_nickname.lstrip("@")
+    create_mentor_if_needed(nickname)
+
+    mentor = find_by_tg_nickname(nickname)
+    if not mentor:
+        logger.warning(f"Mentor @{nickname} not found in DB for lead {lead_id}")
+        return None
+    return mentor.id
+
+
+def save_task_from_webhook(lead_id: str) -> tuple[Task, int]:
+    """  
     Returns:
-        Created Task instance
+        (task, student_tg_id)
 
     Raises:
-        ValueError: If student with given Telegram ID is not found or student has no CRM ID
-        Exception: If database operation fails
+        ValueError: if the lead, student or required fields are missing.
     """
-    if not task_messages:
-        raise ValueError(
-            "Cannot create task: task_messages list is empty. "
-            "At least one task message is required."
-        )
-
-    student = find_by_tg_id(student_tg_id)
-    if not student:
-        raise ValueError(
-            f"Cannot create task: student not found in database. "
-            f"Telegram ID: {student_tg_id}. "
-            f"The student must register with the bot first."
-        )
-
-    crm_user = resolve_crm_contact(student.tg_id, student.tg_nickname)
-    if not crm_user:
-        raise ValueError(
-            f"Cannot create task: CRM contact not found. "
-            f"Student Telegram ID: {student_tg_id}, DB ID: {student.id}."
-        )
-
-    lead = get_first_lead(crm_user)
+    lead = get_crm_lead(lead_id)
     if not lead:
-        raise ValueError(
-            f"Cannot create task: CRM lead not found. "
-            f"Student Telegram ID: {student_tg_id}, DB ID: {student.id}. "
-            f"The lead may have been deleted or the student has no active lead."
+        raise ValueError(f"CRM lead {lead_id} not found")
+
+    student = None
+    student_tg_id = None
+
+    try:
+        student_tg_id, _ = extract_student_and_mentor(lead)
+        student = find_by_tg_id(student_tg_id)
+    except ValueError:
+        logger.warning(
+            "save_task_from_webhook: tg_id lookup failed for lead_id=%s, trying tg_nickname",
+            lead_id,
         )
 
-    mentor_tg_nickname = lead.mentor_tg_nickname
-    if not mentor_tg_nickname:
-        raise ValueError(
-            f"Cannot create task: no mentor assigned in CRM. "
-            f"Student Telegram ID: {student_tg_id}, Lead ID: {lead.id}. "
-            f"A mentor must be assigned to this lead in the CRM system."
+    if not student:
+        # Фоллбэк: поиск по telegram_nickname (поле 536049)
+        for contact in fetch_lead_contacts(lead):
+            nickname = getattr(contact, "telegram_nickname", None)
+            if nickname:
+                nickname = nickname.lstrip("@")
+                student = find_by_tg_nickname(nickname)
+                if student and student.tg_id:
+                    student_tg_id = student.tg_id
+                    sync_contact_from_user(contact, student)
+                    logger.info(
+                        "save_task_from_webhook: resolved student by tg_nickname=@%s for lead_id=%s",
+                        nickname,
+                        lead_id,
+                    )
+                    break
+                student = None
+
+    if not student:
+        append_lead_tag(lead, "Ошибка бот")
+        with amo_crm_rate_limiter.limit():
+            save_entity(lead)
+        create_lead_note(
+            lead, "Не получилось отправить тестовое из-за отсутствующих тг айди и ника"
         )
-    mentor_tg_nickname = mentor_tg_nickname.lstrip("@")
-    if not mentor_tg_nickname:
-        raise ValueError(
-            f"Cannot create task: mentor nickname is invalid (empty after removing '@'). "
-            f"Student Telegram ID: {student_tg_id}, Lead ID: {lead.id}. "
-            f"Please update the mentor's Telegram nickname in the CRM."
+        raise ValueError(f"Student not found by tg_id or tg_nickname for lead {lead_id}")
+
+    questions = read_questions(lead)
+    if not questions:
+        raise ValueError(f"No tasks found on lead {lead_id}")
+
+    deadline = read_deadline(lead.task_deadline)
+    mentor_id = _resolve_mentor_id(lead, lead_id)
+
+    existing = _get_active_task_by_lead_id(lead_id)
+    if existing:
+        task = _update_task(
+            task_id=existing.id,
+            first_task=questions[0],
+            status=TaskStatus.PENDING,
+            second_task=questions[1] if len(questions) > 1 else None,
+            third_task=questions[2] if len(questions) > 2 else None,
+            deadline=deadline,
+            mentor_id=mentor_id,
         )
+        logger.info(f"Updated task id={existing.id} for lead_id={lead_id}")
+        return task, student_tg_id
 
-    # Find mentor user by nickname
-    mentor = find_by_tg_nickname(mentor_tg_nickname)
-    if not mentor:
-        raise ValueError(
-            f"Cannot create task: mentor not found in database. "
-            f"Mentor nickname: @{mentor_tg_nickname}, Student Telegram ID: {student_tg_id}. "
-            f"The mentor must register with the bot before receiving tasks."
-        )
-
-    update_lead_status_by_lead(lead, config.CRM_TASK_IS_SENT_STATUS)
-
-    # Convert TaskMessageData to dict format for database service
-    task_messages_dict = [
-        {"file_id": msg.file_id, "task_number": msg.task_number}
-        for msg in task_messages
-    ]
-
-    task = _create_task(
+    task = _create_task_from_lead(
         student_id=student.id,
-        mentor_id=mentor.id,
-        lead_id=lead.id,
-        task_messages=task_messages_dict,
-        status=TaskStatus.UNCHECKED,
+        lead_id=lead_id,
+        status=TaskStatus.PENDING,
+        first_task=questions[0],
+        second_task=questions[1] if len(questions) > 1 else None,
+        third_task=questions[2] if len(questions) > 2 else None,
+        deadline=deadline,
+        mentor_id=mentor_id,
     )
+    logger.info(
+        f"Created task id={task.id} for student_id={student.id}, lead_id={lead_id}"
+    )
+    return task, student_tg_id
+
+
+def process_task_edit(lead_id: str) -> tuple[Task, int, str]:
+    """
+    Returns:
+        (task, student_tg_id, edit_reason)
+
+    Raises:
+        ValueError: если лид, студент или задание не найдены.
+    """
+    lead = get_crm_lead(lead_id)
+    if not lead:
+        raise ValueError(f"CRM lead {lead_id} not found")
+
+    student_tg_id, _ = extract_student_and_mentor(lead)
+
+    edit_reason = getattr(lead, "task_edit_reason", None) or "не указана"
+
+    task = _get_latest_task_by_lead_id(lead_id)
     if not task:
-        raise ValueError(
-            f"Cannot create task: database operation failed. "
-            f"Student DB ID: {student.id}, Mentor DB ID: {mentor.id}, Lead ID: {lead.id}. "
-            f"This may indicate a database connection issue or constraint violation."
+        raise ValueError(f"No task record for lead_id={lead_id}")
+
+    questions = read_questions(lead)
+    deadline = read_deadline(lead.task_deadline)
+
+    task = _update_task(
+        task_id=task.id,
+        first_task=questions[0] if questions else task.first_task,
+        status=TaskStatus.EDIT,
+        second_task=questions[1] if len(questions) > 1 else None,
+        third_task=questions[2] if len(questions) > 2 else None,
+        deadline=deadline,
+        edit_reason=edit_reason,
+    )
+    logger.info(f"Updated task id={task.id} for edit, lead_id={lead_id}")
+    return task, student_tg_id, edit_reason
+
+
+def process_task_for_mentor(lead_id: str) -> tuple[Task, int, int]:
+    """
+    Returns:
+        (task, mentor_tg_id, mentor_db_id)
+
+    Raises:
+        ValueError: если лид, ментор или задание не найдены.
+    """
+    lead = get_crm_lead(lead_id)
+    if not lead:
+        raise ValueError(f"CRM lead {lead_id} not found")
+
+    mentor_tg_nickname = getattr(lead, "mentor_tg_nickname", None)
+    if not mentor_tg_nickname:
+        raise ValueError(f"Lead {lead_id} has no mentor_tg_nickname")
+
+    nickname = mentor_tg_nickname.lstrip("@")
+    mentor = find_by_tg_nickname(nickname)
+    if not mentor:
+        raise ValueError(f"Mentor @{nickname} not found in DB for lead {lead_id}")
+
+    if not mentor.tg_id:
+        raise ValueError(f"Mentor @{nickname} has no tg_id")
+
+    sync_users_from_lead(lead)
+
+    # Берём самое свежее задание в любом статусе: куратор может вернуть лид в этот
+    # статус повторно — наставника нужно уведомить снова
+    task = _get_latest_task_by_lead_id(lead_id)
+    if not task:
+        raise ValueError(f"No task record for lead_id={lead_id}")
+
+    task = _update_task_status(task.id, TaskStatus.UNCHECKED)
+    if task.mentor_id != mentor.id:
+        task = _update_task(
+            task_id=task.id,
+            first_task=task.first_task,
+            second_task=task.second_task,
+            third_task=task.third_task,
+            deadline=task.deadline,
+            mentor_id=mentor.id,
         )
 
-    logger.info(
-        f"Created task with id={task.id}, student_id={student.id}, mentor_id={mentor.id}, lead_id={lead.id}, "
-        f"with {len(task_messages)} task message(s)"
+    logger.info(f"Task id={task.id} set to UNCHECKED for mentor @{nickname}")
+    return task, mentor.tg_id, mentor.id
+
+
+async def submit_student_task_answers(
+    task_id: int,
+    answers: dict[int, dict],
+    bot: Bot,
+) -> None:
+    """
+    `answers` format: {question_number: {"text": str|None, "file_id": str|None, "media_type": str}}
+    """
+    loop = asyncio.get_running_loop()
+
+    task = await loop.run_in_executor(None, _get_task_by_id, task_id)
+    if not task:
+        raise ValueError(f"Task {task_id} not found")
+
+    lead = await loop.run_in_executor(None, get_crm_lead, task.lead_id)
+    if not lead:
+        raise ValueError(f"CRM lead {task.lead_id} not found")
+
+    text_field_map = {1: "task_answer_1", 2: "task_answer_2", 3: "task_answer_3"}
+    questions_total = sum(
+        1 for q in [task.first_task, task.second_task, task.third_task] if q
     )
-    return task
+
+    for q_num, field_name in text_field_map.items():
+        if q_num > questions_total:
+            setattr(lead, field_name, "")
+        else:
+            data = answers.get(q_num, {})
+            if data.get("media_type") == "text" and data.get("text"):
+                setattr(lead, field_name, data["text"])
+            else:
+                setattr(lead, field_name, "Ответ в примечании")
+
+    answer_rows, answer_info = await prepare_answers(bot, answers, file_prefix="task")
+
+    lead.task_db_record_id = str(task_id)
+    lead.task_completion_date = int(now_moscow().timestamp())
+    lead.task_deadline_missed = "Да" if is_deadline_missed(task.deadline) else "Нет"
+
+    contact_id, contact_name = await loop.run_in_executor(None, get_contact_info, lead)
+
+    def _save_lead():
+        with amo_crm_rate_limiter.limit():
+            save_entity(lead)
+
+    await loop.run_in_executor(None, _save_lead)
+
+    await push_answers_to_crm(
+        lead=lead,
+        lead_id=task.lead_id,
+        answer_info=answer_info,
+        label="задание",
+        contact_id=contact_id,
+        contact_name=contact_name,
+    )
+
+    await loop.run_in_executor(None, _upsert_task_answers, task_id, answer_rows)
+    await loop.run_in_executor(
+        None, _update_task_status, task_id, TaskStatus.SUBMITTED
+    )
+    await loop.run_in_executor(
+        None,
+        update_lead_status_in_pipeline,
+        lead,
+        config.CRM_SELECTION_PIPELINE,
+        config.CRM_TASK_SUBMITTED_STATUS,
+    )
+
+    logger.info(f"Task {task_id} submitted successfully")
 
 
 def update_task_status(task_id: int, status: TaskStatus) -> Task | None:
@@ -289,16 +474,6 @@ def postpone_task(task_id: int):
     update_lead_status_by_lead(lead, config.CRM_TASK_IS_POSTPONED_STATUS)
 
 
-def mark_task_as_failed(task_id: int):
-    task = get_task_by_id(task_id)
-    if not task:
-        logger.warning(f"Task with id={task_id} not found")
-        return
-
-    send_note(
-        task.lead_id,
-        "Не удалось отправить задание наставнику: наставник не указан или не зарегистрирован в боте.",
-    )
 
 
 def get_task_by_id(task_id: int) -> Task | None:

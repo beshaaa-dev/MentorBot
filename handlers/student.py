@@ -10,32 +10,29 @@ from telegram.ext import (
     filters,
 )
 from logger import setup_logger
-import json
 from repositories.user_repository import (
-    get_task,
     get_visit_card,
     get_test,
     get_crm_user,
-    TaskDetails,
     VisitCardDetails,
-    TestDetails,
 )
 from database.homework_service import get_pending_homework_by_student_id
-from crm.crm_service import get_crm_lead, resolve_crm_contact, get_contact_referral_link
-from database.models import Homework, HomeworkStatus, User, UserRole
-from repositories.task_repository import (
-    create_task,
-    mark_task_as_failed,
-    TaskMessageData,
+from database.task_service import get_pending_task_by_student_id
+from crm.crm_service import (
+    get_crm_lead,
+    get_first_lead,
+    is_task_lead,
+    resolve_crm_contact,
+    get_contact_referral_link,
 )
-from database.user_service import get_by_id, find_by_tg_id
-from database.task_service import get_mentor_task_notification, upsert_mentor_task_notification
+from database.models import Homework, HomeworkStatus, Task, TaskStatus, User
+from database.user_service import find_by_tg_id
 from keyboards import (
     get_confirmation_keyboard,
-    get_task_review_keyboard,
     get_start_homework_keyboard,
     get_edit_homework_keyboard,
-    get_check_task_keyboard,
+    get_start_task_keyboard,
+    get_edit_task_keyboard,
     get_student_menu_keyboard,
     STUDENT_CHECK_TASKS_CB,
     STUDENT_INVITE_FRIEND_CB,
@@ -44,15 +41,9 @@ from messages import (
     TASK_CHECKING,
     STUDENT_MENU_INFO,
     STUDENT_NO_TASK,
-    TASK,
-    TASK_DEADLINE,
-    REQUEST_TASK_ANSWER,
-    TASK_ANSWER_RECEIVED,
-    VIDEO_CONFIRMED,
     VIDEO_CANCELLED,
     CONFIRM_BUTTON,
     CANCEL_BUTTON,
-    MENTOR_NEW_TASK_NOTIFICATION,
     VISIT_CARD_TASK,
     REQUEST_VISIT_CARD_VIDEO,
     INVALID_MEDIA_TYPE,
@@ -60,35 +51,26 @@ from messages import (
     VISIT_CARD_VIDEO_RECEIVED,
     VISIT_CARD_UPLOADING,
     VISIT_CARD_VIDEO_CONFIRMED,
-    TASK_ANSWERS_REVIEW_HEADER,
-    TASK_ANSWERS_REVIEW_QUESTION,
-    CHANGE_TASK_1_BUTTON,
-    CHANGE_TASK_2_BUTTON,
-    CHANGE_TASK_3_BUTTON,
-    CONFIRM_ALL_BUTTON,
+    TASK_NEW_ASSIGNMENT,
+    TASK_CONTINUE_ASSIGNMENT,
+    TASK_EDIT_NOTIFICATION,
     HW_NEW_ASSIGNMENT,
     HW_EDIT_NOTIFICATION,
     INVITE_FRIEND_LINK_MESSAGE,
     INVITE_FRIEND_NO_LINK,
 )
+from handlers.answer_utils import with_deadline
 from handlers.utils import (
     send_error_message,
     delete_user_message,
-    send_media_to_chat,
-    parse_message_reference,
+    safe_delete_message,
 )
 
 logger = setup_logger(__name__)
 
-# Conversation states (for student flow only)
+# Conversation states (for student flow only).
+# States 1–7 used to hold the inline task flow; tasks now live in task_student.py.
 WAITING_FOR_STUDENT_MENU = 0
-WAITING_FOR_FIRST_TASK_ANSWER = 1
-WAITING_FOR_FIRST_TASK_CONFIRMATION = 2
-WAITING_FOR_SECOND_TASK_ANSWER = 3
-WAITING_FOR_SECOND_TASK_CONFIRMATION = 4
-WAITING_FOR_THIRD_TASK_ANSWER = 5
-WAITING_FOR_THIRD_TASK_CONFIRMATION = 6
-WAITING_FOR_REVIEW = 7
 WAITING_FOR_VISIT_CARD_VIDEO = 8
 WAITING_FOR_VISIT_CARD_CONFIRMATION = 9
 # Test states
@@ -128,10 +110,10 @@ async def _process_student_tasks(
     if visit_card:
         return await send_visit_card_message(visit_card, update, context)
 
-    # Проверяем есть ли задание от ментора
-    task = get_task(user)
+    # Проверяем есть ли тестовое задание
+    task = _resolve_pending_task(user)
     if task:
-        return await send_task_message(task, update, context)
+        return await send_task_start_message(task, update, context)
 
     # Проверяем есть ли домашнее задание
     homework = get_pending_homework_by_student_id(user.id)
@@ -139,14 +121,16 @@ async def _process_student_tasks(
         return await send_homework_start_message(homework, update, context)
 
     # Задание не найдено
-    return await send_task_message(None, update, context)
+    await update.effective_chat.send_message(STUDENT_NO_TASK)
+    context.user_data.clear()
+    return ConversationHandler.END
 
 
 async def handle_check_tasks_button(
     update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> int:
     await update.callback_query.answer()
-    await update.callback_query.message.delete()
+    await safe_delete_message(update.callback_query.message)
 
     db_user = find_by_tg_id(update.effective_user.id)
     if not db_user:
@@ -165,7 +149,7 @@ async def handle_invite_friend_button(
     update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> int:
     await update.callback_query.answer()
-    await update.callback_query.message.delete()
+    await safe_delete_message(update.callback_query.message)
 
     db_user = find_by_tg_id(update.effective_user.id)
     if not db_user:
@@ -196,38 +180,60 @@ async def handle_invite_friend_button(
     return WAITING_FOR_STUDENT_MENU
 
 
-async def send_task_message(
-    task: TaskDetails | None, update: Update, context: ContextTypes.DEFAULT_TYPE
+def _resolve_pending_task(user: User) -> Task | None:
+    """
+    Ищет незавершённое тестовое задание студента.
+
+    Сначала в БД (его туда кладёт вебхук /task/assigned). Если записи нет, но лид
+    в CRM стоит в статусе «Ожидаем тестовое» — значит вебхук не дошёл, поэтому
+    создаём задание тем же кодом, что и вебхук.
+    """
+    task = get_pending_task_by_student_id(user.id)
+    if task:
+        return task
+
+    contact = resolve_crm_contact(user.tg_id, user.tg_nickname)
+    if not contact:
+        return None
+
+    lead = get_first_lead(contact)
+    if not lead or not is_task_lead(lead):
+        return None
+
+    try:
+        from repositories.task_repository import save_task_from_webhook
+
+        task, _ = save_task_from_webhook(str(lead.id))
+        logger.info(f"Recovered task from CRM lead {lead.id} for user {user.id}")
+        return task
+    except ValueError as e:
+        logger.warning(f"Could not build task from lead {lead.id}: {e}")
+        return None
+
+
+async def send_task_start_message(
+    task: Task, update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> int:
-    if not task:
-        await update.effective_chat.send_message(STUDENT_NO_TASK)
-        context.user_data.clear()
-        return ConversationHandler.END
+    """Отправляет кнопку «Приступить»/«Исправить» — дальше работает task_student_conversation_handler."""
+    if task.status == TaskStatus.EDIT:
+        text = (
+            TASK_EDIT_NOTIFICATION.format(reason=task.edit_reason)
+            if task.edit_reason
+            else TASK_EDIT_NOTIFICATION.split("\n\n")[0]
+        )
+        keyboard = get_edit_task_keyboard(task.id)
+    elif task.answers:
+        # Студент уже что-то отправлял: ответы подгрузятся, поэтому это «Исправить».
+        text = TASK_CONTINUE_ASSIGNMENT
+        keyboard = get_edit_task_keyboard(task.id)
+    else:
+        text = TASK_NEW_ASSIGNMENT
+        keyboard = get_start_task_keyboard(task.id)
 
-    # Store task details in context
-    context.user_data["task_details"] = {
-        "first_task": task.first_task,
-        "second_task": task.second_task,
-        "third_task": task.third_task,
-        "lead_id": task.lead_id,
-        "deadline": task.deadline,
-    }
-
-    # Initialize answers storage with placeholders for existing tasks
-    task_answers: dict[str, str | None] = {"1": None}
-    if task.second_task:
-        task_answers["2"] = None
-    if task.third_task:
-        task_answers["3"] = None
-    context.user_data["task_answers"] = task_answers
-
-    deadline_block = (
-        TASK_DEADLINE.format(deadline=task.deadline) if task.deadline else ""
+    await update.effective_chat.send_message(
+        with_deadline(text, task.deadline), reply_markup=keyboard
     )
-    message = TASK.format(text=task.first_task) + deadline_block
-    await update.effective_chat.send_message(message)
-    await update.effective_chat.send_message(REQUEST_TASK_ANSWER)
-    return WAITING_FOR_FIRST_TASK_ANSWER
+    return ConversationHandler.END
 
 
 async def send_homework_start_message(
@@ -269,377 +275,6 @@ async def send_homework_start_message(
     return ConversationHandler.END
 
 
-def extract_file_id(update: Update) -> str | None:
-    """Extract file_id from different media types."""
-    if update.message.video:
-        return update.message.video.file_id
-    elif update.message.video_note:
-        return update.message.video_note.file_id
-    elif update.message.audio:
-        return update.message.audio.file_id
-    elif update.message.document:
-        return update.message.document.file_id
-    elif update.message.photo:
-        # Use the largest photo
-        return update.message.photo[-1].file_id
-    elif update.message.voice:
-        return update.message.voice.file_id
-    elif update.message.text:
-        # Store message reference instead of converting to file
-        return create_message_reference(
-            update.effective_chat.id, update.message.message_id
-        )
-    return None
-
-
-def _get_next_unanswered_task(
-    task_answers: dict[str, str | None], current_task_number: str
-) -> str | None:
-    """Return next task number with no answer (None) after current, or None."""
-    sorted_task_numbers = sorted(task_answers.keys(), key=int)
-    try:
-        current_index = sorted_task_numbers.index(current_task_number)
-    except ValueError:
-        return None
-
-    for task_number in sorted_task_numbers[current_index + 1 :]:
-        if task_answers.get(task_number) is None:
-            return task_number
-    return None
-
-
-def _get_task_text(task_details: dict, task_number: str) -> str:
-    """Return the task text for the given task number."""
-    mapping = {
-        "1": task_details.get("first_task"),
-        "2": task_details.get("second_task"),
-        "3": task_details.get("third_task"),
-    }
-    return mapping.get(task_number) or ""
-
-
-async def receive_first_task_answer(
-    update: Update, context: ContextTypes.DEFAULT_TYPE
-) -> int:
-    """Handle received answer for first task."""
-    file_id = extract_file_id(update)
-
-    if file_id:
-        context.user_data["task_answers"]["1"] = file_id
-        reply_markup = get_confirmation_keyboard()
-        sent = await update.message.reply_text(TASK_ANSWER_RECEIVED, reply_markup=reply_markup)
-        context.user_data["task_answer_received_message"] = sent
-        return WAITING_FOR_FIRST_TASK_CONFIRMATION
-    else:
-        await update.message.reply_text(
-            REQUEST_TASK_ANSWER, reply_markup=ReplyKeyboardRemove()
-        )
-        return WAITING_FOR_FIRST_TASK_ANSWER
-
-
-async def receive_second_task_answer(
-    update: Update, context: ContextTypes.DEFAULT_TYPE
-) -> int:
-    """Handle received answer for second task."""
-    file_id = extract_file_id(update)
-
-    if file_id:
-        context.user_data["task_answers"]["2"] = file_id
-        reply_markup = get_confirmation_keyboard()
-        sent = await update.message.reply_text(TASK_ANSWER_RECEIVED, reply_markup=reply_markup)
-        context.user_data["task_answer_received_message"] = sent
-        return WAITING_FOR_SECOND_TASK_CONFIRMATION
-    else:
-        await update.message.reply_text(
-            REQUEST_TASK_ANSWER, reply_markup=ReplyKeyboardRemove()
-        )
-        return WAITING_FOR_SECOND_TASK_ANSWER
-
-
-async def receive_third_task_answer(
-    update: Update, context: ContextTypes.DEFAULT_TYPE
-) -> int:
-    """Handle received answer for third task."""
-    file_id = extract_file_id(update)
-
-    if file_id:
-        context.user_data["task_answers"]["3"] = file_id
-        reply_markup = get_confirmation_keyboard()
-        sent = await update.message.reply_text(TASK_ANSWER_RECEIVED, reply_markup=reply_markup)
-        context.user_data["task_answer_received_message"] = sent
-        return WAITING_FOR_THIRD_TASK_CONFIRMATION
-    else:
-        await update.message.reply_text(
-            REQUEST_TASK_ANSWER, reply_markup=ReplyKeyboardRemove()
-        )
-        return WAITING_FOR_THIRD_TASK_ANSWER
-
-
-async def confirm_first_task(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Handle first task confirmation."""
-    text = update.message.text
-    await delete_user_message(update.message)
-    await delete_user_message(context.user_data.pop("task_answer_received_message", None))
-
-    if text == CONFIRM_BUTTON:
-        task_details = context.user_data.get("task_details", {})
-        task_answers = context.user_data.get("task_answers", {})
-
-        next_task = _get_next_unanswered_task(task_answers, "1")
-        if next_task:
-            task_text = _get_task_text(task_details, next_task)
-            deadline_block = (
-                TASK_DEADLINE.format(deadline=task_details.get("deadline"))
-                if task_details.get("deadline")
-                else ""
-            )
-            message = TASK.format(text=task_text) + deadline_block
-            await update.message.reply_text(
-                message,
-                reply_markup=ReplyKeyboardRemove(),
-            )
-            await update.message.reply_text(
-                REQUEST_TASK_ANSWER, reply_markup=ReplyKeyboardRemove()
-            )
-            return (
-                WAITING_FOR_SECOND_TASK_ANSWER
-                if next_task == "2"
-                else WAITING_FOR_THIRD_TASK_ANSWER
-            )
-
-        # No more unanswered tasks, go to review
-        return await show_review_screen(update, context)
-    elif text == CANCEL_BUTTON:
-        # Reset answer and ask again
-        context.user_data["task_answers"]["1"] = None
-        await update.message.reply_text(
-            REQUEST_TASK_ANSWER, reply_markup=ReplyKeyboardRemove()
-        )
-        return WAITING_FOR_FIRST_TASK_ANSWER
-
-    await update.message.reply_text(
-        TASK_ANSWER_RECEIVED, reply_markup=get_confirmation_keyboard()
-    )
-    return WAITING_FOR_FIRST_TASK_CONFIRMATION
-
-
-async def confirm_second_task(
-    update: Update, context: ContextTypes.DEFAULT_TYPE
-) -> int:
-    """Handle second task confirmation."""
-    text = update.message.text
-    await delete_user_message(update.message)
-    await delete_user_message(context.user_data.pop("task_answer_received_message", None))
-
-    if text == CONFIRM_BUTTON:
-        task_details = context.user_data.get("task_details", {})
-        task_answers = context.user_data.get("task_answers", {})
-
-        next_task = _get_next_unanswered_task(task_answers, "2")
-        if next_task:
-            task_text = _get_task_text(task_details, next_task)
-            deadline_block = (
-                TASK_DEADLINE.format(deadline=task_details.get("deadline"))
-                if task_details.get("deadline")
-                else ""
-            )
-            message = TASK.format(text=task_text) + deadline_block
-            await update.message.reply_text(
-                message,
-                reply_markup=ReplyKeyboardRemove(),
-            )
-            await update.message.reply_text(
-                REQUEST_TASK_ANSWER, reply_markup=ReplyKeyboardRemove()
-            )
-            return (
-                WAITING_FOR_THIRD_TASK_ANSWER
-                if next_task == "3"
-                else WAITING_FOR_REVIEW
-            )
-
-        # No more unanswered tasks, go to review
-        return await show_review_screen(update, context)
-    elif text == CANCEL_BUTTON:
-        # Reset answer and ask again
-        context.user_data["task_answers"]["2"] = None
-        await update.message.reply_text(
-            REQUEST_TASK_ANSWER, reply_markup=ReplyKeyboardRemove()
-        )
-        return WAITING_FOR_SECOND_TASK_ANSWER
-
-    await update.message.reply_text(
-        TASK_ANSWER_RECEIVED, reply_markup=get_confirmation_keyboard()
-    )
-    return WAITING_FOR_SECOND_TASK_CONFIRMATION
-
-
-async def confirm_third_task(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Handle third task confirmation."""
-    text = update.message.text
-    await delete_user_message(update.message)
-    await delete_user_message(context.user_data.pop("task_answer_received_message", None))
-
-    if text == CONFIRM_BUTTON:
-        # All tasks done or changing, go to review
-        return await show_review_screen(update, context)
-    elif text == CANCEL_BUTTON:
-        # Reset answer and ask again
-        context.user_data["task_answers"]["3"] = None
-        await update.message.reply_text(
-            REQUEST_TASK_ANSWER, reply_markup=ReplyKeyboardRemove()
-        )
-        return WAITING_FOR_THIRD_TASK_ANSWER
-
-    await update.message.reply_text(
-        TASK_ANSWER_RECEIVED, reply_markup=get_confirmation_keyboard()
-    )
-    return WAITING_FOR_THIRD_TASK_CONFIRMATION
-
-
-async def show_review_screen(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Show review screen with all answers."""
-    task_answers = context.user_data.get("task_answers", {})
-    task_details = context.user_data.get("task_details", {})
-    chat_id = update.effective_chat.id
-
-    await update.message.reply_text(
-        TASK_ANSWERS_REVIEW_HEADER, reply_markup=ReplyKeyboardRemove()
-    )
-
-    # Send actual task messages in order
-    if "1" in task_answers and task_answers.get("1"):
-        await send_media_to_chat(context.bot, chat_id, task_answers["1"])
-
-    if (
-        "2" in task_answers
-        and task_answers.get("2")
-        and task_details.get("second_task")
-    ):
-        await send_media_to_chat(context.bot, chat_id, task_answers["2"])
-
-    if "3" in task_answers and task_answers.get("3") and task_details.get("third_task"):
-        await send_media_to_chat(context.bot, chat_id, task_answers["3"])
-
-    keyboard = get_task_review_keyboard(
-        has_task_2=bool(task_details.get("second_task")),
-        has_task_3=bool(task_details.get("third_task")),
-    )
-
-    await update.message.reply_text(TASK_ANSWERS_REVIEW_QUESTION, reply_markup=keyboard)
-    return WAITING_FOR_REVIEW
-
-
-async def handle_review_selection(
-    update: Update, context: ContextTypes.DEFAULT_TYPE
-) -> int:
-    """Handle review screen selection (change or confirm)."""
-    text = update.message.text
-    await delete_user_message(update.message)
-    task_details = context.user_data.get("task_details", {})
-    task_answers = context.user_data.get("task_answers", {})
-
-    if text == CONFIRM_ALL_BUTTON:
-        # Final confirmation - create task with all answers
-        return await finalize_task_submission(update, context)
-    elif text == CHANGE_TASK_1_BUTTON:
-        context.user_data["task_answers"]["1"] = None
-        await update.message.reply_text(
-            REQUEST_TASK_ANSWER, reply_markup=ReplyKeyboardRemove()
-        )
-        return WAITING_FOR_FIRST_TASK_ANSWER
-    elif text == CHANGE_TASK_2_BUTTON and "2" in task_answers:
-        context.user_data["task_answers"]["2"] = None
-        await update.message.reply_text(
-            REQUEST_TASK_ANSWER, reply_markup=ReplyKeyboardRemove()
-        )
-        return WAITING_FOR_SECOND_TASK_ANSWER
-    elif text == CHANGE_TASK_3_BUTTON and "3" in task_answers:
-        context.user_data["task_answers"]["3"] = None
-        await update.message.reply_text(
-            REQUEST_TASK_ANSWER, reply_markup=ReplyKeyboardRemove()
-        )
-        return WAITING_FOR_THIRD_TASK_ANSWER
-
-    # Invalid selection, show review again
-    return await show_review_screen(update, context)
-
-
-async def finalize_task_submission(
-    update: Update, context: ContextTypes.DEFAULT_TYPE
-) -> int:
-    """Finalize task submission and create task with all TaskMessages."""
-    try:
-        task_answers = context.user_data.get("task_answers", {})
-        if not task_answers:
-            logger.warning("No task answers found when finalizing")
-            await send_error_message(update)
-            context.user_data.clear()
-            return ConversationHandler.END
-
-        # Build TaskMessageData list
-        task_messages = [
-            TaskMessageData(file_id=file_id, task_number=int(task_num))
-            for task_num, file_id in task_answers.items()
-            if file_id
-        ]
-
-        # Ensure all answers are provided
-        expected_count = len(task_answers)
-        if len(task_messages) < expected_count:
-            logger.warning("Attempted to finalize with missing answers")
-            await show_review_screen(update, context)
-            return WAITING_FOR_REVIEW
-
-        student_tg_id = update.effective_user.id
-        task = create_task(student_tg_id=student_tg_id, task_messages=task_messages)
-
-        # Send task notification to mentor if they have tg_id
-        if task and task.mentor_id:
-            mentor = get_by_id(task.mentor_id)
-            if mentor and mentor.tg_id:
-                try:
-                    old_notification = get_mentor_task_notification(mentor.id)
-                    if old_notification:
-                        try:
-                            await context.bot.delete_message(
-                                chat_id=old_notification.chat_id,
-                                message_id=old_notification.message_id,
-                            )
-                        except Exception:
-                            pass
-
-                    keyboard = get_check_task_keyboard(task.id)
-                    sent = await context.bot.send_message(
-                        chat_id=mentor.tg_id,
-                        text=MENTOR_NEW_TASK_NOTIFICATION,
-                        reply_markup=keyboard,
-                    )
-
-                    upsert_mentor_task_notification(
-                        mentor_id=mentor.id,
-                        message_id=sent.message_id,
-                        chat_id=mentor.tg_id,
-                    )
-                    logger.info(
-                        f"Sent task notification to mentor {mentor.id} (tg_id: {mentor.tg_id})"
-                    )
-                except Exception as e:
-                    mark_task_as_failed(task.id)
-                    logger.error(
-                        f"Failed to send task notification to mentor {task.mentor_id}: {e}"
-                    )
-
-        await update.message.reply_text(
-            VIDEO_CONFIRMED, reply_markup=ReplyKeyboardRemove()
-        )
-    except Exception as e:
-        logger.error(f"Error creating task: {e}")
-        await send_error_message(update)
-
-    context.user_data.clear()
-    return ConversationHandler.END
-
-
 async def cancel_task(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Cancel the task conversation."""
     await delete_user_message(update.message)
@@ -647,10 +282,6 @@ async def cancel_task(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
     context.user_data.clear()
     return ConversationHandler.END
 
-
-def create_message_reference(chat_id: int, message_id: int) -> str:
-    """Create a message reference string to store in file_id field."""
-    return f"msg:{json.dumps({'chat_id': chat_id, 'message_id': message_id})}"
 
 
 # ============== Visit Card Flow ==============
@@ -808,29 +439,6 @@ def create_student_conversation_handler(
             WAITING_FOR_STUDENT_MENU: [
                 CallbackQueryHandler(handle_check_tasks_button, pattern=f"^{STUDENT_CHECK_TASKS_CB}$"),
                 CallbackQueryHandler(handle_invite_friend_button, pattern=f"^{STUDENT_INVITE_FRIEND_CB}$"),
-            ],
-            WAITING_FOR_FIRST_TASK_ANSWER: [
-                MessageHandler(~filters.COMMAND, receive_first_task_answer),
-            ],
-            WAITING_FOR_FIRST_TASK_CONFIRMATION: [
-                MessageHandler(filters.TEXT & ~filters.COMMAND, confirm_first_task),
-            ],
-            WAITING_FOR_SECOND_TASK_ANSWER: [
-                MessageHandler(~filters.COMMAND, receive_second_task_answer),
-            ],
-            WAITING_FOR_SECOND_TASK_CONFIRMATION: [
-                MessageHandler(filters.TEXT & ~filters.COMMAND, confirm_second_task),
-            ],
-            WAITING_FOR_THIRD_TASK_ANSWER: [
-                MessageHandler(~filters.COMMAND, receive_third_task_answer),
-            ],
-            WAITING_FOR_THIRD_TASK_CONFIRMATION: [
-                MessageHandler(filters.TEXT & ~filters.COMMAND, confirm_third_task),
-            ],
-            WAITING_FOR_REVIEW: [
-                MessageHandler(
-                    filters.TEXT & ~filters.COMMAND, handle_review_selection
-                ),
             ],
             WAITING_FOR_VISIT_CARD_VIDEO: [
                 MessageHandler(~filters.COMMAND, receive_visit_card_video),

@@ -78,6 +78,20 @@ class Lead(_Lead):
     )
     hw_rating = custom_field.NumericCustomField("Оценка наставника", field_id=560359)
     hw_feedback = custom_field.TextCustomField("Фидбек ментора", field_id=560361)
+    # Task fields
+    task_edit_reason = custom_field.TextCustomField(
+        "Причина отправки на переработку", field_id=566835
+    )
+    task_answer_1 = custom_field.TextCustomField("Ответ на задание 1", field_id=566837)
+    task_answer_2 = custom_field.TextCustomField("Ответ на задание 2", field_id=566839)
+    task_answer_3 = custom_field.TextCustomField("Ответ на задание 3", field_id=566841)
+    task_db_record_id = custom_field.TextCustomField("task_id", field_id=566843)
+    task_completion_date = custom_field.DateCustomField(
+        "Дата завершения задания", field_id=566845
+    )
+    task_deadline_missed = custom_field.TextCustomField(
+        "Дедлай пропущен", field_id=566847
+    )
     # Поля для проекта с опросами
     survey_date = custom_field.DateCustomField("Дата опроса", field_id=559061)
     chat_name = custom_field.TextCustomField("Название чата", field_id=559059)

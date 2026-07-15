@@ -35,8 +35,11 @@ from keyboards import (
     get_mentor_homework_menu_keyboard,
     get_view_all_tasks_keyboard,
 )
+from handlers.answer_utils import send_answer_content
 from messages import (
     ERROR_MESSAGE,
+    TASK_MENTOR_QUESTION_HEADER,
+    TASK_MENTOR_NO_ANSWER,
     MENTOR_GREETING_TEMPLATE,
     MENTOR_NO_TASK,
     BACK_BUTTON,
@@ -237,11 +240,48 @@ async def _send_task_payload(
     #     )
     #     msg_ids.append(doc_msg.message_id)
 
-    # Send all task messages, ordered by task_number
+    # Новый флоу
+    if task.first_task:
+        questions = [q for q in [task.first_task, task.second_task, task.third_task] if q]
+        answers_by_num = {a.question_number: a for a in (task.answers or [])}
+
+        for i, question in enumerate(questions, start=1):
+            kwargs = {
+                "chat_id": chat_id,
+                "text": TASK_MENTOR_QUESTION_HEADER.format(n=i, question=question),
+                "parse_mode": "Markdown",
+            }
+            if i == 1 and reply_markup is not None:
+                kwargs["reply_markup"] = reply_markup
+            q_msg = await context.bot.send_message(**kwargs)
+            msg_ids.append(q_msg.message_id)
+
+            answer = answers_by_num.get(i)
+            if not answer:
+                no_answer_msg = await context.bot.send_message(
+                    chat_id=chat_id,
+                    text=TASK_MENTOR_NO_ANSWER,
+                    parse_mode="Markdown",
+                )
+                msg_ids.append(no_answer_msg.message_id)
+                continue
+
+            answer_data = {
+                "media_type": answer.media_type,
+                "text": answer.answer_content if answer.media_type == "text" else None,
+                "file_id": answer.answer_content if answer.media_type != "text" else None,
+            }
+            ans_msg = await send_answer_content(answer_data, chat_id, context)
+            if ans_msg:
+                msg_ids.append(ans_msg.message_id)
+
+        return msg_ids
+
+    # Легаси-записи
     task_messages = sorted(task.task_messages, key=lambda tm: tm.task_number)
 
     if not task_messages:
-        logger.warning(f"Task {task.id} has no task_messages")
+        logger.warning(f"Task {task.id} has no answers and no task_messages")
         return msg_ids
 
     # Send all messages, add reply_markup only to the last one

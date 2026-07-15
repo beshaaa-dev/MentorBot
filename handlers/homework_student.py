@@ -14,8 +14,14 @@ from database.homework_service import (
     update_homework_status,
 )
 from database.models import HomeworkStatus
+from handlers.answer_utils import (
+    answers_from_rows,
+    clear_flow_data,
+    send_answer_content as _send_answer_content,
+    store_answer,
+)
 from keyboards import (
-    get_hw_answer_confirmation_keyboard,
+    get_answer_confirmation_keyboard,
     get_hw_review_keyboard,
 )
 from messages import (
@@ -28,7 +34,6 @@ from messages import (
     HW_CONFIRM_ALL_BUTTON,
     HW_SUBMITTED,
     HW_NOT_FOUND,
-    HW_MEDIA_LABEL,
     ERROR_MESSAGE,
 )
 from logger import setup_logger
@@ -119,37 +124,7 @@ async def _transition_to_question(
 
 
 def _store_answer(q_num: int, message: Message, context: ContextTypes.DEFAULT_TYPE) -> None:
-    answers: dict = context.user_data.setdefault("hw_answers", {})
-    file_id: str | None = None
-    media_type: str = "text"
-    if message.text:
-        pass
-    elif message.video:
-        file_id = message.video.file_id
-        media_type = "video"
-    elif message.video_note:
-        file_id = message.video_note.file_id
-        media_type = "video_note"
-    elif message.audio:
-        file_id = message.audio.file_id
-        media_type = "audio"
-    elif message.voice:
-        file_id = message.voice.file_id
-        media_type = "voice"
-    elif message.document:
-        file_id = message.document.file_id
-        media_type = "document"
-    elif message.photo:
-        file_id = message.photo[-1].file_id
-        media_type = "photo"
-    answers[q_num] = {
-        "text": message.text if media_type == "text" else None,
-        "file_id": file_id,
-        "media_type": media_type,
-    }
-    if message.document:
-        answers[q_num]["file_name"] = message.document.file_name
-        answers[q_num]["mime_type"] = message.document.mime_type
+    store_answer(q_num, message, context.user_data.setdefault("hw_answers", {}))
 
 
 def _next_question_state(current_q: int, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -159,35 +134,6 @@ def _next_question_state(current_q: int, context: ContextTypes.DEFAULT_TYPE) -> 
     if current_q < total:
         return _ANSWER_STATE[current_q]  # 0-indexed → current_q is next q_num
     return REVIEWING
-
-
-async def _send_answer_content(
-    answer_data: dict, chat_id: int, context: ContextTypes.DEFAULT_TYPE
-) -> Message | None:
-    media_type = answer_data.get("media_type", "text")
-    if media_type == "text":
-        text = answer_data.get("text") or ""
-        if text:
-            return await context.bot.send_message(chat_id, text)
-        return None
-    file_id = answer_data.get("file_id")
-    if not file_id:
-        return None
-    match media_type:
-        case "video":
-            return await context.bot.send_video(chat_id, file_id)
-        case "video_note":
-            return await context.bot.send_video_note(chat_id, file_id)
-        case "audio":
-            return await context.bot.send_audio(chat_id, file_id)
-        case "voice":
-            return await context.bot.send_voice(chat_id, file_id)
-        case "document":
-            return await context.bot.send_document(chat_id, file_id)
-        case "photo":
-            return await context.bot.send_photo(chat_id, file_id)
-        case _:
-            return await context.bot.send_message(chat_id, HW_MEDIA_LABEL)
 
 
 async def _show_review(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -215,7 +161,7 @@ async def handle_edit_homework(update: Update, context: ContextTypes.DEFAULT_TYP
     """Точка входа: студент нажимает «Исправить» после возврата на доработку."""
     query = update.callback_query
     await query.answer()
-    context.user_data.clear()
+    clear_flow_data(context, "hw_")
 
     try:
         hw_id = int(query.data.split("_")[-1])
@@ -243,22 +189,7 @@ async def handle_edit_homework(update: Update, context: ContextTypes.DEFAULT_TYP
 
     context.user_data["hw_id"] = hw_id
     context.user_data["hw_questions"] = questions
-
-    hw_answers: dict = {}
-    for ans in (homework.answers or []):
-        if ans.media_type == "text":
-            hw_answers[ans.question_number] = {
-                "text": ans.answer_content,
-                "file_id": None,
-                "media_type": "text",
-            }
-        else:
-            hw_answers[ans.question_number] = {
-                "text": None,
-                "file_id": ans.answer_content,
-                "media_type": ans.media_type,
-            }
-    context.user_data["hw_answers"] = hw_answers
+    context.user_data["hw_answers"] = answers_from_rows(homework.answers)
 
     await loop.run_in_executor(None, update_homework_status, hw_id, HomeworkStatus.IN_PROGRESS)
 
@@ -274,7 +205,7 @@ async def handle_edit_homework(update: Update, context: ContextTypes.DEFAULT_TYP
 async def handle_start_homework(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     query = update.callback_query
     await query.answer()
-    context.user_data.clear()
+    clear_flow_data(context, "hw_")
 
     try:
         hw_id = int(query.data.split("_")[-1])
@@ -341,7 +272,7 @@ def _make_answer_handler(q_num: int):
                 pass
 
         confirm_msg = await update.effective_chat.send_message(
-            confirm_text, reply_markup=get_hw_answer_confirmation_keyboard()
+            confirm_text, reply_markup=get_answer_confirmation_keyboard()
         )
         context.user_data["hw_question_msg_id"] = confirm_msg.message_id
 
@@ -407,7 +338,7 @@ async def handle_review_confirm(update: Update, context: ContextTypes.DEFAULT_TY
         await submit_student_answers(hw_id, answers, context.bot)
     except Exception as e:
         logger.error(f"Failed to submit homework hw_id={hw_id}: {e}", exc_info=True)
-        context.user_data.clear()
+        clear_flow_data(context, "hw_")
         try:
             await pending_msg.delete()
         except Exception:
@@ -415,7 +346,7 @@ async def handle_review_confirm(update: Update, context: ContextTypes.DEFAULT_TY
         await update.message.reply_text(ERROR_MESSAGE)
         return ConversationHandler.END
 
-    context.user_data.clear()
+    clear_flow_data(context, "hw_")
     try:
         await pending_msg.delete()
     except Exception:

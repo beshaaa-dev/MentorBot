@@ -11,7 +11,18 @@ load_dotenv(dotenv_path=Path(__file__).resolve().parent / ".env", override=True)
 
 from fastapi import FastAPI, Header, HTTPException, Request
 from fastapi.responses import JSONResponse
-from config import CRM_HOMEWORK_PIPELINE, CRM_HW_ASSIGNED_STATUS, CRM_HW_EDIT_STATUS, CRM_HW_EDIT_FROM_MENTOR_STATUS, CRM_HW_FOR_MENTOR_STATUS, CRM_HW_APPROVED_STATUS
+from config import (
+    CRM_HOMEWORK_PIPELINE,
+    CRM_HW_ASSIGNED_STATUS,
+    CRM_HW_EDIT_STATUS,
+    CRM_HW_EDIT_FROM_MENTOR_STATUS,
+    CRM_HW_FOR_MENTOR_STATUS,
+    CRM_HW_APPROVED_STATUS,
+    CRM_SELECTION_PIPELINE,
+    CRM_TASK_ASSIGNED_STATUS,
+    CRM_TASK_SUBMITTED_STATUS,
+    CRM_TASK_EDIT_STATUS,
+)
 from logger import setup_logger
 
 logger = setup_logger(__name__)
@@ -413,6 +424,207 @@ async def homework_accepted(request: Request):
 
     logger.info("homework_accepted: scheduling background processing for lead_id=%s", lead_id)
     _create_background_task(_process_homework_accepted(lead_id))
+    return JSONResponse({"status": "ok"})
+
+
+async def _process_task_assigned(lead_id: str) -> None:
+    try:
+        from repositories.task_repository import save_task_from_webhook
+
+        loop = asyncio.get_running_loop()
+        task, student_tg_id = await loop.run_in_executor(
+            None, save_task_from_webhook, lead_id
+        )
+    except Exception as e:
+        logger.error("task_assigned: failed to save task: %s", e, exc_info=True)
+        return
+
+    if not student_tg_id:
+        logger.warning("task_assigned: no student tg_id for lead_id=%s", lead_id)
+        return
+
+    try:
+        from telegram import Bot
+        from handlers.answer_utils import with_deadline
+        from keyboards import get_start_task_keyboard
+        from messages import TASK_NEW_ASSIGNMENT
+
+        async with Bot(token=TELEGRAM_BOT_TOKEN) as bot:
+            await bot.send_message(
+                chat_id=student_tg_id,
+                text=with_deadline(TASK_NEW_ASSIGNMENT, task.deadline),
+                reply_markup=get_start_task_keyboard(task.id),
+            )
+        logger.info(
+            "task_assigned: sent notification to student tg_id=%s for task_id=%s",
+            student_tg_id,
+            task.id,
+        )
+    except Exception as e:
+        logger.error(
+            "task_assigned: failed to send Telegram message: %s", e, exc_info=True
+        )
+
+
+@app.post("/task/assigned")
+async def task_assigned(request: Request):
+    form = await request.form()
+
+    pipeline_id = form.get("leads[status][0][pipeline_id]", "")
+    status_id = form.get("leads[status][0][status_id]", "")
+    lead_id = form.get("leads[status][0][id]", "")
+
+    if pipeline_id != str(CRM_SELECTION_PIPELINE) or status_id != CRM_TASK_ASSIGNED_STATUS:
+        return JSONResponse({"status": "ignored"})
+
+    if not lead_id:
+        raise HTTPException(status_code=400, detail="Missing lead id")
+
+    dedup_key = f"task_assigned:{lead_id}"
+    if _is_duplicate(dedup_key):
+        logger.info("task_assigned: duplicate webhook for lead_id=%s — skipping", lead_id)
+        return JSONResponse({"status": "ok"})
+
+    logger.info("task_assigned: scheduling background processing for lead_id=%s", lead_id)
+    _create_background_task(_process_task_assigned(lead_id))
+    return JSONResponse({"status": "ok"})
+
+
+async def _process_task_edit(lead_id: str) -> None:
+    try:
+        from repositories.task_repository import process_task_edit
+
+        loop = asyncio.get_running_loop()
+        task, student_tg_id, edit_reason = await loop.run_in_executor(
+            None, process_task_edit, lead_id
+        )
+    except Exception as e:
+        logger.error("task_edit: failed to process: %s", e, exc_info=True)
+        return
+
+    try:
+        from telegram import Bot
+        from handlers.answer_utils import with_deadline
+        from keyboards import get_edit_task_keyboard
+        from messages import TASK_EDIT_NOTIFICATION
+
+        async with Bot(token=TELEGRAM_BOT_TOKEN) as bot:
+            await bot.send_message(
+                chat_id=student_tg_id,
+                text=with_deadline(
+                    TASK_EDIT_NOTIFICATION.format(reason=edit_reason), task.deadline
+                ),
+                reply_markup=get_edit_task_keyboard(task.id),
+            )
+        logger.info(
+            "task_edit: sent notification to student tg_id=%s for task_id=%s",
+            student_tg_id,
+            task.id,
+        )
+    except Exception as e:
+        logger.error("task_edit: failed to send Telegram message: %s", e, exc_info=True)
+
+
+@app.post("/task/edit")
+async def task_edit(request: Request):
+    form = await request.form()
+
+    pipeline_id = form.get("leads[status][0][pipeline_id]", "")
+    status_id = form.get("leads[status][0][status_id]", "")
+    lead_id = form.get("leads[status][0][id]", "")
+
+    if pipeline_id != str(CRM_SELECTION_PIPELINE) or status_id != CRM_TASK_EDIT_STATUS:
+        return JSONResponse({"status": "ignored"})
+
+    if not lead_id:
+        raise HTTPException(status_code=400, detail="Missing lead id")
+
+    dedup_key = f"task_edit:{lead_id}"
+    if _is_duplicate(dedup_key):
+        logger.info("task_edit: duplicate webhook for lead_id=%s — skipping", lead_id)
+        return JSONResponse({"status": "ok"})
+
+    logger.info("task_edit: scheduling background processing for lead_id=%s", lead_id)
+    _create_background_task(_process_task_edit(lead_id))
+    return JSONResponse({"status": "ok"})
+
+
+async def _process_task_validated(lead_id: str) -> None:
+    try:
+        from repositories.task_repository import process_task_for_mentor
+
+        loop = asyncio.get_running_loop()
+        task, mentor_tg_id, mentor_db_id = await loop.run_in_executor(
+            None, process_task_for_mentor, lead_id
+        )
+    except Exception as e:
+        logger.error("task_validated: failed to process: %s", e, exc_info=True)
+        return
+
+    try:
+        from telegram import Bot
+        from keyboards import get_check_task_keyboard
+        from messages import MENTOR_NEW_TASK_NOTIFICATION
+        from database.task_service import (
+            get_mentor_task_notification,
+            upsert_mentor_task_notification,
+        )
+
+        old_notification = await loop.run_in_executor(
+            None, get_mentor_task_notification, mentor_db_id
+        )
+
+        async with Bot(token=TELEGRAM_BOT_TOKEN) as bot:
+            if old_notification:
+                try:
+                    await bot.delete_message(
+                        chat_id=old_notification.chat_id,
+                        message_id=old_notification.message_id,
+                    )
+                except Exception:
+                    pass
+
+            sent = await bot.send_message(
+                chat_id=mentor_tg_id,
+                text=MENTOR_NEW_TASK_NOTIFICATION,
+                reply_markup=get_check_task_keyboard(task.id),
+            )
+
+        await loop.run_in_executor(
+            None, upsert_mentor_task_notification, mentor_db_id, sent.message_id, mentor_tg_id
+        )
+        logger.info(
+            "task_validated: sent notification to mentor tg_id=%s for task_id=%s",
+            mentor_tg_id,
+            task.id,
+        )
+    except Exception as e:
+        logger.error(
+            "task_validated: failed to send Telegram message: %s", e, exc_info=True
+        )
+
+
+@app.post("/task/validated")
+async def task_validated(request: Request):
+    form = await request.form()
+
+    pipeline_id = form.get("leads[status][0][pipeline_id]", "")
+    status_id = form.get("leads[status][0][status_id]", "")
+    lead_id = form.get("leads[status][0][id]", "")
+
+    if pipeline_id != str(CRM_SELECTION_PIPELINE) or status_id != CRM_TASK_SUBMITTED_STATUS:
+        return JSONResponse({"status": "ignored"})
+
+    if not lead_id:
+        raise HTTPException(status_code=400, detail="Missing lead id")
+
+    dedup_key = f"task_validated:{lead_id}"
+    if _is_duplicate(dedup_key):
+        logger.info("task_validated: duplicate webhook for lead_id=%s — skipping", lead_id)
+        return JSONResponse({"status": "ok"})
+
+    logger.info("task_validated: scheduling background processing for lead_id=%s", lead_id)
+    _create_background_task(_process_task_validated(lead_id))
     return JSONResponse({"status": "ok"})
 
 

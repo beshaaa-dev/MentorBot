@@ -15,7 +15,6 @@ from crm.crm_service import (
     get_crm_lead,
     is_test_lead,
     is_visit_card_lead,
-    is_task_lead,
     Lead,
 )
 from datetime import datetime, timezone
@@ -26,15 +25,6 @@ from messages import VISIT_CARD_TEXT
 import re
 
 logger = setup_logger(__name__)
-
-
-@dataclass(slots=True)
-class TaskDetails:
-    first_task: str
-    second_task: str | None = None
-    third_task: str | None = None
-    lead_id: str | None = None
-    deadline: str | None = None
 
 
 @dataclass(slots=True)
@@ -121,41 +111,6 @@ def create_mentor_if_needed(mentor_tg_nickname: str | None):
     )
     logger.info(
         f"Created mentor with id={mentor_user.id}, tg_nickname={mentor_tg_nickname}"
-    )
-
-
-def get_task(user: User) -> TaskDetails | None:
-    crm_user = _resolve_crm_contact(user.tg_id, user.tg_nickname)
-
-    if not crm_user:
-        return None
-
-    first_lead = get_first_lead(crm_user)
-
-    if not first_lead or not is_task_lead(first_lead):
-        return None
-
-    mentor_tg_nickname = first_lead.mentor_tg_nickname if first_lead else None
-    create_mentor_if_needed(mentor_tg_nickname)
-
-    return _build_task_details(first_lead)
-
-
-def _build_task_details(lead: Lead | None) -> TaskDetails | None:
-    if not lead:
-        return None
-
-    first_task_text = lead.first_task
-    if not first_task_text:
-        return None
-
-    deadline = _format_deadline(lead.task_deadline)
-    return TaskDetails(
-        first_task=first_task_text,
-        second_task=lead.second_task if lead.second_task else None,
-        third_task=lead.third_task if lead.third_task else None,
-        lead_id=lead.id,
-        deadline=deadline,
     )
 
 
