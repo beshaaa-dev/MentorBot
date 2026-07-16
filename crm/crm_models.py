@@ -89,7 +89,7 @@ class Lead(_Lead):
     task_completion_date = custom_field.DateCustomField(
         "Дата завершения задания", field_id=566845
     )
-    task_deadline_missed = custom_field.TextCustomField(
+    task_deadline_missed = custom_field.CheckboxCustomField(
         "Дедлай пропущен", field_id=566847
     )
     # Поля для проекта с опросами

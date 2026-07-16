@@ -304,7 +304,7 @@ async def submit_student_task_answers(
 
     lead.task_db_record_id = str(task_id)
     lead.task_completion_date = int(now_moscow().timestamp())
-    lead.task_deadline_missed = "Да" if is_deadline_missed(task.deadline) else "Нет"
+    lead.task_deadline_missed = is_deadline_missed(task.deadline)
 
     contact_id, contact_name = await loop.run_in_executor(None, get_contact_info, lead)
 
