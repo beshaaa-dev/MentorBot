@@ -27,6 +27,23 @@ def with_deadline(text: str, deadline: datetime | None) -> str:
     return f"{text}\n\n{TASK_DEADLINE.format(deadline=format_moscow(deadline, '%d.%m.%Y %H:%M'))}"
 
 
+MAX_ANSWER_FILE_SIZE_BYTES = 20 * 1024 * 1024  # Telegram Bot API getFile download limit
+
+
+def media_exceeds_size_limit(message: Message) -> bool:
+    """True if the message's attached media is larger than Telegram's 20 MB download limit."""
+    media = (
+        message.video
+        or message.video_note
+        or message.audio
+        or message.voice
+        or message.document
+        or (message.photo[-1] if message.photo else None)
+    )
+    file_size = getattr(media, "file_size", None)
+    return bool(file_size and file_size > MAX_ANSWER_FILE_SIZE_BYTES)
+
+
 def store_answer(
     q_num: int, message: Message, answers: dict[int, dict]
 ) -> None:

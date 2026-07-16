@@ -17,6 +17,7 @@ from database.models import HomeworkStatus
 from handlers.answer_utils import (
     answers_from_rows,
     clear_flow_data,
+    media_exceeds_size_limit,
     send_answer_content as _send_answer_content,
     store_answer,
 )
@@ -35,6 +36,7 @@ from messages import (
     HW_SUBMITTED,
     HW_NOT_FOUND,
     ERROR_MESSAGE,
+    ANSWER_FILE_TOO_LARGE,
 )
 from logger import setup_logger
 
@@ -250,6 +252,10 @@ async def handle_start_homework(update: Update, context: ContextTypes.DEFAULT_TY
 
 def _make_answer_handler(q_num: int):
     async def handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+        if media_exceeds_size_limit(update.message):
+            await update.message.reply_text(ANSWER_FILE_TOO_LARGE)
+            return _ANSWER_STATE[q_num - 1]  # stay on the same question so the student can resend
+
         _store_answer(q_num, update.message, context)
 
         # Keep student's message visible during confirmation; delete it on confirm/retry.
