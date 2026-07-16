@@ -20,7 +20,7 @@ from config import (
     CRM_HW_APPROVED_STATUS,
     CRM_SELECTION_PIPELINE,
     CRM_TASK_ASSIGNED_STATUS,
-    CRM_TASK_SUBMITTED_STATUS,
+    CRM_TASK_VALIDATED_STATUS,
     CRM_TASK_EDIT_STATUS,
 )
 from logger import setup_logger
@@ -612,7 +612,7 @@ async def task_validated(request: Request):
     status_id = form.get("leads[status][0][status_id]", "")
     lead_id = form.get("leads[status][0][id]", "")
 
-    if pipeline_id != str(CRM_SELECTION_PIPELINE) or status_id != CRM_TASK_SUBMITTED_STATUS:
+    if pipeline_id != str(CRM_SELECTION_PIPELINE) or status_id != CRM_TASK_VALIDATED_STATUS:
         return JSONResponse({"status": "ignored"})
 
     if not lead_id:

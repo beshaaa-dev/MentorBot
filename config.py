@@ -30,8 +30,10 @@ CRM_TASK_IS_POSTPONED_STATUS = 87071570
 CRM_SELECTION_PIPELINE = 9395722
 # Ожидаем тестовое
 CRM_TASK_ASSIGNED_STATUS = "76914298"
-# Тестовое отправлено наставнику
-CRM_TASK_SUBMITTED_STATUS = "76914306"
+# Сдано студентом → ожидает проверки администратором
+CRM_TASK_SUBMITTED_STATUS = "76914302"
+# Проверено администратором → наставник получает на проверку
+CRM_TASK_VALIDATED_STATUS = "76914306"
 # Тестовое возвращено студенту на доработку
 CRM_TASK_EDIT_STATUS = "87180598"
 
