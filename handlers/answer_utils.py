@@ -1,11 +1,13 @@
 """Shared answer-collection helpers for the homework and task student flows."""
 
+from collections.abc import Awaitable, Callable
 from datetime import datetime
 
 from telegram import Message
+from telegram.error import BadRequest
 from telegram.ext import ContextTypes
 
-from messages import HW_MEDIA_LABEL, TASK_DEADLINE
+from messages import HW_MEDIA_LABEL, TASK_DEADLINE, VOICE_MESSAGES_FORBIDDEN
 from timezone_utils import format_moscow
 
 
@@ -81,6 +83,27 @@ def store_answer(
         answers[q_num]["mime_type"] = message.document.mime_type
 
 
+async def _send_or_ask_voice(
+    send: Callable[[int, str], Awaitable[Message]],
+    chat_id: int,
+    file_id: str,
+    context: ContextTypes.DEFAULT_TYPE,
+) -> Message | None:
+    """Send a voice/video-note answer, or ask the student to allow them if Telegram blocks it.
+
+    Telegram raises Voice_messages_forbidden when the recipient has disabled
+    receiving voice messages and video notes in their privacy settings, so the
+    stored answer can never be replayed until they lift that restriction.
+    """
+    try:
+        return await send(chat_id, file_id)
+    except BadRequest as exc:
+        if "voice_messages_forbidden" not in str(exc).lower():
+            raise
+        await context.bot.send_message(chat_id, VOICE_MESSAGES_FORBIDDEN)
+        return None
+
+
 async def send_answer_content(
     answer_data: dict, chat_id: int, context: ContextTypes.DEFAULT_TYPE
 ) -> Message | None:
@@ -98,11 +121,15 @@ async def send_answer_content(
         case "video":
             return await context.bot.send_video(chat_id, file_id)
         case "video_note":
-            return await context.bot.send_video_note(chat_id, file_id)
+            return await _send_or_ask_voice(
+                context.bot.send_video_note, chat_id, file_id, context
+            )
         case "audio":
             return await context.bot.send_audio(chat_id, file_id)
         case "voice":
-            return await context.bot.send_voice(chat_id, file_id)
+            return await _send_or_ask_voice(
+                context.bot.send_voice, chat_id, file_id, context
+            )
         case "document":
             return await context.bot.send_document(chat_id, file_id)
         case "photo":
